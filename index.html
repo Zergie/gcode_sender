@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="styles.css">
+  <title>GCode Sender</title>
+</head>
+
+<body>
+  <div class="centered-container">
+    <div class="styled-box">
+      <h1 id="title"></h1>
+
+      <textarea id="received-messages" readonly></textarea>
+
+      <div>
+        <div class="send-group">
+          <textarea id="send-message" rows="1"></textarea>
+          <button id="send-button">➤</button>
+        </div>
+      </div>
+      
+      <div id="error"></div>
+      <div id="ports"></div>
+    </div>
+    
+  </div>
+</body>
+
+<script src="./renderer.js"></script>
+
+</html>

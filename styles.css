@@ -1,0 +1,82 @@
+body {
+    font-family: 'Roboto', sans-serif;
+  }
+  
+  table {
+    border-collapse: collapse;
+  }
+  
+  table,
+  th,
+  td {
+    border: 1px solid black;
+  }
+  
+  h1 {
+    margin-top: 0px;
+    padding-right: 0px;
+  }
+  
+  .centered-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh; /* Full viewport height */
+  }
+  
+  .styled-box {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid black;
+    border-radius: 10px;
+    padding: 20px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    width: 80%; /* Adjust width as desired */
+    max-width: 600px; /* Limit maximum width */
+    height: 70vh; /* Ensure there's enough height */
+    margin: 0 auto;
+  }
+  
+  textarea {
+    border-radius: 5px;
+    resize: none; /* Prevent manual resizing */
+  }
+  
+  #received-messages {
+    flex-grow: 1; /* Allow to fill remaining vertical space */
+    min-height: 200px;
+    overflow-y: auto; /* Enable scrolling if content overflows */
+    margin-bottom: 10px; /* Space below textarea */
+  }
+  
+  .send-group {
+    display: flex;
+    align-items: center; /* Align items in the center vertically */
+    margin-top: 1px;
+  }
+  
+  #send-message {
+    flex-shrink: 0; /* Prevent shrinking of message input */
+    width: calc(100% - 5px); /* Adjust width considering button */
+    margin-right: 5px; /* Space between the textarea and button */
+  }
+  
+  #send-button {
+    background-color: transparent;
+    border: none;
+    color: green;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 12px;
+    height: 22px;
+    width: 22px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+    margin-left: -24px;
+    z-index: 1;
+  }
+  
+  #send-button:hover {
+    background-color: #27ae5f82; /* Darken on hover */
+  }
+  

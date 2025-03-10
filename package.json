@@ -1,0 +1,27 @@
+{
+  "name": "GCode Sender",
+  "version": "1.0.3",
+  "description": "A electron app for interfacing with with my arduino/stm32/rp2040 projects via gcode",
+  "homepage": "https://github.com/Zergie/gcode_sender#readme",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zergie/gcode_sender.git"
+  },
+  "author": "Wolfgang Puchinger",
+  "license": "GPL-2.0-only",
+  "bugs": {
+    "url": "https://github.com/Zergie/gcode_sender/issues"
+  },
+  "devDependencies": {
+    "electron": "^35.0.1",
+    "electron-reloader": "^1.2.3"
+  },
+  "dependencies": {
+    "serialport": "^10.5.0",
+    "tableify": "^1.1.1"
+  }
+}

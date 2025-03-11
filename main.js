@@ -31,7 +31,7 @@ function createWindow() {
     }))
 
     // Open the DevTools.
-    mainWindow.webContents.openDevTools()
+    // mainWindow.webContents.openDevTools()
 
     // Emitted when the window is closed.
     mainWindow.on('closed', function() {
@@ -40,6 +40,14 @@ function createWindow() {
         // when you should delete the corresponding element.
         mainWindow = null
     })
+
+    mainWindow.webContents.on('before-input-event', (_, input) => {
+        if (input.type === 'keyDown' && input.key === 'F12') {
+            mainWindow.webContents.isDevToolsOpened()
+            ? mainWindow.webContents.closeDevTools()
+            : mainWindow.webContents.openDevTools({ mode: 'right' });
+        }
+    });
 }
 
 // This method will be called when Electron has finished

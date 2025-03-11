@@ -4,30 +4,36 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="styles.css">
-  <title>GCode Sender</title>
+  <style id="style"></style>
+  <title>{name} v{version}</title>
 </head>
 
 <body>
-  <div class="centered-container">
-    <div class="styled-box">
-      <h1 id="title"></h1>
-
-      <textarea id="received-messages" readonly></textarea>
-
-      <div>
-        <div class="send-group">
-          <textarea id="send-message" rows="1"></textarea>
-          <button id="send-button">➤</button>
-        </div>
-      </div>
-      
-      <div id="error"></div>
-      <div id="ports"></div>
-    </div>
+  <div class="container">
+    <div class="topic">{name} v{version}</div>
     
-  </div>
-</body>
+    <div class="content">
+      
+      <div class="list"></div>
+      
+      <div class="text-content">
+        <div class="connect text">
+          <div class="title">Connection</div>
+            <p>Welcome to the Home section. Here you will find various resources and information to help you get started. Feel free to explore and let us know if you have any questions or need further assistance.</p>
+        </div>
+        <div class="terminal text">
+          <div class="title">Terminal</div>
+          <p>Lorem ipsum dolor sit amet consectetur adipisicing elit. Dolore ullam, voluptatem, mollitia amet iure sequi sapiente reprehenderit consectetur a saepe error molestiae vitae pariatur delectus repudiandae ipsa aspernatur eveniet quo maiores dignissimos. Officiis, molestias velit accusamus ipsa consectetur exercitationem voluptatem natus quisquam soluta facilis. Quas, autem harum? Consequuntur blanditiis quasi consequatur, omnis debitis odio ratione excepturi nulla fugit mollitia itaque esse fuga, soluta eos aspernatur? Modi delectus quasi dicta veritatis. Vero, expedita mollitia veritatis magni aperiam maxime ipsum. Ut, debitis.</p>
+        </div>
+          <div class="about text">
+            <div class="title">About</div>
+            <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Voluptate, quia repudiandae quisquam nam molestiae non. Itaque repudiandae quam, sed maxime voluptate quos ipsam optio odio ab molestiae facilis numquam repellendus, natus maiores vel soluta accusantium placeat nihil ad cupiditate consequuntur reprehenderit deserunt nam tempora. Voluptates non quia corporis temporibus tempora.</p>
+          </div>
+        </div>
 
-<script src="./renderer.js"></script>
-
+      </div>
+    </div>  
+  </body>
+  
+  <script src="./renderer.js"></script>
 </html>

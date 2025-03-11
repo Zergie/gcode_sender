@@ -5,7 +5,7 @@ window.addEventListener('DOMContentLoaded', () => {
     .then(response => response.json())
     .then(package => {
       document.title = `${package.name} v${package.version}`;
-      document.getElementById('title').innerText = document.title;
+      document.querySelector('.topic').innerText = document.title;
     })
     .catch(error => console.error('Error loading package.json:', error));
 })

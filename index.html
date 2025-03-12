@@ -10,30 +10,85 @@
 
 <body>
   <div class="container">
-    <div class="topic">{name} v{version}</div>
-    
     <div class="content">
-      
+
       <div class="list"></div>
-      
+
       <div class="text-content">
-        <div class="connect text">
-          <div class="title">Connection</div>
-            <p>Welcome to the Home section. Here you will find various resources and information to help you get started. Feel free to explore and let us know if you have any questions or need further assistance.</p>
-        </div>
-        <div class="terminal text">
-          <div class="title">Terminal</div>
-          <p>Lorem ipsum dolor sit amet consectetur adipisicing elit. Dolore ullam, voluptatem, mollitia amet iure sequi sapiente reprehenderit consectetur a saepe error molestiae vitae pariatur delectus repudiandae ipsa aspernatur eveniet quo maiores dignissimos. Officiis, molestias velit accusamus ipsa consectetur exercitationem voluptatem natus quisquam soluta facilis. Quas, autem harum? Consequuntur blanditiis quasi consequatur, omnis debitis odio ratione excepturi nulla fugit mollitia itaque esse fuga, soluta eos aspernatur? Modi delectus quasi dicta veritatis. Vero, expedita mollitia veritatis magni aperiam maxime ipsum. Ut, debitis.</p>
-        </div>
-          <div class="about text">
-            <div class="title">About</div>
-            <p>Lorem ipsum dolor sit amet, consectetur adipisicing elit. Voluptate, quia repudiandae quisquam nam molestiae non. Itaque repudiandae quam, sed maxime voluptate quos ipsam optio odio ab molestiae facilis numquam repellendus, natus maiores vel soluta accusantium placeat nihil ad cupiditate consequuntur reprehenderit deserunt nam tempora. Voluptates non quia corporis temporibus tempora.</p>
-          </div>
+
+        <div class="connect text" icon="settings">
+          <label for="port-select" class="input-label">Port:</label>
+          <select id="port-select">
+            <option value="" disabled selected>Select a port</option>
+          </select>
+          <span id="port-error" class="error" style="visibility: hidden;"><i data-lucide="arrow-big-left"></i>No port selected!</span>
+          <br>
+          <label for="baud-rate" class="input-label">Baud Rate:</label>
+          <select id="baud-rate">
+            <option value="300">300</option>
+            <option value="600">600</option>
+            <option value="1200">1200</option>
+            <option value="2400">2400</option>
+            <option value="4800">4800</option>
+            <option value="9600">9600</option>
+            <option value="14400">14400</option>
+            <option value="19200">19200</option>
+            <option value="28800">28800</option>
+            <option value="31250">31250</option>
+            <option value="38400">38400</option>
+            <option value="57600">57600</option>
+            <option value="115200" selected>115200</option>
+          </select>
+          <br>
+          <button id="connect-button">Connect</button>
+          <button id="disconnect-button">Disconnect</button>
         </div>
 
+        <div class="terminal text" icon="square-terminal">
+          <p>Lorem ipsum dolor sit amet consectetur adipisicing elit. Dolore ullam, voluptatem, mollitia amet iure sequi
+            sapiente reprehenderit consectetur a saepe error molestiae vitae pariatur delectus repudiandae ipsa
+            aspernatur eveniet quo maiores dignissimos. Officiis, molestias velit accusamus ipsa consectetur
+            exercitationem voluptatem natus quisquam soluta facilis. Quas, autem harum? Consequuntur blanditiis quasi
+            consequatur, omnis debitis odio ratione excepturi nulla fugit mollitia itaque esse fuga, soluta eos
+            aspernatur? Modi delectus quasi dicta veritatis. Vero, expedita mollitia veritatis magni aperiam maxime
+            ipsum. Ut, debitis.</p>
+        </div>
+
+        <div class="about text" icon="info">
+          <div class="table">
+            <div class="row">
+              <div class="cell">Program</div>
+              <div class="cell"><span class="program-name"></span></div>
+            </div>
+            <div class="row">
+              <div class="cell">Version</div>
+              <div class="cell"><span class="program-version"></span></div>
+            </div>
+            <div class="row">
+              <div class="cell">Description</div>
+              <div class="cell"><span class="program-description"></span></div>
+            </div>
+            <div class="row">
+              <div class="cell">License</div>
+              <div class="cell">GPL2</div>
+            </div>
+            <div class="row">
+              <div class="cell">Developed by</div>
+              <div class="cell">Wolfgang Puchinger</div>
+            </div>
+            <div class="row">
+              <div class="cell">Homepage</div>
+              <div class="cell"><a class="program-url"
+                  onclick="require('electron').shell.openExternal(this.href); return false;"></a></div>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>  
-  </body>
-  
-  <script src="./renderer.js"></script>
+
+    </div>
+  </div>
+</body>
+
+<script src="./renderer.js"></script>
+
 </html>

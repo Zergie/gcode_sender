@@ -2,7 +2,7 @@
   "name": "GCode Sender",
   "version": "1.0.4",
   "description": "A electron app for interfacing with with my arduino/stm32/rp2040 projects via gcode",
-  "homepage": "https://github.com/Zergie/gcode_sender#readme",
+  "homepage": "https://github.com/Zergie/gcode_sender",
   "main": "main.js",
   "scripts": {
     "start": "electron ."
@@ -21,7 +21,7 @@
     "electron-reloader": "^1.2.3"
   },
   "dependencies": {
-    "serialport": "^10.5.0",
-    "tableify": "^1.1.1"
+    "lucide": "^0.479.0",
+    "serialport": "^10.5.0"
   }
 }

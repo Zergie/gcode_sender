@@ -5,7 +5,13 @@ window.addEventListener('DOMContentLoaded', () => {
     .then(response => response.json())
     .then(package => {
       document.title = `${package.name} v${package.version}`;
-      document.querySelector('.topic').innerText = document.title;
+      Array.from(document.querySelectorAll('.program-name')).forEach(node => node.innerText = package.name);
+      Array.from(document.querySelectorAll('.program-version')).forEach(node => node.innerText = package.version);
+      Array.from(document.querySelectorAll('.program-description')).forEach(node => node.innerText = package.description);
+      Array.from(document.querySelectorAll('a.program-url')).forEach(node => { 
+        node.innerText = package.homepage;
+        node.href = package.homepage;
+      });
     })
     .catch(error => console.error('Error loading package.json:', error));
 })

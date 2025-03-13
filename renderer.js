@@ -1,10 +1,44 @@
 const { SerialPort } = require('serialport')
 const { ReadlineParser } = require('@serialport/parser-readline')
-const { RegexParser } = require('@serialport/parser-regex')
 const { createIcons, icons } = require('lucide');
 
+document.addEventListener('connected', _ => {
+  document.getElementById('connect-button').style.visibility = "hidden";
+  document.getElementById('disconnect-button').style.visibility = null;
+  document.getElementById('port-select').disabled = true;
+  document.getElementById('baud-rate').disabled = true;
+});
+document.addEventListener('data', event => {
+  const data = event.detail.data;
+  
+  const regex = /T(?<tool>\d*):(?<temp>[0-9.]+)\s*\/(?<target>[0-9.]+)\s*(@\d?:(?<power>[0-9.]+))?/gm
+  let match;
+  while ((match = regex.exec(data)) !== null) {
+    dispatchEvent('data-temp', {
+      Tool : parseInt(match.groups.tool || 0),
+      Temp : parseFloat(match.groups.temp),
+      Target : parseFloat(match.groups.target),
+      Power : parseInt(match.groups.power || 0)
+    });
+  }
+
+  console.log(`Received data: ${data}`);
+});
+document.addEventListener('data-temp', event => {
+  const data = event.detail;
+  console.log(`Received data-temp: ${JSON.stringify(data)}`);
+});
+document.addEventListener('disconnected', _ => {
+  document.getElementById('connect-button').style.visibility = null;
+  document.getElementById('disconnect-button').style.visibility = "hidden";
+  document.getElementById('port-select').disabled = false;
+  document.getElementById('baud-rate').disabled = false;
+  updateSerialPortList();
+});
+
+
 async function updateSerialPortList() {
-  if (!window.isConnected) {
+  if (window.port == undefined) {
     try {
       const ports = await SerialPort.list();
       const portSelect = document.getElementById('port-select');
@@ -12,10 +46,10 @@ async function updateSerialPortList() {
   
       ports.forEach(port => {
         if (!existingPorts.includes(port.path)) {
-        const option = document.createElement('option');
-        option.value = port.path;
-        option.textContent = port.path;
-        portSelect.appendChild(option);
+          const option = document.createElement('option');
+          option.value = port.path;
+          option.textContent = port.path;
+          portSelect.appendChild(option);
         }
       });
   
@@ -95,32 +129,41 @@ function setup() {
   createIcons({ icons });
 
   document.getElementById('connect-button').addEventListener('click', function () {
+    document.getElementById('port-error').style.animation = "none";
+    document.getElementById('port-error').offsetHeight;
+    document.getElementById('port-error').style.animation = null;
     const port = document.getElementById('port-select').value;
     const baudRate = document.getElementById('baud-rate').value;
     if (port) {
       console.log(`Connecting to port ${port} with baud rate ${baudRate}`);
       document.getElementById('port-error').style.visibility = "hidden";
       window.port = new SerialPort({ path: port, baudRate: parseInt(baudRate) });
-      
-      const parser = port.pipe(new ReadlineParser({ delimiter: '\r\n' }));
+      window.port.on('error', (error) => {
+        alert(`Error: ${error.message}`);
+        dispatchEvent('disconnected', {});
+      });
+
+      const parser = window.port.pipe(new ReadlineParser({ delimiter: '\n' }));
       parser.on('data', (data) => dispatchEvent('data', { data }));
       
-      const tempParser = port.pipe(new RegexParser({ regex: /T:\d+ /gm }))
-      tempParser.on('data', (data) => dispatchEvent('data-temp', { data }));
-      
-      window.isConnected = true;
+      window.port.write('M105\n');
+
       dispatchEvent('connected', {});
     } else {
-      document.getElementById('port-error').style.visibility = "";
+      document.getElementById('port-error').style.visibility = null;
     }
   });
   document.getElementById('disconnect-button').addEventListener('click', function () {
-    console.log(`Disconnecting from port ${window.port}`);
-    window.port = null;
-    window.isConnected = false;
+    console.log(`Disconnecting from port ${window.port.settings.path}`);
+    window.port.close();
+    window.port = undefined;
     dispatchEvent('disconnected', {});
   });
-  dispatchEvent('disconnected', {});
+  if (window.port == undefined) {
+    dispatchEvent('disconnected', {});
+  } else {
+    dispatchEvent('connected', {});
+  }
   
   // const sendButton = document.getElementById('send-button');
   // const sendMessageBox = document.getElementById('send-message');

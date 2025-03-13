@@ -1,18 +1,33 @@
 :root {
-  --background-color: #282c34; /* Dark Slate */
-  --container-background: #1f2028; /* Dark Gunmetal */
-  --selection-background: rgba(59, 130, 246, 0.5); /* Blue with transparency */
-  --selection-color: #ffffff; /* White */
-  --box-shadow-color: rgba(0, 0, 0, 0.2); /* Dark shadow */
-  --primary-color: rgba(248, 249, 250, 0.9); /* Light Grayish White */
-  --secondary-color: rgba(200, 200, 200, 0.7); /* Gray */
-  --highlight-color: #00bcd4; /* Bright Cyan */
-  --checked-background: #2196f3; /* Moderate Blue */
-  --checked-color: #ffffff; /* White */
-  --link-color: #61dafb; /* Light Blue */
-  --link-hover-color: #21a1f1; /* Darker Blue */
-  --error-text-color: #ff0000; /* Darker Red */
-  --error-background-color: #ffeb3b; /* Lighter Yellow background */
+  --background-color: #282c34;
+  /* Dark Slate */
+  --container-background: #1f2028;
+  /* Dark Gunmetal */
+  --selection-background: rgba(59, 130, 246, 0.5);
+  /* Blue with transparency */
+  --selection-color: #ffffff;
+  /* White */
+  --box-shadow-color: rgba(0, 0, 0, 0.2);
+  /* Dark shadow */
+  --primary-color: rgba(248, 249, 250, 0.9);
+  /* Light Grayish White */
+  --secondary-color: rgba(200, 200, 200, 0.7);
+  /* Gray */
+  --highlight-color: #00bcd4;
+  /* Bright Cyan */
+  --checked-background: #2196f3;
+  /* Moderate Blue */
+  --checked-color: #ffffff;
+  /* White */
+  --link-color: #61dafb;
+  /* Light Blue */
+  --link-hover-color: #21a1f1;
+  /* Darker Blue */
+  --error-text-color: #ff0000;
+  /* Darker Red */
+  --error-background-color: #ffeb3b;
+  /* Lighter Yellow background */
+  --border-radius: 8px;
 }
 
 * {
@@ -37,10 +52,13 @@ body {
 
 .container {
   width: 100%;
-  height: 100vh; /* Sets the height to cover the full viewport */
+  height: 100vh;
+  /* Sets the height to cover the full viewport */
   background: var(--container-background);
-  box-sizing: border-box; /* Includes padding in width & height calculations */
-  margin: 0; /* Removes any default margin */
+  box-sizing: border-box;
+  /* Includes padding in width & height calculations */
+  margin: 0;
+  /* Removes any default margin */
 }
 
 .content input {
@@ -60,7 +78,6 @@ body {
 }
 
 .content .list label {
-  cursor: pointer;
   width: 60px;
   height: 60px;
   color: var(--secondary-color);
@@ -70,6 +87,7 @@ body {
   justify-content: space-evenly;
   flex-basis: content;
 }
+
 .content .list label svg {
   /* width: 60px; */
   height: 60px;
@@ -118,37 +136,35 @@ body {
 }
 
 .cell:first-child {
-  border-top-left-radius: 8px;
-  border-bottom-left-radius: 8px;
+  border-top-left-radius: var(--border-radius);
+  border-bottom-left-radius: var(--border-radius);
   font-weight: bold;
   color: var(--primary-color);
   width: 160px;
 }
 
 .cell:last-child {
-  border-top-right-radius: 8px;
-  border-bottom-right-radius: 8px;
+  border-top-right-radius: var(--border-radius);
+  border-bottom-right-radius: var(--border-radius);
   color: var(--secondary-color);
 }
 
 a.program-url {
-    color: var(--link-color); /* Using light blue from variable */
-    text-decoration: none;
+  color: var(--link-color);
+  /* Using light blue from variable */
+  text-decoration: none;
 }
 
 a.program-url:hover {
-    color: var(--link-hover-color); /* Using darker blue on hover */
-    text-decoration: underline;
+  color: var(--link-hover-color);
+  /* Using darker blue on hover */
+  text-decoration: underline;
 }
 
 button {
   background: var(--checked-background);
   color: var(--checked-color);
-  border: none;
-  border-radius: 8px;
   padding: 10px 20px;
-  font-size: 18px;
-  cursor: pointer;
   margin-top: 20px;
   transition: all 0.1s ease;
 }
@@ -158,21 +174,30 @@ button {
   position: absolute;
 }
 
+select,
+button,
+.content .list label {
+  cursor: pointer;
+}
+
+select,
+button,
+.error {
+  border: 1px solid var(--secondary-color);
+  border-radius: var(--border-radius);
+  font-size: 18px;
+}
+
 select {
   background: var(--container-background);
   color: var(--primary-color);
-  border: 1px solid var(--secondary-color);
-  border-radius: 8px;
   padding: 10px 20px;
-  font-size: 18px;
-  cursor: pointer;
   margin-top: 20px;
   transition: all 0.1s ease;
   min-width: 200px;
 }
 
 .input-label {
-  font-size: 18px;
   color: var(--primary-color);
   margin-top: 10px;
   display: inline-block;
@@ -180,17 +205,42 @@ select {
 }
 
 .error {
+  display: inline-block;
   color: var(--error-text-color);
   background-color: var(--error-background-color);
-  font-size: 18px;
   margin-top: 10px;
   padding-top: 10px;
   padding-bottom: 10px;
   padding-right: 10px;
+  animation: headShake 0.4s 2 linear;
 }
 
 .error svg {
   margin-left: 2px;
   margin-right: 2px;
   margin-bottom: -5px;
+  /*animation: name duration timing-function delay iteration-count direction fill-mode;*/
+}
+
+/* @keyframes horizontal-shaking {
+  25% { transform: translateX(5px) }
+  50% { transform: translateX(-5px) }
+ } */
+
+@keyframes headShake {
+  0 {
+    transform: translateX(0)
+  }
+  25% {
+    transform: translateX(6px) rotateY(-9deg) skewY(1deg)
+  }
+  50% {
+    transform: translateX(-5px) rotateY(4.5deg) skewY(-1deg)
+  }
+  75% {
+    transform: translateX(3px) rotateY(-2.25deg) skewY(0)
+  }
+  100% {
+    transform: translateX(-2px) rotateY(3deg)
+  }
 }

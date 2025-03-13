@@ -3,35 +3,6 @@ const { ReadlineParser } = require('@serialport/parser-readline')
 const { RegexParser } = require('@serialport/parser-regex')
 const { createIcons, icons } = require('lucide');
 
-
-document.addEventListener('connected', _ => {
-  document.getElementById('connect-button').style.visibility = "hidden";
-  document.getElementById('disconnect-button').style.visibility = "";
-  document.getElementById('port-select').disabled = true;
-  document.getElementById('baud-rate').disabled = true;
-});
-document.addEventListener('data', event => {
-  var data = event.detail.data;
-  console.log(`Received data: ${data}`);
-});
-document.addEventListener('data-temp', event => {
-  var data = event.detail.data;
-  console.log(`Received data-temp: ${data}`);
-  const regex = /T(?<tool>\d*):(?<temp>[0-9.]+)\s*\/(?<target>[0-9.]+)\s*(@\d?:(?<power>[0-9.]+))?/gm
-  let match;
-  while ((match = regex.exec(data)) !== null) {
-    console.log(`Tool: ${match.groups.tool || 0}, Temp: ${match.groups.temp}, Target: ${match.groups.target}, Power: ${match.groups.power}`);
-  }
-});
-document.addEventListener('disconnected', _ => {
-  document.getElementById('connect-button').style.visibility = "";
-  document.getElementById('disconnect-button').style.visibility = "hidden";
-  document.getElementById('port-select').disabled = false;
-  document.getElementById('baud-rate').disabled = false;
-  updateSerialPortList();
-});
-
-
 async function updateSerialPortList() {
   if (!window.isConnected) {
     try {

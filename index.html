@@ -12,11 +12,11 @@
   <div class="container">
     <div class="content">
 
-      <div class="list"></div>
+      <div class="list flex-container"></div>
 
       <div class="text-content">
 
-        <div class="connect text" icon="settings">
+        <div class="settings text" icon="settings">
           <label for="port-select" class="input-label">Port:</label>
           <select id="port-select">
           </select>
@@ -44,13 +44,24 @@
         </div>
 
         <div class="terminal text" icon="square-terminal">
-          <p>Lorem ipsum dolor sit amet consectetur adipisicing elit. Dolore ullam, voluptatem, mollitia amet iure sequi
-            sapiente reprehenderit consectetur a saepe error molestiae vitae pariatur delectus repudiandae ipsa
-            aspernatur eveniet quo maiores dignissimos. Officiis, molestias velit accusamus ipsa consectetur
-            exercitationem voluptatem natus quisquam soluta facilis. Quas, autem harum? Consequuntur blanditiis quasi
-            consequatur, omnis debitis odio ratione excepturi nulla fugit mollitia itaque esse fuga, soluta eos
-            aspernatur? Modi delectus quasi dicta veritatis. Vero, expedita mollitia veritatis magni aperiam maxime
-            ipsum. Ut, debitis.</p>
+          <div class="flex-container">
+            <div id="temp-chart">
+              <canvas></canvas>
+            </div>
+            <div id="terminal-output">
+              <pre></pre>
+            </div>
+            <div>
+              <textarea id="terminal-input"></textarea>
+            </div>
+          </div>
+          <!-- <div class="terminal-container">
+            <canvas id="temp-chart"></canvas>
+            <div id="terminal-output">
+              <pre></pre>
+            </div>
+            <textarea id="terminal-input"></textarea>
+          </div> -->
         </div>
 
         <div class="about text" icon="info">
@@ -88,6 +99,7 @@
   </div>
 </body>
 
+<script src="./errorHandler.js"></script>
 <script src="./renderer.js"></script>
 
 </html>

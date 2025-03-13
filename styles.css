@@ -1,33 +1,20 @@
 :root {
-  --background-color: #282c34;
-  /* Dark Slate */
-  --container-background: #1f2028;
-  /* Dark Gunmetal */
-  --selection-background: rgba(59, 130, 246, 0.5);
-  /* Blue with transparency */
-  --selection-color: #ffffff;
-  /* White */
-  --box-shadow-color: rgba(0, 0, 0, 0.2);
-  /* Dark shadow */
-  --primary-color: rgba(248, 249, 250, 0.9);
-  /* Light Grayish White */
-  --secondary-color: rgba(200, 200, 200, 0.7);
-  /* Gray */
-  --highlight-color: #00bcd4;
-  /* Bright Cyan */
-  --checked-background: #2196f3;
-  /* Moderate Blue */
-  --checked-color: #ffffff;
-  /* White */
-  --link-color: #61dafb;
-  /* Light Blue */
-  --link-hover-color: #21a1f1;
-  /* Darker Blue */
-  --error-text-color: #ff0000;
-  /* Darker Red */
-  --error-background-color: #ffeb3b;
-  /* Lighter Yellow background */
+  --background-color: #282c34; /* Dark Slate */
+  --container-background: #1f2028; /* Dark Gunmetal */
+  --selection-background: rgba(59, 130, 246, 0.5); /* Blue with transparency */
+  --selection-color: #ffffff; /* White */
+  --box-shadow-color: rgba(0, 0, 0, 0.2); /* Dark shadow */
+  --primary-color: rgba(248, 249, 250, 0.9); /* Light Grayish White */
+  --secondary-color: rgba(200, 200, 200, 0.7); /* Gray */
+  --highlight-color: #00bcd4; /* Bright Cyan */
+  --checked-background: #2196f3; /* Moderate Blue */
+  --checked-color: #ffffff; /* White */
+  --link-color: #61dafb; /* Light Blue */
+  --link-hover-color: #21a1f1; /* Darker Blue */
+  --error-text-color: #ff0000; /* Darker Red */
+  --error-background-color: #ffeb3b; /* Lighter Yellow background */
   --border-radius: 8px;
+  --control-margin: 10px;
 }
 
 * {
@@ -52,16 +39,13 @@ body {
 
 .container {
   width: 100%;
-  height: 100vh;
-  /* Sets the height to cover the full viewport */
+  height: 100vh; /* Sets the height to cover the full viewport */
   background: var(--container-background);
-  box-sizing: border-box;
-  /* Includes padding in width & height calculations */
-  margin: 0;
-  /* Removes any default margin */
+  box-sizing: border-box; /* Includes padding in width & height calculations */
+  margin: 0; /* Removes any default margin */
 }
 
-.content input {
+.content input[name="slider"] {
   display: none;
 }
 
@@ -69,12 +53,15 @@ body {
   display: flex;
 }
 
-.content .list {
+.flex-container {
   display: flex;
   flex-direction: column;
   position: relative;
   height: 100vh;
   overflow-y: auto;
+}
+.flex-container div {
+  display: flex;
 }
 
 .content .list label {
@@ -89,7 +76,6 @@ body {
 }
 
 .content .list label svg {
-  /* width: 60px; */
   height: 60px;
 }
 
@@ -98,7 +84,7 @@ body {
   padding-left: 20px;
   padding-right: 20px;
   color: var(--primary-color);
-  width: calc(100% - 140px);
+  width: calc(100% - 60px);
 }
 
 .content .text {
@@ -150,14 +136,12 @@ body {
 }
 
 a.program-url {
-  color: var(--link-color);
-  /* Using light blue from variable */
+  color: var(--link-color); /* Using light blue from variable */
   text-decoration: none;
 }
 
 a.program-url:hover {
-  color: var(--link-hover-color);
-  /* Using darker blue on hover */
+  color: var(--link-hover-color); /* Using darker blue on hover */
   text-decoration: underline;
 }
 
@@ -165,7 +149,7 @@ button {
   background: var(--checked-background);
   color: var(--checked-color);
   padding: 10px 20px;
-  margin-top: 20px;
+  margin-top: var(--control-margin);
   transition: all 0.1s ease;
 }
 
@@ -192,7 +176,7 @@ select {
   background: var(--container-background);
   color: var(--primary-color);
   padding: 10px 20px;
-  margin-top: 20px;
+  margin-top: var(--control-margin);
   transition: all 0.1s ease;
   min-width: 200px;
 }
@@ -219,28 +203,50 @@ select {
   margin-left: 2px;
   margin-right: 2px;
   margin-bottom: -5px;
-  /*animation: name duration timing-function delay iteration-count direction fill-mode;*/
 }
 
-/* @keyframes horizontal-shaking {
-  25% { transform: translateX(5px) }
-  50% { transform: translateX(-5px) }
- } */
-
 @keyframes headShake {
-  0 {
-    transform: translateX(0)
-  }
-  25% {
-    transform: translateX(6px) rotateY(-9deg) skewY(1deg)
-  }
-  50% {
-    transform: translateX(-5px) rotateY(4.5deg) skewY(-1deg)
-  }
-  75% {
-    transform: translateX(3px) rotateY(-2.25deg) skewY(0)
-  }
-  100% {
-    transform: translateX(-2px) rotateY(3deg)
-  }
+  0    { transform: translateX(0) }
+  25%  { transform: translateX(6px) rotateY(-9deg) skewY(1deg) }
+  50%  { transform: translateX(-5px) rotateY(4.5deg) skewY(-1deg) }
+  75%  { transform: translateX(3px) rotateY(-2.25deg) skewY(0) }
+  100% { transform: translateX(-2px) rotateY(3deg) }
+}
+
+#terminal-input, #terminal-output, #temp-chart{
+  display: block;
+  background: var(--container-background);
+  color: var(--primary-color);
+  padding: 10px;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--secondary-color);
+  width: 100%;
+  resize: none;
+}
+
+.text-content {
+  height: 100vh;
+}
+
+
+#temp-chart {
+  width: 100%;
+  height: 100px;
+  margin-bottom: 10px;
+  resize: vertical;
+  overflow: hidden;
+}
+#terminal-output {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+#terminal-output pre {
+  white-space: pre-wrap;
+}
+
+#terminal-input {
+  height: 40px;
+  overflow: hidden;
 }

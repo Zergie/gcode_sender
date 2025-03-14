@@ -1,4 +1,6 @@
-async function updateSerialPortList() {
+const { SerialPort } = require('serialport')
+
+exports.updateSerialPortList = async function updateSerialPortList() {
   if (window.port == undefined) {
     try {
       const ports = await SerialPort.list();
@@ -24,4 +26,4 @@ async function updateSerialPortList() {
     setTimeout(updateSerialPortList, 2000);
   }
 }
-exports.updateSerialPortList = updateSerialPortList;
+

@@ -2,9 +2,12 @@ const { app, BrowserWindow } = require('electron')
 const path = require('path')
 const url = require('url')
 
-try {
-  require('electron-reloader')(module)
-} catch (_) {}
+// try {
+// //   require('electron-reloader')(module, { forceHardReset: true });
+//   require('electron-reloader')(module);
+// } catch (_) {}
+require('./my-electron-reloader')(module);
+
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -18,7 +21,8 @@ function createWindow() {
         backgroundColor: "#ccc",
         webPreferences: {
             nodeIntegration: true, // to allow require
-            contextIsolation: false, // allow use with Electron 12+
+            contextIsolation: true,
+            // contextIsolation: false, // allow use with Electron 12+
             preload: path.join(__dirname, 'preload.js')
         }
     })

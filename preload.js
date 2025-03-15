@@ -65,7 +65,7 @@ window.addEventListener('serialport:data', event => {
   let should_print = true;
   let match;
 
-  const regex = /T(?<tool>\d*):(?<temp>[0-9.]+)\s*\/(?<target>[0-9.]+)\s*(@\d?:(?<power>[0-9.]+))?/gm
+  const regex = /T(?<tool>\d*):(?<temp>-?[0-9.]+)\s*\/(?<target>[0-9.]+)\s*(@\d?:(?<power>[0-9.]+))?/gm
   while ((match = regex.exec(data)) !== null) {
     dispatchEvent('serialport:data-temp', {
       Tool : parseInt(match.groups.tool || 0),
@@ -76,6 +76,7 @@ window.addEventListener('serialport:data', event => {
     should_print = false;
   }
   
+  // should_print = true;
   if (should_print) {
     const terminal = document.querySelector('#terminal-output').getBoundingClientRect();
     const terminal_bottom = document.querySelector('#terminal-output-bottom').getBoundingClientRect();
@@ -226,14 +227,14 @@ window.addEventListener('DOMContentLoaded', () => {
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          display: false,
+          // display: false,
+          position: 'left',
         }
       },
       scales: {
         x: {
           type: 'linear',
           position: 'bottom',
-          // display: false,
           min: 0,
           max: 120,
           ticks: {
@@ -253,17 +254,16 @@ window.addEventListener('DOMContentLoaded', () => {
         },
         y: {
           type: 'linear',
-          position: 'left',
+          position: 'right',
           suggestedMin: 0,
-          suggestedMax: 50,
+          suggestedMax: 300,
           ticks: {
             callback: (value, index, ticks) => `${value} ºC`
           }
         },
         y1: {
           type: 'linear',
-          position: 'right',
-          // display: false,
+          position: 'left',
           min: 0,
           max: 255,
           ticks: {
@@ -273,11 +273,6 @@ window.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
-
-  // if (localStorage.getItem('persistent')) {
-  //   const persistent = JSON.parse(localStorage.getItem('persistent'));
-  //   window.tempChart.dataset = persistent.chart.temp;
-  // }
 });
 
 // trigger custom events

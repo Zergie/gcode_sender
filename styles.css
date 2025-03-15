@@ -145,7 +145,10 @@ a.program-url:hover {
   text-decoration: underline;
 }
 
-button {
+.button {
+  display: block;
+  position: absolute;
+  border: 1px solid var(--secondary-color);
   background: var(--checked-background);
   color: var(--checked-color);
   padding: 10px 20px;
@@ -153,19 +156,35 @@ button {
   transition: all 0.1s ease;
 }
 
-#connect-button,
-#disconnect-button {
+.button input {
+  cursor: pointer;
   position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  -webkit-appearance: none;
 }
 
+.settings:has(#connect-button:checked) .button:has(#connect-button) {
+  display: none;
+}
+.settings:has(#disconnect-button:checked) .button:has(#disconnect-button) {
+  display: none;
+}
+.settings:has(#connect-button:checked) .user-input {
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+
 select,
-button,
 .content .list label {
   cursor: pointer;
 }
 
 select,
-button,
+.button,
 .error {
   border: 1px solid var(--secondary-color);
   border-radius: var(--border-radius);

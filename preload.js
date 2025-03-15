@@ -54,10 +54,6 @@ window.addEventListener('electron-reloader::after-reload', event => {
 
 // serialport events
 window.addEventListener('serialport:connected', _ => {
-  document.getElementById('connect-button').style.visibility = "hidden";
-  document.getElementById('disconnect-button').style.visibility = null;
-  document.getElementById('port-select').disabled = true;
-  document.getElementById('baud-rate').disabled = true;
   document.getElementById('terminal').checked = true;
 });
 window.addEventListener('serialport:data', event => {
@@ -138,15 +134,12 @@ window.addEventListener('serialport:data-temp', event => {
   window.tempChart.update();
 });
 window.addEventListener('serialport:disconnected', _ => {
-  document.getElementById('connect-button').style.visibility = null;
-  document.getElementById('disconnect-button').style.visibility = "hidden";
-  document.getElementById('port-select').disabled = false;
-  document.getElementById('baud-rate').disabled = false;
   updateSerialPortList();
 });
 
 // ui events
 function connect(port, baudRate) {
+  document.getElementById('connect-button').checked = true;
   const portError = document.getElementById('port-error');
   portError.style.animation = "none";
   portError.offsetHeight;

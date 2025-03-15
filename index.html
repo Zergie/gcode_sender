@@ -25,12 +25,12 @@
 
         <div class="settings text" icon="settings">
           <label for="port-select" class="input-label">Port:</label>
-          <select id="port-select">
+          <select id="port-select" class="user-input">
           </select>
           <div id="port-error" class="error" style="visibility: hidden;"><i data-lucide="arrow-big-left"></i>No port selected!</div>
           <br>
           <label for="baud-rate" class="input-label">Baud Rate:</label>
-          <select id="baud-rate">
+          <select id="baud-rate" class="user-input">
             <option value="300">300</option>
             <option value="600">600</option>
             <option value="1200">1200</option>
@@ -46,8 +46,14 @@
             <option value="115200" selected>115200</option>
           </select>
           <br>
-          <button id="connect-button">Connect</button>
-          <button id="disconnect-button">Disconnect</button>
+          <div class="button">
+            <input type="radio" name="connect" id="connect-button"></input>
+            Connect
+          </div>
+          <div class="button">
+            <input type="radio" name="connect" id="disconnect-button" checked></input>
+            Disconnect
+          </div>
         </div>
 
         <div class="terminal text" icon="square-terminal">

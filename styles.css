@@ -313,4 +313,5 @@ select {
 #terminal-input {
   height: 40px;
   overflow: hidden;
+  margin-bottom: 2px;
 }

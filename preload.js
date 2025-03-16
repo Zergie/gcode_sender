@@ -29,7 +29,10 @@ window.addEventListener('electron-reloader::before-reload', event => {
         history: terminal_history,
       },
       chart: {
-        temp: window.tempChart.data.datasets,
+        datasets: {
+          data: window.tempChart.data.datasets,
+          hidden: window.tempChart.data.datasets.map((_, index) => index).filter(index => !window.tempChart.isDatasetVisible(index)),
+        }
       }
     }));
     window.port.close();
@@ -46,7 +49,10 @@ window.addEventListener('electron-reloader::after-reload', event => {
     startup_time = persistent.startup
     connect(persistent.serialport.path, persistent.serialport.baudRate);
     terminal_history = persistent.terminal.history;
-    window.tempChart.data.datasets = persistent.chart.temp;
+
+    // chart
+    window.tempChart.data.datasets = persistent.chart.datasets.data;
+    Array.from(persistent.chart.datasets.hidden).forEach(index => window.tempChart.setDatasetVisibility(index, false));
   } else {
     console.log('Reloaded without persistent data.');
   }
@@ -61,7 +67,7 @@ window.addEventListener('serialport:data', event => {
   let should_print = true;
   let match;
 
-  const regex = /T(?<tool>\d*):(?<temp>-?[0-9.]+)\s*\/(?<target>[0-9.]+)\s*(@\d?:(?<power>[0-9.]+))?/gm
+  const regex = /T(?<tool>\d*):(?<temp>-?[0-9.]+)(\s*\/(?<target>[0-9.]+))?\s*(@\d?:(?<power>[0-9.]+))?/gm
   while ((match = regex.exec(data)) !== null) {
     dispatchEvent('serialport:data-temp', {
       Tool : parseInt(match.groups.tool || 0),
@@ -94,6 +100,7 @@ function appendToChart(label, color, x, y, yAxisID) {
         label: label,
         data: [], 
         borderColor: color,
+        backgroundColor: color,
         borderWidth: 2,
         pointStyle: false,
         fill: false,
@@ -115,17 +122,29 @@ window.addEventListener('serialport:data-temp', event => {
   const data = event.detail;
   const x = (Date.now() - startup_time) / 1000;
 
+  const reds = ['#ff0000', '#ff1a1a', '#ff3333', '#ff4d4d', '#ff6666', '#ff8080', '#ff9999'];
+  const redComplementary = ['#11cde9', '#1ad4e9', '#33dbe9', '#4de2e9', '#66e9e9', '#80f0e9', '#99f7e9'];
+  const blues = ['#113fe9', '#1f47dc', '#2d4fcf', '#3a57c1', '#485fb4', '#5667a7', '#646f9a', '#4ca3dd', '#3cb0e6', '#2cbde0', '#1ccad9', '#0cd7d2'];
+
   appendToChart(
     `Temperature ${data.Tool}`,
-    `hsl(${(data.Tool - 1) * 30}, 100%, 50%)`,
+    reds[data.Tool],
     x,
     data.Temp,
     'y'
   );
 
   appendToChart(
+    `Target ${data.Tool}`,
+    redComplementary[data.Tool],
+    x,
+    data.Target,
+    'y'
+  );
+
+  appendToChart(
     `Power ${data.Tool}`,
-    `hsl(210, 100%, ${(data.Tool - 1) * 50 / 16 + 50}%)`,
+    blues[data.Tool],
     x,
     data.Power,
     'y1'
@@ -207,20 +226,45 @@ window.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// initialize chart
-window.addEventListener('DOMContentLoaded', () => {
+// create chart
+window.addEventListener('DOMContentLoaded', () => {;
   const ctx = document.querySelector('#temp-chart canvas');
   window.tempChart = new Chart(ctx, {
     type: 'line',
     data: {
       datasets: [],
     },
+    plugins: [{
+      afterDraw: chart => {
+        chart.data.datasets
+          .filter((_, index) => chart.isDatasetVisible(index))
+          .forEach(dataset => {
+            const i = dataset.data.length - 1;
+            const x = dataset.data[i].x;
+            const y = dataset.data[i].y;
+            
+            const ctx = chart.ctx;
+            const x_point = chart.scales.x.getPixelForValue(x);
+            const y_point = chart.scales[dataset.yAxisID].getPixelForValue(y) - 10;
+            const text = window.tempChart.options.scales[dataset.yAxisID].ticks.callback(y.toFixed(1), null, null);
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.font = 'bold 12px Roboto';
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 3;
+            ctx.strokeText(text, x_point, y_point);
+            ctx.fillStyle = dataset.borderColor;
+            ctx.fillText(`${text}`, x_point, y_point);
+            ctx.restore();
+          });
+      }
+    }],
     options: {
       animation: false,
       maintainAspectRatio: false,
       plugins: {
         legend: {
-          // display: false,
           position: 'left',
         }
       },
@@ -260,7 +304,7 @@ window.addEventListener('DOMContentLoaded', () => {
           min: 0,
           max: 255,
           ticks: {
-            callback: (value, index, ticks) => `${value}`
+            callback: (value, index, ticks) => `${parseFloat(value).toFixed(0)}`
           }
         }
       }

@@ -84,8 +84,11 @@ window.addEventListener('serialport:data', event => {
     const terminal_bottom = document.querySelector('#terminal-output-bottom').getBoundingClientRect();
     const terminal_bottom_visible = terminal_bottom.y <= terminal.y + terminal.height;
 
-    document.querySelector('#terminal-output pre').innerText += data + '\n';
-    
+    const el = document.createElement('span');
+    el.className = 'terminal-command-received';
+    el.innerText = data;
+    document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
+
     if (terminal_bottom_visible) {
       document.querySelector('#terminal-output-bottom').scrollIntoView();
     }
@@ -199,7 +202,10 @@ window.addEventListener('DOMContentLoaded', () => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();  // Prevent newline insertion
       if (terminal_input.value.length > 0) {
-        document.querySelector('#terminal-output pre').innerText += '> ' + terminal_input.value + '\n';
+        const el = document.createElement('span');
+        el.className = 'terminal-command-sent';
+        el.innerText = terminal_input.value;
+        document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
         document.querySelector('#terminal-output-bottom').scrollIntoView();
         window.port.write(terminal_input.value + '\n');
         terminal_history.push(terminal_input.value);

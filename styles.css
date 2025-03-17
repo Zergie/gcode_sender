@@ -15,6 +15,7 @@
   --error-background-color: #ffeb3b; /* Lighter Yellow background */
   --border-radius: 8px;
   --control-margin: 10px;
+  --sent-command-color: #2196f3; /* Moderate Blue */
 }
 
 * {
@@ -172,7 +173,8 @@ a.program-url:hover {
 .settings:has(#disconnect-button:checked) .button:has(#disconnect-button) {
   display: none;
 }
-.settings:has(#connect-button:checked) .user-input {
+body:has(#connect-button:checked) .user-input,
+body:has(#disconnect-button:checked) .user-input-connected {
   pointer-events: none;
   opacity: 0.7;
 }
@@ -284,8 +286,25 @@ select {
   border: 1px solid var(--secondary-color);
   width: 100%;
   resize: none;
-  font-family: 'Courier New', Courier, monospace; /* Terminal font */
+  font-family: 'Courier New', Courier, monospace;
 }
+
+.terminal-command-sent {
+  font-family: 'Courier New', Courier, monospace;
+  color: var(--sent-command-color);
+}
+.terminal-command-sent::before {
+  content: "$ ";
+}
+
+.terminal-command-received {
+  font-family: 'Courier New', Courier, monospace;
+  color: var(--primary-color);
+}
+.terminal-command-received::before {
+  content: "";
+}
+
 
 .text-content {
   height: 100vh;
@@ -304,6 +323,8 @@ select {
   overflow-x: hidden;
   overflow-y: auto;
   margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
 }
 #terminal-output pre {
   white-space: pre-wrap;

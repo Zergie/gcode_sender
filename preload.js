@@ -329,7 +329,7 @@ window.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// create menu
+// initialize terminal auto-complete
 window.addEventListener('DOMContentLoaded', () => {
   const autoCompleteJS = new autoComplete({
       selector: "#terminal-input",
@@ -338,8 +338,10 @@ window.addEventListener('DOMContentLoaded', () => {
             if (query.includes(' ')) {
               const [command, ...args] = query.split(' ');
               const gcodeCommand = gcode.find(x => x.code.toLowerCase() === command.toLowerCase());
-
-              if (query.endsWith(" ")) {
+              
+              if (gcodeCommand.parameters == undefined) {
+                return []
+              } else if (query.endsWith(" ")) {
                 const filteredArgs = Array.from(args).map(x => x[0]).join('').toLowerCase();
                 const parameter = Array.from(gcodeCommand.parameters).filter(x => !filteredArgs.includes(x.name.toLowerCase()));
                 return parameter.map(x => `${query.replace(/\s+$/g, "")} ${x.name} - ${x.description}`); 
@@ -366,6 +368,7 @@ window.addEventListener('DOMContentLoaded', () => {
       }
   });
 });
+// create menu
 window.addEventListener('DOMContentLoaded', () => {
   let menuItems = Array.from(document.querySelectorAll('.container .text-content .text'))
   const content = document.querySelector('.container .content');

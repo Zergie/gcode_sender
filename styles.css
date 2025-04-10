@@ -270,7 +270,7 @@ select {
 
 
 @keyframes headShake {
-  0    { transform: translateX(0) }
+  0%   { transform: translateX(0) }
   25%  { transform: translateX(6px) rotateY(-9deg) skewY(1deg) }
   50%  { transform: translateX(-5px) rotateY(4.5deg) skewY(-1deg) }
   75%  { transform: translateX(3px) rotateY(-2.25deg) skewY(0) }
@@ -336,3 +336,21 @@ select {
   overflow: hidden;
   margin-bottom: 2px;
 }
+#terminal-input-container {
+  display: block;
+}
+
+#autoComplete_list_1 {
+  vertical-align: bottom;
+  height: 40px;
+  margin-top: -40px;
+  overflow: hidden;
+  background-color: var(--background-color);
+}
+#autoComplete_list_1 li {
+  background-color: var(--background-color);
+  color: var(--primary-color);
+  display: inline-block;
+  text-align: center;
+}
+

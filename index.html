@@ -4,6 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="autoComplete.css">
   <style id="style"></style>
   <title>{name} v{version}</title>
 </head>
@@ -64,7 +65,7 @@
             <div id="terminal-output">
               <div id="terminal-output-bottom"></div>
             </div>
-            <div>
+            <div id="terminal-input-container">
               <textarea id="terminal-input" class="user-input-connected"></textarea>
             </div>
           </div>
@@ -94,8 +95,7 @@
             </div>
             <div class="row">
               <div class="cell">Homepage</div>
-              <div class="cell"><a class="program-url"
-                  onclick="require('electron').shell.openExternal(this.href); return false;"></a></div>
+              <div class="cell"><a class="program-url" onclick="require('electron').shell.openExternal(this.href); return false;"></a></div>
             </div>
           </div>
         </div>

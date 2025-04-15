@@ -186,28 +186,31 @@ select,
   cursor: pointer;
 }
 
-select,
 .button,
-.error {
+.error,
+.user-input {
   border: 1px solid var(--secondary-color);
   border-radius: var(--border-radius);
   font-size: 18px;
 }
 
-select {
+.user-input {
   background: var(--container-background);
   color: var(--primary-color);
   padding: 10px 20px;
   margin-top: var(--control-margin);
   transition: all 0.1s ease;
   min-width: 200px;
+  width: 400px;
 }
 
 .input-label {
   color: var(--primary-color);
-  margin-top: 10px;
+  margin-top: 20px;
   display: inline-block;
   width: 110px;
+  display: flex;
+  align-items: center;
 }
 
 .error {

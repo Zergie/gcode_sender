@@ -1,22 +1,22 @@
-// All of the Node.js APIs are available in the preload process.
-// It has the same sandbox as a Chrome extension.
+// error handling
+const { onerror, console_onerror } = require('./errorHandler');
+window.onerror = onerror;
+console.error = console_onerror;
+
 const { SerialPort } = require('serialport')
 const { ReadlineParser } = require('@serialport/parser-readline')
 const { createIcons, icons } = require('lucide');
 const { Chart } = require('chart.js/auto');
 const { updateSerialPortList } = require("./updateSerialPortList");
 const { dispatchEvent } = require('./dispatchEvent');
-const { onerror, console_onerror } = require('./errorHandler');
 const autoComplete = require("@tarekraafat/autocomplete.js");
 const { gcode }  = require('./gcode.js');
+const storage = require('electron-json-storage');
+const path = require('path');
 
 // globals
 let startup_time = Date.now();
 let terminal_history = [];
-
-// error handling
-window.onerror = onerror;
-console.error = console_onerror;
 
 // electron-reloader events
 window.addEventListener('electron-reloader::before-reload', event => {
@@ -63,6 +63,8 @@ window.addEventListener('electron-reloader::after-reload', event => {
 // serialport events
 window.addEventListener('serialport:connected', _ => {
   document.getElementById('terminal').checked = true;
+  storage.set('settings', { gcode_start : document.getElementById('gcode-start').value });
+  window.port.write(document.getElementById('gcode-start').value + '\n');
 });
 window.addEventListener('serialport:data', event => {
   const data = event.detail.data;
@@ -96,37 +98,36 @@ window.addEventListener('serialport:data', event => {
     }
   }
 });
-
-function appendToChart(label, color, x, y, yAxisID) {
-  if (y != -1) {
-    let dataset = window.tempChart.data.datasets.find(dataset => dataset.label === label);
-    if (dataset == undefined) {
-      dataset = {
-        label: label,
-        data: [], 
-        borderColor: color,
-        backgroundColor: color,
-        borderWidth: 2,
-        pointStyle: false,
-        fill: false,
-        tension: 0.1,
-        yAxisID: yAxisID,
-      };
-      window.tempChart.data.datasets.push(dataset);
-    }
-    dataset.data.push({ x: x, y: y });
-
-    if (x >= window.tempChart.options.scales.x.max) {
-      const diff = Math.round(window.tempChart.options.scales.x.max - window.tempChart.options.scales.x.min);
-      window.tempChart.options.scales.x.min = x - diff;
-      window.tempChart.options.scales.x.max = x;
+window.addEventListener('serialport:data-temp', event => {
+  function appendToChart(label, color, x, y, yAxisID) {
+    if (y != -1) {
+      let dataset = window.tempChart.data.datasets.find(dataset => dataset.label === label);
+      if (dataset == undefined) {
+        dataset = {
+          label: label,
+          data: [], 
+          borderColor: color,
+          backgroundColor: color,
+          borderWidth: 2,
+          pointStyle: false,
+          fill: false,
+          tension: 0.1,
+          yAxisID: yAxisID,
+        };
+        window.tempChart.data.datasets.push(dataset);
+      }
+      dataset.data.push({ x: x, y: y });
+  
+      if (x >= window.tempChart.options.scales.x.max) {
+        const diff = Math.round(window.tempChart.options.scales.x.max - window.tempChart.options.scales.x.min);
+        window.tempChart.options.scales.x.min = x - diff;
+        window.tempChart.options.scales.x.max = x;
+      }
     }
   }
-}
-window.addEventListener('serialport:data-temp', event => {
+
   const data = event.detail;
   const x = (Date.now() - startup_time) / 1000;
-
   const reds = ['#ff0000', '#ff1a1a', '#ff3333', '#ff4d4d', '#ff6666', '#ff8080', '#ff9999'];
   const redComplementary = ['#11cde9', '#1ad4e9', '#33dbe9', '#4de2e9', '#66e9e9', '#80f0e9', '#99f7e9'];
   const blues = ['#113fe9', '#1f47dc', '#2d4fcf', '#3a57c1', '#485fb4', '#5667a7', '#646f9a', '#4ca3dd', '#3cb0e6', '#2cbde0', '#1ccad9', '#0cd7d2'];
@@ -413,10 +414,38 @@ window.addEventListener('DOMContentLoaded', () => {
   }
   `;
 });
+// create icons
 window.addEventListener('DOMContentLoaded', () => {
   createIcons({ icons });
 });
+// get persistent data
+window.addEventListener('DOMContentLoaded', () => {
+  function getAppDataPath() {
+    switch (process.platform) {
+      case "darwin": {
+        return path.join(process.env.HOME, "Library", "Application Support", "gcode-sender");
+      }
+      case "win32": {
+        return path.join(process.env.APPDATA, "gcode-sender");
+      }
+      case "linux": {
+        return path.join(process.env.HOME, ".gcode-sender");
+      }
+      default: {
+        console.log("Unsupported platform!");
+        process.exit(1);
+      }
+    }
+  }
 
+  storage.setDataPath(getAppDataPath());
+  storage.get('settings', (error, data) => {
+    if (error) throw error;
+    if (data.gcode_start != undefined) {
+      document.getElementById('gcode-start').value = data.gcode_start;
+    }
+  });
+});
 // fill in the program name, version, description, and URL from package.json
 window.addEventListener('DOMContentLoaded', () => {
   fetch('./package.json')

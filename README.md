@@ -2,10 +2,14 @@
 
 GCode Sender is an Electron application designed to interface with Arduino, STM32, and RP2040 projects via GCode over a serial connection.
 
+![image](https://github.com/user-attachments/assets/ad176b5f-24e9-46e5-9d53-fa1faf02ae4e)
+
 ## Features
 
 - Connect to serial ports with selectable baud rates.
 - Send GCode commands to connected devices.
+- Visualize temperatures in graphical form.
+- Suggest common GCode commands and and parameters as you type
 - View received messages from the device.
 - Simple and intuitive user interface.
 - Developed using Electron, making it cross-platform.

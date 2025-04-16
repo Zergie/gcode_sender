@@ -1,6 +1,6 @@
 {
   "name": "GCode Sender",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "A electron app for interfacing with with my arduino/stm32/rp2040 projects via gcode",
   "homepage": "https://github.com/Zergie/gcode_sender",
   "main": "main.js",

@@ -347,8 +347,8 @@ select,
 
 #autoComplete_list_1 {
   vertical-align: bottom;
-  height: 40px;
-  margin-top: -40px;
+  height: 80px;
+  margin-top: -80px;
   overflow: hidden;
   background-color: var(--background-color);
 }

@@ -13,156 +13,15 @@ const autoComplete = require("@tarekraafat/autocomplete.js");
 const { gcode }  = require('./gcode.js');
 const storage = require('electron-json-storage');
 const path = require('path');
+const { version } = require('os');
 
 // globals
 let startup_time = Date.now();
+let terminal_history_index = 0;
 let terminal_history = [];
+let terminal_send_buffer = [];
+let firmware = { name: "", version: "" };
 
-// electron-reloader events
-window.addEventListener('electron-reloader::before-reload', event => {
-  if (window.port != undefined) {
-    localStorage.setItem('persistent', JSON.stringify({
-      startup : startup_time,
-      serialport: {
-        path: window.port.settings.path,
-        baudRate: window.port.settings.baudRate,
-      },
-      terminal: {
-        history: terminal_history,
-      },
-      chart: {
-        datasets: {
-          data: window.tempChart.data.datasets,
-          hidden: window.tempChart.data.datasets.map((_, index) => index).filter(index => !window.tempChart.isDatasetVisible(index)),
-        }
-      }
-    }));
-    window.port.close();
-    window.port = undefined;
-  } else {
-    try { localStorage.removeItem('persistent'); } catch (_) {}
-  }
-})
-window.addEventListener('electron-reloader::after-reload', event => {
-  if (localStorage.getItem('persistent')) {
-    const persistent = JSON.parse(localStorage.getItem('persistent'));
-    console.log(`Reloaded with ${JSON.stringify(persistent)}`);
-
-    startup_time = persistent.startup
-    connect(persistent.serialport.path, persistent.serialport.baudRate);
-    terminal_history = persistent.terminal.history;
-
-    // chart
-    window.tempChart.data.datasets = persistent.chart.datasets.data;
-    Array.from(persistent.chart.datasets.hidden).forEach(index => window.tempChart.setDatasetVisibility(index, false));
-  } else {
-    console.log('Reloaded without persistent data.');
-  }
-})
-
-// serialport events
-window.addEventListener('serialport:connected', _ => {
-  document.getElementById('terminal').checked = true;
-  storage.set('settings', { gcode_start : document.getElementById('gcode-start').value });
-  window.port.write(document.getElementById('gcode-start').value + '\n');
-});
-window.addEventListener('serialport:data', event => {
-  const data = event.detail.data;
-  let should_print = true;
-  let match;
-
-  const regex = /T(?<tool>\d*):(?<temp>-?[0-9.]+)(\s*\/(?<target>[0-9.]+))?\s*(@\d?:(?<power>[0-9.]+))?/gm
-  while ((match = regex.exec(data)) !== null) {
-    dispatchEvent('serialport:data-temp', {
-      Tool : parseInt(match.groups.tool || 0),
-      Temp : parseFloat(match.groups.temp || -1),
-      Target : parseFloat(match.groups.target || -1),
-      Power : parseInt(match.groups.power || -1)
-    });
-    should_print = false;
-  }
-  
-  // should_print = true;
-  if (should_print) {
-    const terminal = document.querySelector('#terminal-output').getBoundingClientRect();
-    const terminal_bottom = document.querySelector('#terminal-output-bottom').getBoundingClientRect();
-    const terminal_bottom_visible = terminal_bottom.y <= terminal.y + terminal.height;
-
-    const el = document.createElement('span');
-    el.className = 'terminal-command-received';
-    el.innerText = data;
-    document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
-
-    if (terminal_bottom_visible) {
-      document.querySelector('#terminal-output-bottom').scrollIntoView();
-    }
-  }
-});
-window.addEventListener('serialport:data-temp', event => {
-  function appendToChart(label, color, x, y, yAxisID) {
-    if (y != -1) {
-      let dataset = window.tempChart.data.datasets.find(dataset => dataset.label === label);
-      if (dataset == undefined) {
-        dataset = {
-          label: label,
-          data: [], 
-          borderColor: color,
-          backgroundColor: color,
-          borderWidth: 2,
-          pointStyle: false,
-          fill: false,
-          tension: 0.1,
-          yAxisID: yAxisID,
-        };
-        window.tempChart.data.datasets.push(dataset);
-      }
-      dataset.data.push({ x: x, y: y });
-  
-      if (x >= window.tempChart.options.scales.x.max) {
-        const diff = Math.round(window.tempChart.options.scales.x.max - window.tempChart.options.scales.x.min);
-        window.tempChart.options.scales.x.min = x - diff;
-        window.tempChart.options.scales.x.max = x;
-      }
-    }
-  }
-
-  const data = event.detail;
-  const x = (Date.now() - startup_time) / 1000;
-  const reds = ['#ff0000', '#ff1a1a', '#ff3333', '#ff4d4d', '#ff6666', '#ff8080', '#ff9999'];
-  const redComplementary = ['#11cde9', '#1ad4e9', '#33dbe9', '#4de2e9', '#66e9e9', '#80f0e9', '#99f7e9'];
-  const blues = ['#113fe9', '#1f47dc', '#2d4fcf', '#3a57c1', '#485fb4', '#5667a7', '#646f9a', '#4ca3dd', '#3cb0e6', '#2cbde0', '#1ccad9', '#0cd7d2'];
-
-  appendToChart(
-    `Temperature ${data.Tool}`,
-    reds[data.Tool],
-    x,
-    data.Temp,
-    'y'
-  );
-
-  appendToChart(
-    `Target ${data.Tool}`,
-    redComplementary[data.Tool],
-    x,
-    data.Target,
-    'y'
-  );
-
-  appendToChart(
-    `Power ${data.Tool}`,
-    blues[data.Tool],
-    x,
-    data.Power,
-    'y1'
-  );
-
-  window.tempChart.update();
-});
-window.addEventListener('serialport:disconnected', _ => {
-  updateSerialPortList();
-});
-
-// ui events
 function connect(port, baudRate) {
   document.getElementById('connect-button').checked = true;
   const portError = document.getElementById('port-error');
@@ -188,6 +47,194 @@ function connect(port, baudRate) {
   }
 }
 
+function send(gcode, silent = false) {
+  if (!silent) {
+    const el = document.createElement('span');
+    el.className = 'terminal-command-sent';
+    el.innerText = gcode;
+    document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
+    document.querySelector('#terminal-output-bottom').scrollIntoView();
+    terminal_history.push(gcode);
+    terminal_history_index = 0;
+  }
+  if (window.port) {
+    window.port.write(gcode + '\n');
+  } else {
+    console.error('not connected!');
+  }
+}
+
+
+// electron-reloader events
+window.addEventListener('electron-reloader::before-reload', event => {
+  if (window.port != undefined) {
+    localStorage.setItem('persistent', JSON.stringify({
+      startup : startup_time,
+      serialport: {
+        path: window.port.settings.path,
+        baudRate: window.port.settings.baudRate,
+      },
+      terminal: {
+        history: terminal_history,
+      },
+      chart: {
+        datasets: {
+          data: window.tempChart.data.datasets,
+          hidden: window.tempChart.data.datasets.map((_, index) => index).filter(index => !window.tempChart.isDatasetVisible(index)),
+        }
+      },
+      gcode_start: document.getElementById('gcode-start').value
+    }));
+    window.port.close();
+    window.port = undefined;
+  } else {
+    try { localStorage.removeItem('persistent'); } catch (_) {}
+  }
+})
+window.addEventListener('electron-reloader::after-reload', event => {
+  if (localStorage.getItem('persistent')) {
+    const persistent = JSON.parse(localStorage.getItem('persistent'));
+    console.log(`Reloaded with ${JSON.stringify(persistent)}`);
+
+    document.getElementById('gcode-start').value = persistent.gcode_start;
+    startup_time = persistent.startup
+    connect(persistent.serialport.path, persistent.serialport.baudRate);
+    terminal_history = persistent.terminal.history;
+
+    // chart
+    window.tempChart.data.datasets = persistent.chart.datasets.data;
+    Array.from(persistent.chart.datasets.hidden).forEach(index => window.tempChart.setDatasetVisibility(index, false));
+  } else {
+    console.log('Reloaded without persistent data.');
+  }
+})
+
+// serialport events
+window.addEventListener('serialport:connected', _ => {
+  document.getElementById('terminal').checked = true;
+  storage.set('settings', { gcode_start : document.getElementById('gcode-start').value });
+  terminal_send_buffer = Array.from(document.getElementById('gcode-start').value.split('\n'));
+  send(terminal_send_buffer.shift());
+});
+window.addEventListener('serialport:data', event => {
+  const data = event.detail.data;
+  let should_print = true;
+  let match;
+
+  let regex = /T(?<tool>\d*):(?<temp>-?[0-9.]+)(\s*\/(?<target>[0-9.]+))?\s*(@\d?:(?<power>[0-9.]+))?/gm
+  while ((match = regex.exec(data)) !== null) {
+    dispatchEvent('serialport:data-temp', {
+      Tool : parseInt(match.groups.tool || 0),
+      Temp : parseFloat(match.groups.temp || -1),
+      Target : parseFloat(match.groups.target || -1),
+      Power : parseInt(match.groups.power || -1)
+    });
+    should_print = false;
+  }  
+  
+  regex = /FIRMWARE_NAME: (?<name>[\w\s]+?) v(?<version>[\d.]+).*?PROTOCOL_VERSION: (?<protocol_version>[\d.]+).*?MACHINE_TYPE: (?<machine_type>[^:]+?) UUID: (?<uuid>[a-f0-9-]+)/i
+  if ((match = regex.exec(data)) !== null) {
+    dispatchEvent('serialport:data-firmware', match.groups);
+  }
+
+  if (should_print) {
+    const terminal = document.querySelector('#terminal-output').getBoundingClientRect();
+    const terminal_bottom = document.querySelector('#terminal-output-bottom').getBoundingClientRect();
+    const terminal_bottom_visible = terminal_bottom.y <= terminal.y + terminal.height;
+
+    const el = document.createElement('span');
+    el.className = 'terminal-command-received';
+    el.innerText = data;
+    document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
+
+    if (terminal_bottom_visible) {
+      document.querySelector('#terminal-output-bottom').scrollIntoView();
+    }
+  }
+
+  if (terminal_send_buffer.length > 0) {
+    send(terminal_send_buffer.shift());
+  }
+});
+window.addEventListener('serialport:data-temp', event => {
+  function appendToChart(label, color, x, y, yAxisID, z) {
+    if (y != -1) {
+      let dataset = window.tempChart.data.datasets.find(dataset => dataset.label === label);
+      if (dataset == undefined) {
+        dataset = {
+          label: label,
+          data: [], 
+          borderColor: color,
+          backgroundColor: color,
+          borderWidth: 2,
+          pointStyle: false,
+          fill: false,
+          tension: 0.1,
+          yAxisID: yAxisID,
+          z: z,
+        };
+        window.tempChart.data.datasets.push(dataset);
+      }
+      dataset.data.push({ x: x, y: y });
+  
+      if (x >= window.tempChart.options.scales.x.max) {
+        const diff = Math.round(window.tempChart.options.scales.x.max - window.tempChart.options.scales.x.min);
+        window.tempChart.options.scales.x.min = x - diff;
+        window.tempChart.options.scales.x.max = x;
+      }
+    }
+  }
+
+  const data = event.detail;
+  const x = (Date.now() - startup_time) / 1000;
+  const reds = ['#ff0000', '#ff1a1a', '#ff3333', '#ff4d4d', '#ff6666', '#ff8080', '#ff9999'];
+  const redComplementary = ['#11cde9', '#1ad4e9', '#33dbe9', '#4de2e9', '#66e9e9', '#80f0e9', '#99f7e9'];
+  const blues = ['#113fe9', '#1f47dc', '#2d4fcf', '#3a57c1', '#485fb4', '#5667a7', '#646f9a', '#4ca3dd', '#3cb0e6', '#2cbde0', '#1ccad9', '#0cd7d2'];
+
+  appendToChart(
+    `Temperature ${data.Tool}`,
+    reds[data.Tool],
+    x,
+    data.Temp,
+    'y',
+    10
+  );
+
+  appendToChart(
+    `Target ${data.Tool}`,
+    redComplementary[data.Tool],
+    x,
+    data.Target,
+    'y',
+    1
+  );
+
+  appendToChart(
+    `Power ${data.Tool}`,
+    blues[data.Tool],
+    x,
+    data.Power,
+    'y1',
+    2
+  );
+
+  window.tempChart.update();
+});
+window.addEventListener('serialport:data-firmware', event => {
+  const data = event.detail;
+  document.title = `${document.title} - ${data.machine_type} (${data.uuid})`;
+  firmware.name = data.name;
+  firmware.version = data.version;
+  firmware.protocol_version = data.protocol_version;
+  firmware.machine_type = data.machine_type;
+  firmware.uuid = data.uuid;
+});
+window.addEventListener('serialport:disconnected', _ => {
+  updateSerialPortList();
+  document.title = document.title.split(' - ')[0];
+});
+
+// ui events
 window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('connect-button').addEventListener('click', () => 
     connect(document.getElementById('port-select').value, document.getElementById('baud-rate').value));
@@ -200,20 +247,13 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   
   const terminal_input = document.getElementById('terminal-input');
-  let terminal_history_index = 0;
   terminal_input.addEventListener('keydown', function (event) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();  // Prevent newline insertion
       if (terminal_input.value.length > 0) {
-        const el = document.createElement('span');
-        el.className = 'terminal-command-sent';
-        el.innerText = terminal_input.value;
-        document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
-        document.querySelector('#terminal-output-bottom').scrollIntoView();
-        window.port.write(terminal_input.value + '\n');
-        terminal_history.push(terminal_input.value);
-        terminal_history_index = 0;
+        send(terminal_input.value);
       }
+      document.querySelector('#autoComplete_list_1').hidden = true;
       terminal_input.value = "";
     } else if (event.key === 'ArrowUp' && !event.shiftKey) {
       event.preventDefault();  // Prevent newline insertion
@@ -237,6 +277,11 @@ window.addEventListener('DOMContentLoaded', () => {
 
 // create chart
 window.addEventListener('DOMContentLoaded', () => {;
+  cmp = function(a, b) {
+      if (a > b) return +1;
+      if (a < b) return -1;
+      return 0;
+  }
   const ctx = document.querySelector('#temp-chart canvas');
   window.tempChart = new Chart(ctx, {
     type: 'line',
@@ -247,6 +292,7 @@ window.addEventListener('DOMContentLoaded', () => {;
       afterDraw: chart => {
         chart.data.datasets
           .filter((_, index) => chart.isDatasetVisible(index))
+          .sort((a,b) => cmp(a.z, b.z) || cmp(a.label, b.label))
           .forEach(dataset => {
             const i = dataset.data.length - 1;
             const x = dataset.data[i].x;
@@ -254,8 +300,14 @@ window.addEventListener('DOMContentLoaded', () => {;
             
             const ctx = chart.ctx;
             const x_point = chart.scales.x.getPixelForValue(x);
-            const y_point = chart.scales[dataset.yAxisID].getPixelForValue(y) - 10;
+            let y_point = chart.scales[dataset.yAxisID].getPixelForValue(y);
             const text = window.tempChart.options.scales[dataset.yAxisID].ticks.callback(y.toFixed(1), null, null);
+
+            if (y_point > ctx.canvas.height / 2) {
+              y_point -= 10;
+            } else {
+              y_point += 10;
+            }
 
             ctx.save();
             ctx.textAlign = 'center';
@@ -329,16 +381,26 @@ window.addEventListener('DOMContentLoaded', () => {
     dispatchEvent('serialport:connected', {});
   }
 });
-
 // initialize terminal auto-complete
 window.addEventListener('DOMContentLoaded', () => {
+  function availableCommands() {
+    switch (firmware.name) {
+      case 'Arduino Gcode Interpreter':
+        switch (firmware.version) {
+          case '0.2':
+            const regex = /^(G4|M(1|2|104|105|109|115|130|131|132|155|301|303|500|501|502|503|570|571))$/;
+            return Array.from(gcode).filter(x => regex.test(x.code));
+        }
+    }
+  }
+
   const autoCompleteJS = new autoComplete({
       selector: "#terminal-input",
       data: {
           src: (query) => {
             if (query.includes(' ')) {
               const [command, ...args] = query.split(' ');
-              const gcodeCommand = gcode.find(x => x.code.toLowerCase() === command.toLowerCase());
+              const gcodeCommand = availableCommands().find(x => x.code.toLowerCase() === command.toLowerCase());
               
               if (gcodeCommand.parameters == undefined) {
                 return []
@@ -352,7 +414,7 @@ window.addEventListener('DOMContentLoaded', () => {
                 return parameter.map(x => `${query.replace(/\s+$/i, "")} - ${x.description}`);
               }
             } else {
-              return Array.from(gcode).filter(x => {try{return x.code.toLowerCase().startsWith(query.toLowerCase())}catch{}}).map(x => `${x.code} - ${x.description}`);
+              return availableCommands().filter(x => {try{return x.code.toLowerCase().startsWith(query.toLowerCase())}catch{}}).map(x => `${x.code} - ${x.description}`);
             }
           },
       },
@@ -437,7 +499,6 @@ window.addEventListener('DOMContentLoaded', () => {
       }
     }
   }
-
   storage.setDataPath(getAppDataPath());
   storage.get('settings', (error, data) => {
     if (error) throw error;

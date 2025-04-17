@@ -181,6 +181,7 @@ window.addEventListener('serialport:data-temp', event => {
         const diff = Math.round(window.tempChart.options.scales.x.max - window.tempChart.options.scales.x.min);
         window.tempChart.options.scales.x.min = x - diff;
         window.tempChart.options.scales.x.max = x;
+        dataset.data.shift();
       }
     }
   }
@@ -222,6 +223,7 @@ window.addEventListener('serialport:data-temp', event => {
 });
 window.addEventListener('serialport:data-firmware', event => {
   const data = event.detail;
+  document.title = document.title.split(' - ')[0];
   document.title = `${document.title} - ${data.machine_type} (${data.uuid})`;
   firmware.name = data.name;
   firmware.version = data.version;
@@ -372,7 +374,6 @@ window.addEventListener('DOMContentLoaded', () => {;
     }
   });
 });
-
 // trigger custom events
 window.addEventListener('DOMContentLoaded', () => {
   if (window.port == undefined) {
@@ -384,14 +385,18 @@ window.addEventListener('DOMContentLoaded', () => {
 // initialize terminal auto-complete
 window.addEventListener('DOMContentLoaded', () => {
   function availableCommands() {
+    const [major, minor, patch] = firmware.version.split('.').map(Number);
+
     switch (firmware.name) {
       case 'Arduino Gcode Interpreter':
-        switch (firmware.version) {
-          case '0.2':
+        switch (true) {
+          case (major > 0 || minor >= 2):
             const regex = /^(G4|M(1|2|104|105|109|115|130|131|132|155|301|303|500|501|502|503|570|571))$/;
             return Array.from(gcode).filter(x => regex.test(x.code));
         }
     }
+
+    return Array.from(gcode);
   }
 
   const autoCompleteJS = new autoComplete({

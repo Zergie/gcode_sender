@@ -181,8 +181,10 @@ window.addEventListener('serialport:data-temp', event => {
         const diff = Math.round(window.tempChart.options.scales.x.max - window.tempChart.options.scales.x.min);
         window.tempChart.options.scales.x.min = x - diff;
         window.tempChart.options.scales.x.max = x;
-        dataset.data.shift();
       }
+
+      // Remove data points that are less than scales.x.min
+      dataset.data = dataset.data.filter(point => point.x + 10 > window.tempChart.options.scales.x.min);
     }
   }
 

@@ -2,11 +2,11 @@ const { app, BrowserWindow } = require('electron')
 const path = require('path')
 const url = require('url')
 
-// try {
-// //   require('electron-reloader')(module, { forceHardReset: true });
+try {
+//   require('electron-reloader')(module, { forceHardReset: true });
 //   require('electron-reloader')(module);
-// } catch (_) {}
 require('./my-electron-reloader')(module);
+} catch (_) {}
 
 
 // Keep a global reference of the window object, if you don't, the window will
@@ -24,7 +24,8 @@ function createWindow() {
             contextIsolation: true,
             // contextIsolation: false, // allow use with Electron 12+
             preload: path.join(__dirname, 'preload.js')
-        }
+        },
+        icon:'images/icon.ico'
     })
 
     mainWindow.removeMenu()

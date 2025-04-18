@@ -1,11 +1,13 @@
 {
-  "name": "GCode Sender",
+  "name": "GCode_Sender",
   "version": "1.0.6",
   "description": "A electron app for interfacing with with my arduino/stm32/rp2040 projects via gcode",
   "homepage": "https://github.com/Zergie/gcode_sender",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make"
   },
   "repository": {
     "type": "git",
@@ -17,6 +19,14 @@
     "url": "https://github.com/Zergie/gcode_sender/issues"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.8.0",
+    "@electron-forge/maker-deb": "^7.8.0",
+    "@electron-forge/maker-rpm": "^7.8.0",
+    "@electron-forge/maker-squirrel": "^7.8.0",
+    "@electron-forge/maker-zip": "^7.8.0",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.8.0",
+    "@electron-forge/plugin-fuses": "^7.8.0",
+    "@electron/fuses": "^1.8.0",
     "electron": "^35.0.1",
     "electron-reloader": "^1.2.3"
   },
@@ -24,6 +34,7 @@
     "@tarekraafat/autocomplete.js": "^10.2.9",
     "chart.js": "^4.4.8",
     "electron-json-storage": "^4.6.0",
+    "electron-squirrel-startup": "^1.0.1",
     "lucide": "^0.479.0",
     "serialport": "^10.5.0"
   }

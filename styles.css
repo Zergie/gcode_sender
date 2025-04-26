@@ -168,6 +168,12 @@ a.program-url:hover {
   appearance: none;
 }
 
+.inline {
+  display: inline;
+  position: relative;
+  margin-right: 10px;
+}
+
 .settings:has(#connect-button:checked) .button:has(#connect-button) {
   display: none;
 }

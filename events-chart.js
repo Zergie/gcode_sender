@@ -1,25 +1,29 @@
-const { loadPersistent, savePersistent } = require('./electron-reloader.js');
 const { Chart } = require('chart.js/auto');
 
 let startup_time = Date.now();
-window.addEventListener('electron-reloader::before-reload', event => {
-  const data = {
-    startup : startup_time,
-  };
-  if (window.tempChart) {
-    data.datasets = chart_datasets;
-    data.hidden_datasets = chart_datasets.map((_, index) => index).filter(index => !window.tempChart.isDatasetVisible(index));
-  }
-  savePersistent(__filename, data);
-});
-window.addEventListener('electron-reloader::after-reload', event => {
-    const persistent = loadPersistent(__filename);
-    startup_time = persistent.startup || Date.now();
+
+require('./storage.js').register(__filename, {
+  on_save: function (callback) {
+    const session = {
+      startup : startup_time,
+    };
     if (window.tempChart) {
-      window.tempChart.datasets = persistent.datasets || [];
-      Array.from(persistent.hidden_datasets || []).forEach(index => window.tempChart.setDatasetVisibility(index, false));
+      session.datasets = chart_datasets;
+      session.hidden_datasets = chart_datasets.map((_, index) => index).filter(index => !window.tempChart.isDatasetVisible(index));
+    };
+    const localData = {};
+
+    callback(session, localData);
+  },
+  on_load: function (session, localData) {
+    startup_time = session.startup_time || Date.now();
+    if (window.tempChart) {
+      window.tempChart.datasets = session.datasets || [];
+      Array.from(session.hidden_datasets || []).forEach(index => window.tempChart.setDatasetVisibility(index, false));
     }
+  },
 });
+
 window.addEventListener('serialport:data-temp', event => {
   const data = event.detail;
   const x = (Date.now() - startup_time) / 1000;

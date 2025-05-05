@@ -1,5 +1,4 @@
 'use strict';
-const {inspect} = require('util');
 const path = require('path');
 const electron = require('electron');
 const chokidar = require('chokidar');
@@ -64,7 +63,8 @@ module.exports = (moduleObject, options = {}) => {
 		ignored: [
 			/(^|[/\\])\../, // Dotfiles
 			'node_modules',
-			'**/*.map'
+			'**/*.map',
+			'**/*.log'
 		].concat(options.ignore)
 	});
 
@@ -94,17 +94,12 @@ module.exports = (moduleObject, options = {}) => {
 			isRelaunching = true;
 		} else {
 			for (const window_ of electron.BrowserWindow.getAllWindows()) {
-                window_.webContents.executeJavaScript(`document.dispatchEvent(new CustomEvent("electron-reloader::before-reload", {
-                    bubbles: true, cancelable: false, detail: { }
-                }))`);
+				window_.webContents.send('before-reload');
                 window_.webContents.reloadIgnoringCache();
-                
                 for (const view_ of window_.getBrowserViews()) {
-                    view_.webContents.reloadIgnoringCache();
+					view_.webContents.reloadIgnoringCache();
                 }
-                window_.webContents.executeJavaScript(`document.dispatchEvent(new CustomEvent("electron-reloader::after-reload", {
-                    bubbles: true, cancelable: false, detail: { }
-                }))`);
+				window_.webContents.send('after-reload');
 			}
 		}
 	});

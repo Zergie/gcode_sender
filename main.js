@@ -3,10 +3,13 @@ const path = require('path')
 const url = require('url')
 
 try {
-//   require('electron-reloader')(module, { forceHardReset: true });
-//   require('electron-reloader')(module);
-require('./my-electron-reloader')(module);
+    require('./my-electron-reloader')(module);
 } catch (_) {}
+
+const log = require('electron-log/main');
+log.transports.file.level = 'info';
+log.transports.file.resolvePathFn = () => __dirname + "/app.log";
+log.initialize();
 
 
 // Keep a global reference of the window object, if you don't, the window will
@@ -53,6 +56,24 @@ function createWindow() {
             : mainWindow.webContents.openDevTools({ mode: 'right' });
         }
     });
+
+    mainWindow.webContents.on("console-message", (ev) => {
+        switch (ev.level) 
+        {
+            case 0:
+                log.debug(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+                break;
+            case 1:
+                log.info(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+                break;
+            case 2:
+                log.warn(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+                break;
+            case 3:
+                log.error(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+                break;
+        }
+    });
 }
 
 // This method will be called when Electron has finished
@@ -74,6 +95,3 @@ app.on('activate', function() {
         createWindow()
     }
 })
-
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.

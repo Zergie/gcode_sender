@@ -1,22 +1,25 @@
 const { send } = require('./events-ui-settings.js');
-const { loadPersistent, savePersistent } = require('./electron-reloader.js');
 require('./events-chart.js');
 require('./events-autocomplete.js');
 
 let terminal_history_index = 0;
 let terminal_history = [];
 
-window.addEventListener('electron-reloader::before-reload', event => {
-    savePersistent(__filename, {
-        history: terminal_history,
-        history_index: terminal_history_index,
-    });
-});
-window.addEventListener('electron-reloader::after-reload', event => {
-    const data = loadPersistent(__filename);
-    terminal_history = data.history || [];
-    terminal_history_index = data.history_index || 0;
-});
+require('./storage.js').register(__filename, {
+    on_save: function (callback) {
+        const session = {
+            history: terminal_history,
+            history_index: terminal_history_index,
+        };
+        const localData = {};
+
+        callback(session, localData);
+    },
+    on_load: function (session, localData) {
+        terminal_history = session.history || [];
+        terminal_history_index = session.history_index || 0;
+    },
+  });
 
 const terminal_input = document.getElementById('terminal-input');
 terminal_input.addEventListener('keydown', function (event) {

@@ -1,10 +1,12 @@
+const old_console_error = console.error;
+
 function show_error(msg) {
   try {
     document.getElementById("hasNoError").checked = false;
     const div = document.querySelector("#global-error span");
     div.innerText = msg;
   } catch (e) {
-    console.log("Error displaying error message:", e);
+    old_console_error("Error displaying error message:", e);
   }
 }
 

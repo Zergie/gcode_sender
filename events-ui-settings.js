@@ -1,44 +1,36 @@
 const { SerialPort, ReadlineParser } = require('serialport');
 const { dispatchEvent } = require('./dispatchEvent.js');
-const { loadPersistent, savePersistent } = require('./electron-reloader.js');
-
 let terminal_send_buffer = [];
 
-window.addEventListener('electron-reloader::before-reload', event => {
-  const data = {
-    gcode_start: document.getElementById('gcode-start').value,
-  }
-  if (window.port) {
-    data.serialport = window.port.settings.path;
-    data.baudRate = window.port.settings.baudRate;
-    window.port.close();
-    window.port = undefined;
-  }
-  savePersistent(__filename, data);
-});
-window.addEventListener('electron-reloader::after-reload', event => {
-  const data = loadPersistent(__filename);
-  document.getElementById('gcode-start').value = data.gcode_start || '';
-  if (data.serialport) {
-    this.connect(data.serialport, data.baudRate);
-  }
-});
-window.addEventListener('electron-json-storage::before-save', event => {
-  event.detail.callback({ 
-    gcode_start: document.getElementById('gcode-start').value 
-  });
-});
-window.addEventListener('electron-json-storage::after-load', event => {
-  console.log(event);
-  event.detail.storage.get(__filename, (error, data) => {
-    if (error) throw error;
-    document.getElementById('gcode-start').value = data.gcode_start || '';
-  });
+const { Storage } = require('./storage.js');
+Storage.register(__filename, {
+  on_save: function (callback) {
+    const session = {};
+    session.gcode_start = document.getElementById('gcode-start').value;
+    if (window.port) {
+      session.serialport = window.port.settings.path;
+      session.baudRate = window.port.settings.baudRate;
+      window.port.close();
+      window.port = undefined;
+    }
+    
+    const localData = {};
+    localData.gcode_start = session.gcode_start;
+    
+    callback(session, localData);
+  },
+  on_load: function (session, localData) {
+    document.getElementById('gcode-start').value = session.gcode_start || localData.gcode_start || '';
+    
+    if (session.serialport) {
+      this.connect(session.serialport, session.baudRate);
+    }
+  },
 });
 
 window.addEventListener('serialport:connected', _ => {
   document.getElementById('terminal').checked = true;
-  dispatchEvent('electron-json-storage::save', { filename: __filename });
+  Storage.save(__filename);
   terminal_send_buffer = Array.from(document.getElementById('gcode-start').value.split('\n'));
   send(terminal_send_buffer.shift());
 });
@@ -160,7 +152,7 @@ async function updateSerialPortList() {
 }
 
 document.getElementById('connect-button').addEventListener('click', event => {
-  dispatchEvent('electron-json-storage::save', { filename: __filename });
+  Storage.save(__filename);
   connect(document.getElementById('port-select').value, document.getElementById('baud-rate').value)
 });
 

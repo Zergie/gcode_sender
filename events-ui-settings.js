@@ -4,24 +4,27 @@ let terminal_send_buffer = [];
 
 const { Storage } = require('./storage.js');
 Storage.register(__filename, {
-  on_save: function (callback) {
-    const session = {};
-    session.gcode_start = document.getElementById('gcode-start').value;
+  on_reload: function (callback) {
+    const data = {
+      gcode_start: document.getElementById('gcode-start').value,
+    };
     if (window.port) {
-      session.serialport = window.port.settings.path;
-      session.baudRate = window.port.settings.baudRate;
+      data.serialport = window.port.settings.path;
+      data.baudRate = window.port.settings.baudRate;
       window.port.close();
       window.port = undefined;
     }
-    
-    const localData = {};
-    localData.gcode_start = session.gcode_start;
-    
-    callback(session, localData);
+    callback(data);
+  },
+  on_save: function (callback) {
+    const data = {
+      gcode_start: session.gcode_start,
+    };
+    callback(session, data);
   },
   on_load: function (session, localData) {
     document.getElementById('gcode-start').value = session.gcode_start || localData.gcode_start || '';
-    
+
     if (session.serialport) {
       this.connect(session.serialport, session.baudRate);
     }

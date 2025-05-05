@@ -6,14 +6,12 @@ let terminal_history_index = 0;
 let terminal_history = [];
 
 require('./storage.js').register(__filename, {
-    on_save: function (callback) {
-        const session = {
+    on_reload: function (callback) {
+        const data = {
             history: terminal_history,
             history_index: terminal_history_index,
         };
-        const localData = {};
-
-        callback(session, localData);
+        callback(data);
     },
     on_load: function (session, localData) {
         terminal_history = session.history || [];

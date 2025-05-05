@@ -1,13 +1,12 @@
 require('./storage.js').register(__filename, {
     on_save: function (callback) {
-        const session = {};
-        const localData = {
+        const data = {
             temp : document.querySelector("#target-temp").value
         };
-        callback(session, localData);
+        callback(data);
     },
     on_load: function (session, localData) {
-        document.querySelector("#target-temp").value = session.temp || 100;
+        document.querySelector("#target-temp").value = session.temp || 200;
     },
   });
 

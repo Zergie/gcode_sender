@@ -1,4 +1,5 @@
 const old_console_error = console.error;
+var console_log = console.log;
 
 function show_error(msg) {
   try {
@@ -24,4 +25,21 @@ exports.onerror = function (msg, url, line, col, error) {
   return false;
 };
 
-exports.console_onerror = (msg) => show_error(msg);
+exports.console_error = (msg) => show_error(msg);
+
+exports.console_log = function () {
+  var args = Array.from(arguments);
+
+  if (args.length > 1) {
+    try {
+      args = [
+        args[0],
+        JSON.stringify(args.slice(1)),
+      ]
+    } 
+    catch {
+    }
+  }
+
+  console_log.apply(console, args);
+}

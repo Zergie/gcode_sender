@@ -60,17 +60,18 @@ function createWindow() {
     mainWindow.webContents.on("console-message", (ev) => {
         switch (ev.level) 
         {
-            case 0:
-                log.debug(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+            case 'debug':
+                log.debug(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`);
                 break;
-            case 1:
-                log.info(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+            case 'info':
+                // log.info(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`);
+                log.info(ev.message);
                 break;
-            case 2:
-                log.warn(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+            case 'warning':
+                log.warn(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`);
                 break;
-            case 3:
-                log.error(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`)
+            case 'error':
+                log.error(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`);
                 break;
         }
     });

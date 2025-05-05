@@ -3,17 +3,15 @@ const { Chart } = require('chart.js/auto');
 let startup_time = Date.now();
 
 require('./storage.js').register(__filename, {
-  on_save: function (callback) {
-    const session = {
+  on_reload: function (callback) {
+    const data = {
       startup : startup_time,
     };
     if (window.tempChart) {
-      session.datasets = chart_datasets;
-      session.hidden_datasets = chart_datasets.map((_, index) => index).filter(index => !window.tempChart.isDatasetVisible(index));
+      data.datasets = window.tempChart.data.datasets;
+      data.hidden_datasets = window.tempChart.data.datasets.map((_, index) => index).filter(index => !window.tempChart.isDatasetVisible(index));
     };
-    const localData = {};
-
-    callback(session, localData);
+    callback(data);
   },
   on_load: function (session, localData) {
     startup_time = session.startup_time || Date.now();

@@ -53,9 +53,15 @@ window.addEventListener('serialport:data', event => {
     should_print = false;
   }
 
-  regex = /FIRMWARE_NAME: (?<name>[\w\s]+?) v(?<version>[\d.]+).*?PROTOCOL_VERSION: (?<protocol_version>[\d.]+).*?MACHINE_TYPE: (?<machine_type>[^:]+?) UUID: (?<uuid>[a-f0-9-]+)/i;
-  if ((match = regex.exec(data)) !== null) {
-    dispatchEvent('serialport:data-firmware', match.groups);
+  regex = /FIRMWARE_NAME:/gm;
+  if (regex.exec(data) !== null) {
+    const firmware = {};
+    regex = /\b([A-Z_]+):((?:(?!\b[A-Z_]+:).)+)/gm
+    while ((match = regex.exec(data)) !== null) {
+      firmware[match[1]] = match[2].trim();
+    }
+
+    dispatchEvent('serialport:data-firmware', firmware);
   }
 
   if (should_print) {

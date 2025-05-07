@@ -5,6 +5,29 @@ const content = document.querySelector('.container .content');
 const list = document.querySelector('.container .content .list');
 let count = 0;
 
+require('./storage.js').register(__filename, {
+    on_reload: function (callback) {
+        const data = {
+            menuItems: {}
+        };
+        Array.from(document.querySelectorAll("*[name=slider]"))
+            .forEach(x => data.menuItems[x.id] = x.checked);
+        callback(data);
+    },
+    // on_save: function (callback) {
+    //     const data = {};
+    //     callback(data);
+    // },
+    on_load: function (session, localData) {
+        for (const key in session.menuItems) {
+            const element = document.getElementById(key);
+            if (element) {
+                element.checked = session.menuItems[key];
+            }
+        }
+    },
+  });
+
 menuItems.forEach(item => {
     const input = document.createElement('input');
     input.setAttribute('type', 'radio');

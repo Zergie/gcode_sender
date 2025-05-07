@@ -3,6 +3,7 @@
         "EEPROM",
         "endstop",
         "gcode",
+        "Overtemperature",
         "tarekraafat"
     ]
 }

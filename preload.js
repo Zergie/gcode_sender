@@ -6,8 +6,8 @@ console.log = console_log;
 
 const { Storage } = require('./storage.js');
 window.addEventListener('DOMContentLoaded', () => {
-  require('./menu.js');
-
+  
+  require('./events-ui-menu.js');
   require('./events-ui-settings.js');
   require('./events-ui-terminal.js');
   require('./events-ui-tools.js');

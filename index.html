@@ -76,8 +76,37 @@
 
         <div class="tools text" icon="hammer">
           <h1>PID Tuning</h1>
-          <label for="target-temp" class="input-label">Target Temp:</label>
-          <input type="number" id="target-temp" class="user-input user-input-connected" value="200"></input>
+            <label for="target-temp" class="input-label">Target Temp:</label>
+            <input type="number" id="target-temp" class="user-input user-input-connected" unit="celsius"></input>
+            <span class="description">The desired temperature to reach during PID tuning.</span>
+            
+            <label for="max-safe-temp" class="input-label">Max Safe Temp:</label>
+            <input type="number" id="max-safe-temp" class="user-input user-input-connected" unit="celsius"></input>
+            <span class="description">The maximum temperature considered safe for the system.</span>
+            
+            <label for="min-heat-rate" class="input-label">Min Heat Rate:</label>
+            <input type="number" id="min-heat-rate" class="user-input user-input-connected" unit="celsius"></input>
+            <span class="description">The minimum rate of temperature increase during heating.</span>
+            
+            <label for="settle-threshold" class="input-label">Settle Threshold:</label>
+            <input type="number" id="settle-threshold" class="user-input user-input-connected" unit="seconds"></input>
+            <span class="description">The acceptable deviation from the target temperature to consider it stable.</span>
+            
+            <label for="steady-duration" class="input-label">Steady Duration:</label>
+            <input type="number" id="steady-duration" class="user-input user-input-connected" unit="seconds"></input>
+            <span class="description">The time duration the temperature must remain stable to be considered steady.</span>
+            
+            <label for="max-iterations" class="input-label">Max Iterations:</label>
+            <input type="number" id="max-iterations" class="user-input user-input-connected"></input>
+            <span class="description">The maximum number of tuning iterations allowed.</span>
+            
+            <label for="max-wait-time" class="input-label">Max Wait Time:</label>
+            <input type="number" id="max-wait-time" class="user-input user-input-connected" unit="minutes"></input>
+            <span class="description">The maximum time to wait for a response during tuning.</span>
+            
+            <label for="response-timeout" class="input-label">Response Timeout:</label>
+            <input type="number" id="response-timeout" class="user-input user-input-connected" unit="seconds"></input>
+            <span class="description">The timeout duration for receiving a response from the system.</span>
           <br><br>
           <div class="inline button">
             <input type="radio" id="pid-tuning-button" class="lock-ui"></input>

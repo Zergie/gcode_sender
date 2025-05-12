@@ -18,15 +18,15 @@ Storage.register(__filename, {
   },
   on_save: function (callback) {
     const data = {
-      gcode_start: session.gcode_start,
+      gcode_start: document.getElementById('gcode-start').value,
     };
-    callback(session, data);
+    callback(data);
   },
   on_load: function (session, localData) {
-    document.getElementById('gcode-start').value = session.gcode_start || localData.gcode_start || '';
+    document.getElementById('gcode-start').value = session.gcode_start || '';
 
     if (session.serialport) {
-      this.connect(session.serialport, session.baudRate);
+      connect(session.serialport, session.baudRate);
     }
   },
 });
@@ -34,14 +34,16 @@ Storage.register(__filename, {
 window.addEventListener('serialport:connected', _ => {
   document.getElementById('terminal').checked = true;
   Storage.save(__filename);
-  terminal_send_buffer = Array.from(document.getElementById('gcode-start').value.split('\n'));
-  send(terminal_send_buffer.shift());
+  terminal_send_buffer = Array.from(document.getElementById('gcode-start').value.split('\n').filter(line => line.trim() !== ''));
+  if (terminal_send_buffer.length > 0) {
+    send(terminal_send_buffer.shift());
+  }
 });
 window.addEventListener('serialport:data', event => {
   const data = event.detail.data;
   let should_print = true;
+  
   let match;
-
   let regex = /T(?<tool>\d*):(?<temp>-?[0-9.]+)(\s*\/(?<target>[0-9.]+))?\s*(@\d?:(?<power>[0-9.]+))?/gm;
   while ((match = regex.exec(data)) !== null) {
     dispatchEvent('serialport:data-temp', {
@@ -53,45 +55,50 @@ window.addEventListener('serialport:data', event => {
     should_print = false;
   }
 
-  regex = /FIRMWARE_NAME:/gm;
-  if (regex.exec(data) !== null) {
+  if (data.includes('FIRMWARE_NAME:')) {
     const firmware = {};
-    regex = /\b([A-Z_]+):((?:(?!\b[A-Z_]+:).)+)/gm
-    while ((match = regex.exec(data)) !== null) {
+    const regexFirmware = /\b([A-Z_]+):((?:(?!\b[A-Z_]+:).)+)/gm;
+    while ((match = regexFirmware.exec(data)) !== null) {
       firmware[match[1]] = match[2].trim();
     }
 
+    document.title = document.title.includes(' - ') ? document.title.split(' - ')[0] : document.title;
+    if (firmware.MACHINE_TYPE && firmware.UUID) {
+        document.title = `${document.title} - ${firmware.MACHINE_TYPE} (${firmware.UUID})`;
+    }
     dispatchEvent('serialport:data-firmware', firmware);
   }
 
   if (should_print) {
-    const terminal = document.querySelector('#terminal-output').getBoundingClientRect();
-    const terminal_bottom = document.querySelector('#terminal-output-bottom').getBoundingClientRect();
-    const terminal_bottom_visible = terminal_bottom.y <= terminal.y + terminal.height;
-
-    const el = document.createElement('span');
-    el.className = 'terminal-command-received';
-    el.innerText = data;
-    document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
-
-    if (terminal_bottom_visible) {
-      document.querySelector('#terminal-output-bottom').scrollIntoView();
-    }
+    print(data);
   }
 
   if (terminal_send_buffer.length > 0) {
     send(terminal_send_buffer.shift());
   }
 });
-window.addEventListener('serialport:data-firmware', event => {
-  const data = event.detail;
-  document.title = document.title.split(' - ')[0];
-  document.title = `${document.title} - ${data.machine_type} (${data.uuid})`;
-});
 window.addEventListener('serialport:disconnected', _ => {
   updateSerialPortList();
   document.title = document.title.split(' - ')[0];
 });
+
+function print(data, color=undefined) {
+  const terminal = document.querySelector('#terminal-output').getBoundingClientRect();
+  const terminal_bottom = document.querySelector('#terminal-output-bottom').getBoundingClientRect();
+  const terminal_bottom_visible = terminal_bottom.y <= terminal.y + terminal.height;
+
+  const el = document.createElement('span');
+  el.className = 'terminal-command-received';
+  if (color) {
+    el.style.color = color;
+  }
+  el.innerText = data;
+  document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
+
+  if (terminal_bottom_visible) {
+    document.querySelector('#terminal-output-bottom').scrollIntoView();
+  }
+}
 
 function connect(port, baudRate) {
   document.getElementById('connect-button').checked = true;
@@ -103,14 +110,19 @@ function connect(port, baudRate) {
   if (port) {
     console.log(`Connecting to port ${port} with baud rate ${baudRate}`);
     portError.style.visibility = "hidden";
-    window.port = new SerialPort({ path: port, baudRate: parseInt(baudRate) });
-    window.port.on('error', (error) => {
-      alert(`Error: ${error.message}`);
-      dispatchEvent('serialport:disconnected', {});
-    });
 
-    const parser = window.port.pipe(new ReadlineParser({ delimiter: '\n' }));
-    parser.on('data', (data) => dispatchEvent('serialport:data', { data }));
+    if (port === 'dummy-mcu') {
+      window.port = require('./dummy-mcu.js');
+      window.port.initSimulation();
+    } else {
+      window.port = new SerialPort({ path: port, baudRate: parseInt(baudRate) });
+      window.port.on('error', (error) => {
+        alert(`Error: ${error.message}`);
+        dispatchEvent('serialport:disconnected', {});
+      });
+      const parser = window.port.pipe(new ReadlineParser({ delimiter: '\n' }));
+      parser.on('data', (data) => dispatchEvent('serialport:data', { data }));
+    }
 
     dispatchEvent('serialport:connected', {});
   } else {
@@ -118,7 +130,7 @@ function connect(port, baudRate) {
   }
 }
 
-exports.send = function (gcode, silent = false) {
+function send (gcode, silent = false) {
   if (!silent) {
     const el = document.createElement('span');
     el.className = 'terminal-command-sent';
@@ -132,11 +144,16 @@ exports.send = function (gcode, silent = false) {
     console.error('not connected!');
   }
 }
+exports.send = send;
+exports.print = function(data) { print(`// ${data}`, 'var(--print-text-color)'); };
+exports.warn = function(data) { print(`// ${data}`, 'var(--warn-text-color)'); };
+exports.error = function(data) { print(`// ${data}`, 'var(--error-text-color)'); };
 
 async function updateSerialPortList() {
   if (window.port == undefined) {
     try {
       const ports = await SerialPort.list();
+      ports.push({ path: 'dummy-mcu' });
       const portSelect = document.getElementById('port-select');
       const existingPorts = Array.from(portSelect.options).map(option => option.value);
 

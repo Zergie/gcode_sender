@@ -37,7 +37,7 @@ function availableCommands() {
       })
       .catch(error => {
         console.error("Error fetching G-code commands:", error);
-        return Promise.resolve(Array.from(gcode));
+        return Promise.resolve(Array.from(gcode || []));
       });
   }
   return Promise.resolve(Array.from(gcode));

@@ -4,13 +4,14 @@ const url = require('url')
 
 try {
     require('./my-electron-reloader')(module);
-} catch (_) {}
+} catch (_) { }
 
 const log = require('electron-log/main');
 log.transports.file.level = 'info';
 log.transports.file.resolvePathFn = () => __dirname + "/app.log";
 log.initialize();
 
+process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = true;
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -28,7 +29,7 @@ function createWindow() {
             // contextIsolation: false, // allow use with Electron 12+
             preload: path.join(__dirname, 'preload.js')
         },
-        icon:'images/icon.ico'
+        icon: 'images/icon.ico'
     })
 
     mainWindow.removeMenu()
@@ -42,7 +43,7 @@ function createWindow() {
     // mainWindow.webContents.openDevTools()
 
     // Emitted when the window is closed.
-    mainWindow.on('closed', function() {
+    mainWindow.on('closed', function () {
         // Dereference the window object, usually you would store windows
         // in an array if your app supports multi windows, this is the time
         // when you should delete the corresponding element.
@@ -52,14 +53,13 @@ function createWindow() {
     mainWindow.webContents.on('before-input-event', (_, input) => {
         if (input.type === 'keyDown' && input.key === 'F12') {
             mainWindow.webContents.isDevToolsOpened()
-            ? mainWindow.webContents.closeDevTools()
-            : mainWindow.webContents.openDevTools({ mode: 'right' });
+                ? mainWindow.webContents.closeDevTools()
+                : mainWindow.webContents.openDevTools({ mode: 'right' });
         }
     });
 
     mainWindow.webContents.on("console-message", (ev) => {
-        switch (ev.level) 
-        {
+        switch (ev.level) {
             case 'debug':
                 log.debug(`${ev.message} (${ev.sourceId}:${ev.lineNumber})`);
                 break;
@@ -83,13 +83,13 @@ function createWindow() {
 app.on('ready', createWindow)
 
 // Quit when all windows are closed.
-app.on('window-all-closed', function() {
+app.on('window-all-closed', function () {
     // On OS X it is common for applications and their menu bar
     // to stay active until the user quits explicitly with Cmd + Q
     app.quit()
 })
 
-app.on('activate', function() {
+app.on('activate', function () {
     // On OS X it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
     if (mainWindow === null) {

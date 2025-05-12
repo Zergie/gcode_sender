@@ -77,12 +77,18 @@ class Storage {
             if (localStorage.getItem(filename)) {
                 localData = JSON.parse(localStorage.getItem(filename));
             }
+
+            const dyn = {};
+            Object.keys({ ...session, ...localData }).forEach(key => {
+                dyn[key] = session[key] !== undefined ? session[key] : localData[key];
+            });
+
             console.log(`Loaded ${filename} from disk:`, {
-                session: session,
+                session: dyn,
                 localData: localData,
             });
 
-            callback.on_load(session, localData);
+            callback.on_load(dyn, localData);
         }
         catch (e) {
             console.log(e);

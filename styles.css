@@ -16,6 +16,8 @@
   --border-radius: 8px;
   --control-margin: 10px;
   --sent-command-color: #2196f3; /* Moderate Blue */
+  --warn-text-color: #ffa500; /* Orange */
+  --print-text-color: #d3d3d3; /* Light Grey */
 }
 
 * {
@@ -199,12 +201,14 @@ select,
 
 .button,
 .error,
+.user-input-connected,
 .user-input {
   border: 1px solid var(--secondary-color);
   border-radius: var(--border-radius);
   font-size: 18px;
 }
 
+.user-input-connected,
 .user-input {
   background: var(--container-background);
   color: var(--primary-color);
@@ -393,3 +397,7 @@ div.tools {
   text-align: center;
 }
 
+.additional-settings {
+  margin-top: 14px;
+  margin-bottom: 28px;
+}

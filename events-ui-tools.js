@@ -41,6 +41,63 @@ Storage.register(__filename, {
 });
 
 function setPID(p, i, d) { send(`M301 P${p.toFixed(2)} I${i.toFixed(2)} D${d.toFixed(2)}`); }
+async function getPID(timeout) {
+    const now = Date.now();
+    const result = await new Promise((resolve) => {
+        const timeoutId = setTimeout(() => {
+            window.removeEventListener('serialport:data', checkOutput);
+            warn('⚠️ Timeout: No pid data received.');
+            resolve({
+                P: null,
+                I: null,
+                D: null,
+                time: null,
+                responseTime: Infinity,
+            });
+        }, timeout);
+        
+        const pid = { P: null, I: null, D: null };
+        const checkOutput = function(event) {
+            const data = event.detail.data;
+
+            console.log('PID data:', data);
+            
+            let match;
+            const regex = /(k[pid]):\s*([0-9.-]+)/i;
+            if (match = regex.exec(data)) {
+                console.log('match:', match);
+                switch (match[1].toLowerCase()) {
+                    case 'kp':
+                        pid.P = match[2];
+                        break;
+                    case 'ki':
+                        pid.I = match[2];
+                        break;
+                    case 'kd':
+                        pid.D = match[2];
+                        break;
+                }
+            }
+
+            if (pid.P && pid.I && pid.D) {
+                window.removeEventListener('serialport:data', checkOutput);
+                clearTimeout(timeoutId);
+                resolve({
+                    P: parseFloat(pid.P),
+                    I: parseFloat(pid.I),
+                    D: parseFloat(pid.D),
+                    time: Date.now(),
+                    responseTime: Date.now() - now,
+                });
+            }
+        };
+        window.addEventListener('serialport:data', checkOutput);
+        
+        send(`M503`);
+    });
+
+    return result;
+};
 function setHeater(temp) { send(`M104 S${temp}`); }
 async function getHeaterState(timeout) {
     const now = Date.now();
@@ -90,7 +147,7 @@ document.getElementById('pid-tuning-button').addEventListener('click', async eve
     const responseTimeout = 1000 * (parseFloat(document.querySelector("#response-timeout").value) || 5);
 
     // Tuning state
-    let pid = { P: 16, I: 0.0, D: 0.0 };
+    let pid = await getPID(responseTimeout);
     let iteration = 0;
 
     async function tuneStep() {

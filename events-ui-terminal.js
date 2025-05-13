@@ -10,12 +10,14 @@ require('./storage.js').register(__filename, {
         const data = {
             history: terminal_history,
             history_index: terminal_history_index,
+            // simulator_button: document.getElementById('simulator-button').checked,
         };
         callback(data);
     },
     on_load: function (session, localData) {
         terminal_history = session.history || [];
         terminal_history_index = session.history_index || 0;
+        // document.getElementById('simulator-button').checked = session.simulator_button || false;
     },
   });
 

@@ -193,10 +193,17 @@ body:has(#disconnect-button:checked) .user-input-connected {
   opacity: 0.7;
 }
 
+select,
+textarea
+{
+  background: var(--container-background);
+  color: var(--primary-color);  
+}
 
 select,
 .content .list label {
   cursor: pointer;
+  
 }
 
 .button,
@@ -210,8 +217,6 @@ select,
 
 .user-input-connected,
 .user-input {
-  background: var(--container-background);
-  color: var(--primary-color);
   padding: 10px 20px;
   margin-top: var(--control-margin);
   transition: all 0.1s ease;
@@ -316,7 +321,7 @@ select,
   100% { transform: translateX(-2px) rotateY(3deg) }
 }
 
-#terminal-input, #terminal-output, #temp-chart{
+#terminal-output, #terminal-input, #temp-chart{
   display: block;
   background: var(--container-background);
   color: var(--primary-color);
@@ -361,11 +366,17 @@ div.tools {
   resize: vertical;
   overflow: hidden;
 }
-#terminal-output {
+#lower-panel {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
-  margin-bottom: 10px;
+  display: flex;
+  flex-direction: row;
+}
+#terminal-panel, #terminal-output {
+  flex: 1;
+  overflow-x: hidden;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
@@ -400,4 +411,23 @@ div.tools {
 .additional-settings {
   margin-top: 14px;
   margin-bottom: 28px;
+}
+
+canvas { display: block; }
+#terminal-panel {
+  display: flex;
+}
+div:has(#show-simulation:checked) #simulation-panel {
+  display: block;
+  background-color: var(--container-background);
+  border: 1px solid var(--secondary-color);
+  border-radius: var(--border-radius);
+  margin-left: 4px;
+  min-width: 600px;
+  /* min-height: 600px; */
+  overflow: hidden;
+}
+#simulation-panel {
+  display: none;
+  width: 0px;
 }

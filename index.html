@@ -28,7 +28,8 @@
           <label for="port-select" class="input-label">Port:</label>
           <select id="port-select" class="user-input">
           </select>
-          <div id="port-error" class="error" style="visibility: hidden;"><i data-lucide="arrow-big-left"></i>No port selected!</div>
+          <div id="port-error" class="error" style="visibility: hidden;"><i data-lucide="arrow-big-left"></i>No port
+            selected!</div>
           <br>
           <label for="baud-rate" class="input-label">Baud Rate:</label>
           <select id="baud-rate" class="user-input">
@@ -58,6 +59,7 @@
             <input type="radio" name="connect" id="disconnect-button" checked></input>
             Disconnect
           </div>
+          <input type="checkbox" id="show-simulation" hidden></input>
         </div>
 
         <div class="terminal text" icon="square-terminal">
@@ -65,91 +67,99 @@
             <div id="temp-chart">
               <canvas></canvas>
             </div>
-            <div id="terminal-output">
-              <div id="terminal-output-bottom"></div>
-            </div>
-            <div id="terminal-input-container">
-              <textarea id="terminal-input" class="user-input-connected"></textarea>
+            <div id="lower-panel">
+              <div id="terminal-panel">
+                <div id="terminal-output">
+                  <div id="terminal-output-bottom"></div>
+                </div>
+                <div id="terminal-input-container">
+                  <textarea id="terminal-input" class="user-input-connected"></textarea>
+                </div>
+              </div>
+              <div id="simulation-panel">
+                <canvas id="simulation-canvas"></canvas>
+              </div>
             </div>
           </div>
         </div>
 
-        <div class="tools text" icon="hammer">
-          <h1>PID Tuning</h1>
-          <label for="target-temp" class="input-label">Target Temp:</label>
-          <input type="number" id="target-temp" class="user-input-connected" unit="celsius"></input>
-          
-          <details class="additional-settings">
-            <summary>Additional Settings</summary>
-            <label for="max-safe-temp" class="input-label">Max Safe Temp:</label>
-            <input type="number" id="max-safe-temp" class="user-input-connected" unit="celsius"></input>
-            <span class="description">The maximum temperature considered safe for the system.</span>
-            
-            <label for="min-heat-rate" class="input-label">Min Heat Rate:</label>
-            <input type="number" id="min-heat-rate" class="user-input-connected" unit="celsius"></input>
-            <span class="description">The minimum rate of temperature increase during heating.</span>
-            
-            <label for="settle-threshold" class="input-label">Settle Threshold:</label>
-            <input type="number" id="settle-threshold" class="user-input-connected" unit="seconds"></input>
-            <span class="description">The acceptable deviation from the target temperature to consider it stable.</span>
-            
-            <label for="steady-duration" class="input-label">Steady Duration:</label>
-            <input type="number" id="steady-duration" class="user-input-connected" unit="seconds"></input>
-            <span class="description">The time duration the temperature must remain stable to be considered steady.</span>
-            
-            <label for="max-iterations" class="input-label">Max Iterations:</label>
-            <input type="number" id="max-iterations" class="user-input-connected"></input>
-            <span class="description">The maximum number of tuning iterations allowed.</span>
-            
-            <label for="max-wait-time" class="input-label">Max Wait Time:</label>
-            <input type="number" id="max-wait-time" class="user-input-connected" unit="minutes"></input>
-            <span class="description">The maximum time to wait for a response during tuning.</span>
-            
-            <label for="response-timeout" class="input-label">Response Timeout:</label>
-            <input type="number" id="response-timeout" class="user-input-connected" unit="seconds"></input>
-            <span class="description">The timeout duration for receiving a response from the system.</span>
-          </details>
-          <div class="inline button">
-            <input type="radio" id="pid-tuning-button" class="lock-ui"></input>
-            Start Tuning
-          </div>
-          <div class="inline button">
-            <input type="radio" id="pid-fine-tuning-button" class="lock-ui"></input>
-            Start Fine Tuning
-          </div>
-        </div>
+      <div class="tools text" icon="hammer">
+        <h1>PID Tuning</h1>
+        <label for="target-temp" class="input-label">Target Temp:</label>
+        <input type="number" id="target-temp" class="user-input-connected" unit="celsius"></input>
 
-        <div class="about text" icon="info">
-          <div class="table">
-            <div class="row">
-              <div class="cell">Program</div>
-              <div class="cell"><span class="program-name"></span></div>
-            </div>
-            <div class="row">
-              <div class="cell">Version</div>
-              <div class="cell"><span class="program-version"></span></div>
-            </div>
-            <div class="row">
-              <div class="cell">Description</div>
-              <div class="cell"><span class="program-description"></span></div>
-            </div>
-            <div class="row">
-              <div class="cell">License</div>
-              <div class="cell">GPL2</div>
-            </div>
-            <div class="row">
-              <div class="cell">Developed by</div>
-              <div class="cell">Wolfgang Puchinger</div>
-            </div>
-            <div class="row">
-              <div class="cell">Homepage</div>
-              <div class="cell"><a class="program-url"></a></div>
-            </div>
-          </div>
+        <details class="additional-settings">
+          <summary>Additional Settings</summary>
+          <label for="max-safe-temp" class="input-label">Max Safe Temp:</label>
+          <input type="number" id="max-safe-temp" class="user-input-connected" unit="celsius"></input>
+          <span class="description">The maximum temperature considered safe for the system.</span>
+
+          <label for="min-heat-rate" class="input-label">Min Heat Rate:</label>
+          <input type="number" id="min-heat-rate" class="user-input-connected" unit="celsius"></input>
+          <span class="description">The minimum rate of temperature increase during heating.</span>
+
+          <label for="settle-threshold" class="input-label">Settle Threshold:</label>
+          <input type="number" id="settle-threshold" class="user-input-connected" unit="seconds"></input>
+          <span class="description">The acceptable deviation from the target temperature to consider it stable.</span>
+
+          <label for="steady-duration" class="input-label">Steady Duration:</label>
+          <input type="number" id="steady-duration" class="user-input-connected" unit="seconds"></input>
+          <span class="description">The time duration the temperature must remain stable to be considered steady.</span>
+
+          <label for="max-iterations" class="input-label">Max Iterations:</label>
+          <input type="number" id="max-iterations" class="user-input-connected"></input>
+          <span class="description">The maximum number of tuning iterations allowed.</span>
+
+          <label for="max-wait-time" class="input-label">Max Wait Time:</label>
+          <input type="number" id="max-wait-time" class="user-input-connected" unit="minutes"></input>
+          <span class="description">The maximum time to wait for a response during tuning.</span>
+
+          <label for="response-timeout" class="input-label">Response Timeout:</label>
+          <input type="number" id="response-timeout" class="user-input-connected" unit="seconds"></input>
+          <span class="description">The timeout duration for receiving a response from the system.</span>
+        </details>
+        <div class="inline button user-input-connected">
+          <input type="radio" id="pid-tuning-button" class="lock-ui"></input>
+          Start Tuning
+        </div>
+        <div class="inline button user-input-connected">
+          <input type="radio" id="pid-fine-tuning-button" class="lock-ui"></input>
+          Start Fine Tuning
         </div>
       </div>
 
+      <div class="about text" icon="info">
+        <div class="table">
+          <div class="row">
+            <div class="cell">Program</div>
+            <div class="cell"><span class="program-name"></span></div>
+          </div>
+          <div class="row">
+            <div class="cell">Version</div>
+            <div class="cell"><span class="program-version"></span></div>
+          </div>
+          <div class="row">
+            <div class="cell">Description</div>
+            <div class="cell"><span class="program-description"></span></div>
+          </div>
+          <div class="row">
+            <div class="cell">License</div>
+            <div class="cell">GPL2</div>
+          </div>
+          <div class="row">
+            <div class="cell">Developed by</div>
+            <div class="cell">Wolfgang Puchinger</div>
+          </div>
+          <div class="row">
+            <div class="cell">Homepage</div>
+            <div class="cell"><a class="program-url"></a></div>
+          </div>
+        </div>
+      </div>
     </div>
+
+  </div>
   </div>
 </body>
+
 </html>

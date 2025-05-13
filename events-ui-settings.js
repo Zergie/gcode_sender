@@ -106,6 +106,7 @@ function connect(port, baudRate) {
   portError.style.animation = "none";
   portError.offsetHeight;
   portError.style.animation = null;
+  document.getElementById('show-simulation').checked = false;
 
   if (port) {
     console.log(`Connecting to port ${port} with baud rate ${baudRate}`);
@@ -113,7 +114,8 @@ function connect(port, baudRate) {
 
     if (port === 'dummy-mcu') {
       window.port = require('./dummy-mcu.js');
-      window.port.initSimulation();
+      window.port.initialize();
+      document.getElementById('show-simulation').checked = true;
     } else {
       window.port = new SerialPort({ path: port, baudRate: parseInt(baudRate) });
       window.port.on('error', (error) => {

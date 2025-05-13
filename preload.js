@@ -1,7 +1,7 @@
 // error handling
 const { onerror, console_error, console_log } = require('./logging.js');
-window.onerror = onerror;
-console.error = console_error;
+// window.onerror = onerror;
+// console.error = console_error;
 console.log = console_log;
 
 const { Storage } = require('./storage.js');

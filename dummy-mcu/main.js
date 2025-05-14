@@ -3,9 +3,9 @@ const { ipcMain, BrowserWindow } = require('electron');
 let temp = 22;
 let target = 0;
 let power = 0;
-let kp = 2.0;
-let ki = 0.1;
-let kd = 0.5;
+let kp = 10.0;
+let ki = 0.0;
+let kd = 0.0;
 let M155Interval = 0;
 
 ipcMain.handle('dummy-mcu:initialize', (event, data) => {
@@ -103,6 +103,8 @@ ipcMain.handle('dummy-mcu:receive', (event, data) => {
 ipcMain.handle('dummy-mcu:close', () => {
   clearInterval(M155Interval);
   M155Interval = 0;
+  require('./pid.js').stop();
+  require('./simulation.js').stop();
 });
 
 

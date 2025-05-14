@@ -24,6 +24,7 @@ exports.initialize = function () {
   camera.lookAt(scene.position);
 
   const renderer = new THREE.WebGLRenderer({ canvas: canvas });
+  renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(width, height);
 
   const resizeObserver = new ResizeObserver((entries) => {
@@ -59,51 +60,133 @@ exports.initialize = function () {
   scene.add(sensorMesh)
 
   // Cell visualization
+  const vertices = [];
+  const colors = [];
   const cubes = [];
   for (let x = 0; x < grid.X; x++) {
     cubes[x] = [];
     for (let y = 0; y < grid.Y; y++) {
       cubes[x][y] = [];
       for (let z = 0; z < grid.Z; z++) {
-        const geometry = new THREE.BoxGeometry(cellSize, cellSize, cellSize);
-        const material = new THREE.MeshBasicMaterial({ color: 0x0000ff, transparent: true, opacity: 0.01 });
-        const cube = new THREE.Mesh(geometry, material);
+        switch (camber.material(x, y, z).type) {
+          case 'solid':
+            const geometry = new THREE.BoxGeometry(cellSize, cellSize, cellSize);
+            const material = new THREE.MeshBasicMaterial({
+              color: 0x0000ff,
+              transparent: true,
+              opacity: 0.01,
+              depthWrite: false,
+              // blending: THREE.AdditiveBlending 
+            });
+            const cube = new THREE.Mesh(geometry, material);
 
-        cube.position.set(
-          x * cellSize + cellSize / 2 - 2*cellSize,
-          z * cellSize + cellSize / 2 - 2*cellSize,
-          y * cellSize + cellSize / 2 - 2*cellSize,
+            cube.position.set(
+              x * cellSize + cellSize / 2 - 2 * cellSize,
+              z * cellSize + cellSize / 2 - 2 * cellSize,
+              y * cellSize + cellSize / 2 - 2 * cellSize,
+            );
+
+            cubes[x][y][z] = cube;
+            scene.add(cube);
+            break;
+          default:
+            cubes[x][y][z] = null;
+            break;
+        }
+
+        vertices.push(
+          x * cellSize + cellSize / 2 - 2 * cellSize,
+          z * cellSize + cellSize / 2 - 2 * cellSize,
+          y * cellSize + cellSize / 2 - 2 * cellSize,
         );
+        colors.push(0, 0, 0)
 
-        cubes[x][y][z] = cube;
-        scene.add(cube);
       }
     }
   }
 
+  function generateCircleTexture() {
+    const size = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+
+    const ctx = canvas.getContext('2d');
+    const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    gradient.addColorStop(0, 'rgba(255,255,255,1)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.fill();
+
+    return new THREE.CanvasTexture(canvas);;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.computeBoundingSphere();
+  const material = new THREE.PointsMaterial({
+    size: cellSize * 3,
+    map: generateCircleTexture(),
+    vertexColors: true, // 🔑 Enables per-point color
+    transparent: true,
+    opacity: 0.2,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    alphaTest: 0.01,         // Discard fully transparent pixels
+    sizeAttenuation: true,   // make size distance-aware
+  });
+  const points = new THREE.Points(geometry, material);
+  scene.add(points);
+
   // Map temperature to color
+  function getMinMaxT() {
+    const minT = 20;
+    const maxT = target ? target : 150;
+    return { minT, maxT };
+  }
+
   function temperatureToColor(x, y, z, temp) {
-    if (!target) {
-      const minT = 20, maxT = 150;
-      const ratio = Math.min(Math.max((temp - minT) / (maxT - minT), 0), 1);
-      const r = Math.floor(ratio * 255);
-      const b = Math.floor((1 - ratio) * 255);
-      return new THREE.Color(`rgb(${r},0,${b})`);
-    } else if ((target - 1) <= temp && temp <= (target + 1)) {
+    const { minT, maxT } = getMinMaxT();
+
+    if ((target - 1) <= temp && temp <= (target + 1)) {
       return new THREE.Color(0x00ff00); // Green for target temperature
     } else {
-      const minT = 20, maxT = target * 1.5;
-      const ratio = Math.min(Math.max((temp - minT) / (maxT - minT), 0), 1);
-      const r = Math.floor(ratio * 255);
-      const b = Math.floor((1 - ratio) * 255);
-      return new THREE.Color(`rgb(${r},0,${b})`);
+      const coolColor = ((x, y, z) => {
+        switch (camber.material(x, y, z).material) {
+          case 'steel':
+            return new THREE.Color(`rgb(150, 145, 145)`);
+          case 'glass':
+            return new THREE.Color(`rgb(65, 67, 172)`);
+          case 'glass-fiber':
+            return new THREE.Color(`rgb(255, 255, 255)`);
+          default:
+            return new THREE.Color(`rgb(0, 0, 0)`);
+        }
+      })(x, y, z);
+
+      const hotColor = new THREE.Color(`rgb(255, 0, 0)`);
+      const result = new THREE.Color(`rgb(0, 0, 0)`);
+      result.lerpColors(coolColor, hotColor, (temp - minT) / (maxT - minT));
+      return result;
     }
   }
+
+  // Map temperature to Opacity
   function temperatureToOpacity(x, y, z, temp) {
-    if (x == 0 || y == 0 || z == 0 || x == grid.X-1 || y == grid.Y-1 || z == grid.Z-1) return 0.01;
-    const minT = 30, maxT = 100;
-    const ratio = Math.min(Math.max((temp - minT) / (maxT - minT), 0), .25);
-    return ratio;
+    const { minT, maxT } = getMinMaxT();
+    const baseOpacity = ((x, y, z) => {
+      switch (camber.material(x, y, z).material) {
+        case 'steel': return 1.0;
+        case 'glass': return 0.5;
+        case 'glass-fiber': return 1.0;
+        default: return 0.1;
+      }
+    })(x, y, z);
+    return baseOpacity * (temp - minT) / (maxT - minT);
   }
 
   // Animation loop
@@ -111,15 +194,35 @@ exports.initialize = function () {
     requestAnimationFrame(animate);
 
     if (temps) {
+      let index_point = 0;
+      const colorAttr = geometry.getAttribute('color');
       for (let x = 0; x < grid.X; x++) {
         for (let y = 0; y < grid.Y; y++) {
           for (let z = 0; z < grid.Z; z++) {
             const t = temps[x][y][z];
-            cubes[x][y][z].material.color = temperatureToColor(x, y, z, t);
-            cubes[x][y][z].material.opacity = temperatureToOpacity(x, y, z, t);
+
+            // if (z === 2) {
+            switch (camber.material(x, y, z).type) {
+              // case 'ambient':
+              case 'gas':
+                const i3 = index_point * 3;
+                const { r, g, b } = temperatureToColor(x, y, z, t);
+                colorAttr.array[i3] = r;
+                colorAttr.array[i3 + 1] = g;
+                colorAttr.array[i3 + 2] = b;
+                break;
+              case 'solid':
+                cubes[x][y][z].material.color = temperatureToColor(x, y, z, t);
+                cubes[x][y][z].material.opacity = temperatureToOpacity(x, y, z, t);
+                break
+            }
+            // }
+
+            index_point++;
           }
         }
       }
+      colorAttr.needsUpdate = true;
     }
 
     renderer.render(scene, camera);
@@ -129,4 +232,3 @@ exports.initialize = function () {
   ipcRenderer.on('simulation:update', (event, temps_) => { temps = temps_; });
   ipcRenderer.on('dummy-mcu:update-target', (event, target_) => { target = target_; });
 };
-

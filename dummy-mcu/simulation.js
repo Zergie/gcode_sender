@@ -3,25 +3,64 @@ const { BrowserWindow } = require('electron');
 const simSpeed = 100; // real ms per step
 const simTimeWarp = 1; // too high (>10) values break things!
 
+const dx = 5; // cell size in mm
 const camber = {
     width: 80,
     depth: 220,
-    height: 60
+    height: 60,
+    convection_rate: 0.05, // tunable (0.01–0.1 for natural convection)
+    material: function (x, y, z) {
+        const alphaAir = 2.2e-5;
+        const alphaDoubleGlassed = 1e-7;
+        const alphaGlasFiber = 5e-8 * (dx / 15); // dx / thickness
+        const alphaSteel = 4.05e-6 * (dx / 0.5); // dx / thickness
+
+        let type;
+        switch (true) {
+            case (x === 0 || y === 0 || z === 0 ||
+                x === grid.X - 1 || y === grid.Y - 1 || z === grid.Z - 1):
+                type = 'ambient'; break;
+            case (x === 1 || y === 1 || z === 1 ||
+                y === grid.Y - 2 || z === grid.Z - 2):
+                type = 'isolation'; break;
+            case (x === grid.X - 3):
+                type = 'front'; break;
+            case (x === 2):
+                type = 'back'; break;
+            case (z === 2):
+                type = 'bottom'; break;
+            case (z === grid.Z - 3):
+                type = 'top'; break;
+            case (y === 2 || y === grid.Y - 3):
+                type = 'side'; break;
+            default:
+                type = 'air'; break;
+        }
+
+        switch (type) {
+            case 'ambient':
+                return { type: 'ambient', material: 'air', alpha: alphaAir };
+            case 'air':
+                return { type: 'gas', material: 'air', alpha: alphaAir };
+            case 'isolation':
+                return { type: 'solid', material: 'glass-fiber', alpha: alphaGlasFiber };
+            case 'top':
+            case 'bottom':
+            case 'side':
+            case 'back':
+                return { type: 'solid', material: 'steel', alpha: alphaSteel };
+            case 'front':
+                return { type: 'solid', material: 'glass', alpha: alphaDoubleGlassed };
+        }
+    }
 };
-const dx = 5; // cell size in mm
 const ambient = {
     temperature: 22.0,
-    lossRate: {
-        front: 0.043,
-        back: 0.0043,
-        top_bottom: 0.0043,
-        side: 0.0043,
-    }
 }
 const heater = {
     voltage: 230.0,
     amperage: 8.0,
-    maxTemp: 500.0,
+    maxTemp: 1100.0,
     getPower: () => heater.voltage * heater.amperage, // in Watts
 }
 const sensor = {
@@ -44,9 +83,9 @@ const sensor = {
 // Grid and simulation parameters
 const grid = {
     cellSize: dx,
-    X: 4 + Math.floor(camber.width / dx),
-    Y: 4 + Math.floor(camber.depth / dx),
-    Z: 4 + Math.floor(camber.height / dx)
+    X: 6 + Math.floor(camber.width / dx),
+    Y: 6 + Math.floor(camber.depth / dx),
+    Z: 6 + Math.floor(camber.height / dx)
 }
 const dt = simSpeed / (simTimeWarp * 1000); // simulation time step in seconds
 
@@ -82,7 +121,7 @@ function applyHeater(temps) {
 
     for (let x of [center]) {
         for (let y = start; y < end; y++) {
-            for (let z of [0, grid.Z - 1]) {
+            for (let z of [3, grid.Z - 4]) {
                 temps[x][y][z] += deltaT;
                 temps[x][y][z] = Math.min(temps[x][y][z], heater.maxTemp);
             }
@@ -98,47 +137,64 @@ function applyHeater(temps) {
     }
 }
 
-function getLossRate(x, y, z) {
-    if (x === grid.X - 1) return ambient.lossRate.front;
-    if (x === 0) return ambient.lossRate.back;
-    if (z === 0 || z === grid.Z - 1) ambient.lossRate.top_bottom;
-    return ambient.lossRate.side;
-}
-
 // Single simulation step
 function updateTemperature() {
     const old_temps = temps.map(layer =>
-        layer.map(row => Float64Array.from(row))
+        layer.map(row => Array.from(row))
     );
 
-    for (let x = 0; x < grid.X; x++) {
-        for (let y = 0; y < grid.Y; y++) {
-            for (let z = 0; z < grid.Z; z++) {
+    for (let x = 0; x < grid.X - 1; x++) {
+        for (let y = 0; y < grid.Y - 1; y++) {
+            for (let z = 0; z < grid.Z - 1; z++) {
+                const { type, alpha } = camber.material(x, y, z);
                 const T = old_temps[x][y][z];
-                if (x === 0 || x === grid.X - 1 || y === 0 || y === grid.Y - 1 || z === 0 || z === grid.Z - 1) {
-                    temps[x][y][z] += dt * getLossRate(x, y, z) * (ambient.temperature - T);
+                
+                if (type == 'ambient') {
+                    temps[x][y][z] = ambient.temperature;
+                } else {
+                    // heat diffusion
+                    const laplacian =
+                        (
+                            old_temps[x + 1][y][z] + old_temps[x - 1][y][z] +
+                            old_temps[x][y + 1][z] + old_temps[x][y - 1][z] +
+                            old_temps[x][y][z + 1] + old_temps[x][y][z - 1] - 6 * T
+                        ) / ((dx / 1000) ** 2);
+
+                    temps[x][y][z] = T + alpha * dt * laplacian;
                 }
-                const neighbors = [
-                    [x - 1, y, z], [x + 1, y, z],
-                    [x, y - 1, z], [x, y + 1, z],
-                    [x, y, z - 1], [x, y, z + 1],
 
-                    [x - 1, y - 1, z], [x + 1, y + 1, z],
-                    [x - 1, y + 1, z], [x + 1, y - 1, z],
+                if (type == 'gas') {
+                    // Convection upward (hot air rises)
+                    if (z < grid.Z - 1) {
+                        const Tabove = old_temps[x][y][z + 1];
+                        if (T > Tabove) {
+                            const dT = camber.convection_rate * dt * (T - Tabove);
+                            temps[x][y][z] -= dT;
+                            temps[x][y][z + 1] += dT;
+                        }
+                    }
 
-                    [x - 1, y, z - 1], [x - 1, y, z + 1],
-                    [x - 1, y - 1, z - 1], [x - 1, y - 1, z + 1],
-                    [x, y - 1, z - 1], [x, y - 1, z + 1],
-                    [x + 1, y - 1, z - 1], [x + 1, y - 1, z + 1],
-                    [x + 1, y, z - 1], [x + 1, y, z + 1],
-                    [x + 1, y + 1, z - 1], [x + 1, y + 1, z + 1],
-                    [x, y + 1, z - 1], [x, y + 1, z + 1],
-                    [x - 1, y + 1, z - 1], [x - 1, y + 1, z + 1],
-                ];
-                const heatRate = 1 / neighbors.length;
-                for (const [nx, ny, nz] of neighbors) {
-                    if (nx >= 0 && nx < grid.X && ny >= 0 && ny < grid.Y && nz >= 0 && nz < grid.Z) {
-                        temps[x][y][z] += dt * (old_temps[nx][ny][nz] - T) * heatRate;
+                    // Convection downward (cold air sinks)
+                    if (z > 0) {
+                        const Tbelow = old_temps[x][y][z - 1];
+                        if (T < Tbelow) {
+                            const dT = camber.convection_rate * dt * (Tbelow - T);
+                            temps[x][y][z] += dT;
+                            temps[x][y][z - 1] -= dT;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (let x = 0; x < grid.X - 1; x++) {
+        for (let y = 0; y < grid.Y - 1; y++) {
+            for (let z = 0; z < grid.Z - 1; z++) {
+                if (x === 0 || y === 0 || z === 0 ||
+                    x === grid.X - 1 || y === grid.Y - 1 || z === grid.Z - 1) {
+                    if (temps[x][y][z] > ambient.temperature) {
+                        console.log("above ambient:", x, y, z);
                     }
                 }
             }
@@ -174,10 +230,10 @@ function logCenterYPlaneVisual(temps) {
     }
 }
 
-
+let simInterval = 0;
 exports.initialize = function (power_, temp) {
     power = power_;
-    setInterval(() => {
+    simInterval = setInterval(() => {
         applyHeater(temps);
         updateTemperature();
         temp.set(sensor.getTemp(temps));
@@ -190,3 +246,7 @@ exports.initialize = function (power_, temp) {
 exports.grid = grid;
 exports.camber = camber;
 exports.sensor = sensor;
+exports.stop = function () {
+    clearInterval(simInterval);
+    simInterval = 0;
+};

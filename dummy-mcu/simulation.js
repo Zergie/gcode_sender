@@ -21,17 +21,20 @@ const camber = {
                 x === grid.X - 1 || y === grid.Y - 1 || z === grid.Z - 1):
                 type = 'ambient'; break;
             case (x === 1 || y === 1 || z === 1 ||
-                y === grid.Y - 2 || z === grid.Z - 2):
+                x === grid.X - 2 || y === grid.Y - 2 || z === grid.Z - 2):
+                type = 'ambient'; break;
+            case (x === 2 || y === 2 || z === 2 ||
+                y === grid.Y - 3 || z === grid.Z - 3):
                 type = 'isolation'; break;
-            case (x === grid.X - 3):
+            case (x === grid.X - 4):
                 type = 'front'; break;
-            case (x === 2):
+            case (x === 3):
                 type = 'back'; break;
-            case (z === 2):
+            case (z === 3):
                 type = 'bottom'; break;
-            case (z === grid.Z - 3):
+            case (z === grid.Z - 4):
                 type = 'top'; break;
-            case (y === 2 || y === grid.Y - 3):
+            case (y === 3 || y === grid.Y - 4):
                 type = 'side'; break;
             default:
                 type = 'air'; break;
@@ -56,6 +59,7 @@ const camber = {
 };
 const ambient = {
     temperature: 22.0,
+    heatLoss: 0.8,
 }
 const heater = {
     voltage: 230.0,
@@ -83,9 +87,9 @@ const sensor = {
 // Grid and simulation parameters
 const grid = {
     cellSize: dx,
-    X: 6 + Math.floor(camber.width / dx),
-    Y: 6 + Math.floor(camber.depth / dx),
-    Z: 6 + Math.floor(camber.height / dx)
+    X: 8 + Math.floor(camber.width / dx),
+    Y: 8 + Math.floor(camber.depth / dx),
+    Z: 8 + Math.floor(camber.height / dx)
 }
 const dt = simSpeed / (simTimeWarp * 1000); // simulation time step in seconds
 
@@ -127,14 +131,6 @@ function applyHeater(temps) {
             }
         }
     }
-
-    for (let x of [0, grid.X - 1]) {
-        for (let y of [0, grid.Y - 1]) {
-            for (let z of [0, grid.Z - 1]) {
-                temps[x][y][z] = ambient.temperature;
-            }
-        }
-    }
 }
 
 // Single simulation step
@@ -143,91 +139,67 @@ function updateTemperature() {
         layer.map(row => Array.from(row))
     );
 
-    for (let x = 0; x < grid.X - 1; x++) {
-        for (let y = 0; y < grid.Y - 1; y++) {
-            for (let z = 0; z < grid.Z - 1; z++) {
+    for (let x = 1; x < grid.X - 1; x++) {
+        for (let y = 1; y < grid.Y - 1; y++) {
+            for (let z = 1; z < grid.Z - 1; z++) {
                 const { type, alpha } = camber.material(x, y, z);
                 const T = old_temps[x][y][z];
-                
-                if (type == 'ambient') {
-                    temps[x][y][z] = ambient.temperature;
-                } else {
-                    // heat diffusion
-                    const laplacian =
-                        (
-                            old_temps[x + 1][y][z] + old_temps[x - 1][y][z] +
-                            old_temps[x][y + 1][z] + old_temps[x][y - 1][z] +
-                            old_temps[x][y][z + 1] + old_temps[x][y][z - 1] - 6 * T
-                        ) / ((dx / 1000) ** 2);
 
-                    temps[x][y][z] = T + alpha * dt * laplacian;
-                }
+                // heat diffusion
+                const laplacian =
+                    (
+                        old_temps[x + 1][y][z] + old_temps[x - 1][y][z] +
+                        old_temps[x][y + 1][z] + old_temps[x][y - 1][z] +
+                        old_temps[x][y][z + 1] + old_temps[x][y][z - 1] - 6 * T
+                    ) / ((dx / 1000) ** 2);
 
-                if (type == 'gas') {
-                    // Convection upward (hot air rises)
-                    if (z < grid.Z - 1) {
-                        const Tabove = old_temps[x][y][z + 1];
-                        if (T > Tabove) {
-                            const dT = camber.convection_rate * dt * (T - Tabove);
-                            temps[x][y][z] -= dT;
-                            temps[x][y][z + 1] += dT;
+                temps[x][y][z] = T + alpha * dt * laplacian;
+
+                switch (type) {
+                    case 'ambient':
+                        const deltaT = temps[x][y][z] - ambient.temperature;
+                        temps[x][y][z] -= deltaT * ambient.heatLoss;
+                        break;
+                    case 'gas':
+                        // Convection upward (hot air rises)
+                        if (z < grid.Z - 1) {
+                            const Tabove = old_temps[x][y][z + 1];
+                            if (T > Tabove) {
+                                const dT = camber.convection_rate * dt * (T - Tabove);
+                                temps[x][y][z] -= dT;
+                                temps[x][y][z + 1] += dT;
+                            }
                         }
-                    }
 
-                    // Convection downward (cold air sinks)
-                    if (z > 0) {
-                        const Tbelow = old_temps[x][y][z - 1];
-                        if (T < Tbelow) {
-                            const dT = camber.convection_rate * dt * (Tbelow - T);
-                            temps[x][y][z] += dT;
-                            temps[x][y][z - 1] -= dT;
+                        // Convection downward (cold air sinks)
+                        if (z > 0) {
+                            const Tbelow = old_temps[x][y][z - 1];
+                            if (T < Tbelow) {
+                                const dT = camber.convection_rate * dt * (Tbelow - T);
+                                temps[x][y][z] += dT;
+                                temps[x][y][z - 1] -= dT;
+                            }
                         }
-                    }
+                        break;
                 }
             }
         }
     }
 
-    for (let x = 0; x < grid.X - 1; x++) {
-        for (let y = 0; y < grid.Y - 1; y++) {
-            for (let z = 0; z < grid.Z - 1; z++) {
-                if (x === 0 || y === 0 || z === 0 ||
-                    x === grid.X - 1 || y === grid.Y - 1 || z === grid.Z - 1) {
-                    if (temps[x][y][z] > ambient.temperature) {
-                        console.log("above ambient:", x, y, z);
-                    }
-                }
-            }
-        }
-    }
+    // for (let x = 0; x < grid.X - 1; x++) {
+    //     for (let y = 0; y < grid.Y - 1; y++) {
+    //         for (let z = 0; z < grid.Z - 1; z++) {
+    //             if (x === 0 || y === 0 || z === 0 ||
+    //                 x === grid.X - 1 || y === grid.Y - 1 || z === grid.Z - 1) {
+    //                 if (temps[x][y][z] > ambient.temperature) {
+    //                     console.log("above ambient:", x, y, z);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     return temps;
-}
-
-function logCenterYPlaneVisual(temps) {
-    const centerY = Math.floor(grid.Y / 2);
-
-    const emojiForTemp = (t) => {
-        if (t < 0) return '❄️';         // freezing
-        if (t < 10) return '🧊';        // very cold
-        if (t < 25) return '🔵';        // cold
-        if (t < 35) return '🟢';        // cool
-        if (t < 50) return '🟡';        // warm
-        if (t < 70) return '🟠';        // hot
-        if (t < 90) return '🔴';        // very hot
-        if (t < 120) return '🔥';       // extremely hot
-        return '☀️';                    // scorching
-    };
-
-    console.log(`\n--- 🔥 Temperature Slice at Y=${centerY} ---`);
-    for (let z = 0; z < grid.Z; z++) {
-        let row = '';
-        for (let x = 0; x < grid.X; x++) {
-            const t = temps[x][centerY][z];
-            row += emojiForTemp(t);
-        }
-        console.log(row);
-    }
 }
 
 let simInterval = 0;
@@ -244,9 +216,12 @@ exports.initialize = function (power_, temp) {
     }, simSpeed);
 };
 exports.grid = grid;
+exports.ambient = ambient;
 exports.camber = camber;
 exports.sensor = sensor;
 exports.stop = function () {
     clearInterval(simInterval);
     simInterval = 0;
 };
+exports.simSpeed = simSpeed;
+exports.simTimeWarp = simTimeWarp;

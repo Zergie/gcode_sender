@@ -1,11 +1,14 @@
 const { Chart } = require('chart.js/auto');
+const { labelsPlugin } = require('./events-chart-labels.js');
+const { crosshairPlugin } = require('./events-chart-crosshair.js');
+const { peaksPlugin } = require('./events-chart-peaks.js');
 
 let startup_time = Date.now();
 
 require('./storage.js').register(__filename, {
   on_reload: function (callback) {
     const data = {
-      startup : startup_time,
+      startup: startup_time,
     };
     if (window.tempChart) {
       data.datasets = window.tempChart.data.datasets;
@@ -29,9 +32,9 @@ window.addEventListener('serialport:data-temp', event => {
   const redComplementary = ['#11cde9', '#1ad4e9', '#33dbe9', '#4de2e9', '#66e9e9', '#80f0e9', '#99f7e9'];
   const blues = ['#113fe9', '#1f47dc', '#2d4fcf', '#3a57c1', '#485fb4', '#5667a7', '#646f9a', '#4ca3dd', '#3cb0e6', '#2cbde0', '#1ccad9', '#0cd7d2'];
 
-  appendToChart( `Temperature ${data.Tool}`, reds[data.Tool], x, data.Temp, 'y', 10 );
-  appendToChart( `Target ${data.Tool}`, redComplementary[data.Tool], x, data.Target, 'y', 1 );
-  appendToChart( `Power ${data.Tool}`, blues[data.Tool], x, data.Power, 'y1', 2 );
+  appendToChart(`Temperature ${data.Tool}`, reds[data.Tool], x, data.Temp, 'y', 10);
+  appendToChart(`Target ${data.Tool}`, redComplementary[data.Tool], x, data.Target, 'y', 1);
+  appendToChart(`Power ${data.Tool}`, blues[data.Tool], x, data.Power, 'y1', 2);
 
   window.tempChart.update();
 });
@@ -45,44 +48,17 @@ cmp = function (a, b) {
 };
 
 const ctx = document.querySelector('#temp-chart canvas');
+
 window.tempChart = new Chart(ctx, {
   type: 'line',
   data: {
     datasets: [],
   },
-  plugins: [{
-    afterDraw: chart => {
-      chart.data.datasets
-        .filter((_, index) => chart.isDatasetVisible(index))
-        .sort((a, b) => cmp(a.z, b.z) || cmp(a.label, b.label))
-        .forEach(dataset => {
-          const i = dataset.data.length - 1;
-          const x = dataset.data[i].x;
-          const y = dataset.data[i].y;
-
-          const ctx = chart.ctx;
-          const x_point = chart.scales.x.getPixelForValue(x);
-          let y_point = chart.scales[dataset.yAxisID].getPixelForValue(y);
-          const text = window.tempChart.options.scales[dataset.yAxisID].ticks.callback(y.toFixed(1), null, null);
-
-          if (y_point > ctx.canvas.height / 2) {
-            y_point -= 10;
-          } else {
-            y_point += 10;
-          }
-
-          ctx.save();
-          ctx.textAlign = 'center';
-          ctx.font = 'bold 12px Roboto';
-          ctx.strokeStyle = 'black';
-          ctx.lineWidth = 3;
-          ctx.strokeText(text, x_point, y_point);
-          ctx.fillStyle = dataset.borderColor;
-          ctx.fillText(`${text}`, x_point, y_point);
-          ctx.restore();
-        });
-    }
-  }],
+  plugins: [
+    labelsPlugin,
+    crosshairPlugin,
+    peaksPlugin,
+  ],
   options: {
     animation: false,
     maintainAspectRatio: false,
@@ -118,7 +94,7 @@ window.tempChart = new Chart(ctx, {
         suggestedMin: 0,
         suggestedMax: 300,
         ticks: {
-          callback: (value, index, ticks) => `${value} ºC`
+          callback: (value, index, ticks) => `${parseFloat(value).toFixed(1)} ºC`
         }
       },
       y1: {

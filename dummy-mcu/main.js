@@ -1,22 +1,21 @@
 const { ipcMain, BrowserWindow } = require('electron');
+const { simSpeed, simTimeWarp, ambient } = require('./simulation.js');
+const Controller = require('node-pid-controller');
 
-let temp = 22;
-let target = 0;
+let temp = ambient.temperature;
 let power = 0;
-let kp = 10.0;
-let ki = 0.0;
-let kd = 0.0;
 let M155Interval = 0;
+let pidInterval = 0;
+let pidController = new Controller(0.06, 0.001, 0.0, simSpeed * simTimeWarp);
 
 ipcMain.handle('dummy-mcu:initialize', (event, data) => {
-  require('./pid.js').initialize(
-    { get: () => { return { temp, target, kp, ki, kd }; } },
-    { get: () => power, set: (value) => { power = value; } }
-  );
   require('./simulation.js').initialize(
     { get: () => power },
     { get: () => temp, set: (value) => { temp = value; } }
   );
+  pidInterval = setInterval(function () {
+    power = Math.min(255, Math.max(0, pidController.update(temp)));
+  }, 100);
 });
 
 ipcMain.handle('dummy-mcu:receive', (event, data) => {
@@ -35,9 +34,9 @@ ipcMain.handle('dummy-mcu:receive', (event, data) => {
   switch (command.name) {
     case 'M104':
       if (command.S) {
-        target = parseFloat(command.S);
+        pidController.setTarget(parseFloat(command.S));
         for (const window of BrowserWindow.getAllWindows()) {
-          window.webContents.send('dummy-mcu:update-target', target);
+          window.webContents.send('dummy-mcu:update-target', pidController.target);
         }
       }
       respond(`ok`);
@@ -60,21 +59,21 @@ ipcMain.handle('dummy-mcu:receive', (event, data) => {
       respond('FIRMWARE_NAME: DummyMCU MACHINE_TYPE: DummyMCU UUID: 1234567890');
       break;
     case 'M130':
-      if (command.S) { kp = parseFloat(command.S); }
+      if (command.S) { pidController.k_p = parseFloat(command.S); }
       respond('ok');
       break;
     case 'M131':
-      if (command.S) { ki = parseFloat(command.S); }
+      if (command.S) { pidController.k_i = parseFloat(command.S); }
       respond('ok');
       break;
     case 'M132':
-      if (command.S) { kd = parseFloat(command.S); }
+      if (command.S) { pidController.k_d = parseFloat(command.S); }
       respond('ok');
       break;
     case 'M301':
-      if (command.P) { kp = parseFloat(command.P); }
-      if (command.I) { ki = parseFloat(command.I); }
-      if (command.D) { kd = parseFloat(command.D); }
+      if (command.P) { pidController.k_p = parseFloat(command.P); }
+      if (command.I) { pidController.k_i = parseFloat(command.I); }
+      if (command.D) { pidController.k_d = parseFloat(command.D); }
       respond('ok');
       break;
     case 'M500':
@@ -86,9 +85,9 @@ ipcMain.handle('dummy-mcu:receive', (event, data) => {
       respond('ok');
       break;
     case 'M503':
-      respond(`kp: ${kp.toFixed(2)}`);
-      respond(`ki: ${ki.toFixed(2)}`);
-      respond(`kd: ${kd.toFixed(2)}`);
+      respond(`kp: ${pidController.k_p.toFixed(3)}`);
+      respond(`ki: ${pidController.k_i.toFixed(3)}`);
+      respond(`kd: ${pidController.k_d.toFixed(3)}`);
       break;
     default:
       if (command.name) {
@@ -101,9 +100,9 @@ ipcMain.handle('dummy-mcu:receive', (event, data) => {
 });
 
 ipcMain.handle('dummy-mcu:close', () => {
-  clearInterval(M155Interval);
-  M155Interval = 0;
-  require('./pid.js').stop();
+  clearInterval(M155Interval); M155Interval = 0;
+  clearInterval(pidInterval); pidInterval = 0;
+  pidController.reset();
   require('./simulation.js').stop();
 });
 
@@ -117,7 +116,7 @@ function respond(data) {
 
 function reportTemperature(tool = 0, temperature = 0.0) {
   if (tool == 0) {
-    respond(`T0:${temp.toFixed(2)} /${target.toFixed(0)} @0:${power.toFixed(0)}`);
+    respond(`T0:${temp.toFixed(2)} /${pidController.target.toFixed(0)} @0:${power.toFixed(0)}`);
   } else {
     respond(`T${tool}:${temperature.toFixed(2)}`);
   }

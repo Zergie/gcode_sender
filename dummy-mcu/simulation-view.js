@@ -11,6 +11,7 @@ exports.initialize = function () {
   const canvas = document.getElementById('simulation-canvas');
   const width = 600;
   const height = lower_panel.getBoundingClientRect().height;
+  const cellSize = grid.cellSize;
 
   const center = { x: camber.width / 2, y: camber.depth / 2, z: 0 };
   const scene = new THREE.Scene();
@@ -20,7 +21,7 @@ exports.initialize = function () {
   scene.add(axesHelper);
 
   const camera = new THREE.PerspectiveCamera(75, width / height, 1, 1000);
-  camera.position.set(300, 300, 200);
+  camera.position.set(260, 60, 32);
   camera.lookAt(scene.position);
 
   const renderer = new THREE.WebGLRenderer({ canvas: canvas });
@@ -51,7 +52,6 @@ exports.initialize = function () {
   scene.add(box);
 
   // sensor
-  const cellSize = grid.cellSize;
   const sensorGeometry = new THREE.SphereGeometry(cellSize / 4, 8, 4);
   const sensorMaterial = new THREE.MeshBasicMaterial({ color: 0xff00ff });
   const sensorMesh = new THREE.Mesh(sensorGeometry, sensorMaterial);
@@ -81,9 +81,9 @@ exports.initialize = function () {
             const cube = new THREE.Mesh(geometry, material);
 
             cube.position.set(
-              x * cellSize + cellSize / 2 - 2 * cellSize,
-              z * cellSize + cellSize / 2 - 2 * cellSize,
-              y * cellSize + cellSize / 2 - 2 * cellSize,
+              x * cellSize + cellSize / 2 - 4 * cellSize,
+              z * cellSize + cellSize / 2 - 4 * cellSize,
+              y * cellSize + cellSize / 2 - 4 * cellSize,
             );
 
             cubes[x][y][z] = cube;
@@ -95,9 +95,9 @@ exports.initialize = function () {
         }
 
         vertices.push(
-          x * cellSize + cellSize / 2 - 2 * cellSize,
-          z * cellSize + cellSize / 2 - 2 * cellSize,
-          y * cellSize + cellSize / 2 - 2 * cellSize,
+          x * cellSize + cellSize / 2 - 4 * cellSize,
+          z * cellSize + cellSize / 2 - 4 * cellSize,
+          y * cellSize + cellSize / 2 - 4 * cellSize,
         );
         colors.push(0, 0, 0)
 
@@ -142,18 +142,20 @@ exports.initialize = function () {
   const points = new THREE.Points(geometry, material);
   scene.add(points);
 
-  // Map temperature to color
   function getMinMaxT() {
     const minT = 20;
     const maxT = target ? target : 150;
     return { minT, maxT };
   }
-
+  
+  // Map temperature to color
   function temperatureToColor(x, y, z, temp) {
     const { minT, maxT } = getMinMaxT();
 
     if ((target - 1) <= temp && temp <= (target + 1)) {
       return new THREE.Color(0x00ff00); // Green for target temperature
+    } else if (temp > target) {
+        return new THREE.Color(0xff00ff); // Magenta for target temperature
     } else {
       const coolColor = ((x, y, z) => {
         switch (camber.material(x, y, z).material) {

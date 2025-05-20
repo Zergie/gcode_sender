@@ -55,9 +55,9 @@ window.tempChart = new Chart(ctx, {
     datasets: [],
   },
   plugins: [
-    labelsPlugin,
     crosshairPlugin,
     peaksPlugin,
+    labelsPlugin,
   ],
   options: {
     animation: false,

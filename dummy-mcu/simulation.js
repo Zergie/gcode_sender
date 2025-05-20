@@ -11,7 +11,7 @@ const camber = {
     convection_rate: 0.05, // tunable (0.01–0.1 for natural convection)
     material: function (x, y, z) {
         const alphaAir = 2.2e-5;
-        const alphaDoubleGlassed = 1e-7;
+        const alphaDoubleGlassed = 1e-7 * (dx / 20); // dx / thickness
         const alphaGlasFiber = 5e-8 * (dx / 15); // dx / thickness
         const alphaSteel = 4.05e-6 * (dx / 0.5); // dx / thickness
 
@@ -64,7 +64,8 @@ const ambient = {
 const heater = {
     voltage: 230.0,
     amperage: 8.0,
-    maxTemp: 1100.0,
+    maxTemp: 1200.0,
+    efficiency: 0.98,
     getPower: () => heater.voltage * heater.amperage, // in Watts
 }
 const sensor = {
@@ -105,7 +106,7 @@ let power = null;
 function applyHeater(temps) {
     const activation = (x) => Math.max(0, Math.sin(x) + x / 2 - 0.25);
     const powerWatts = heater.getPower() * activation(power.get() / 255.0);
-    const efficiency = 0.2; // 20% realistic transfer into air
+    const efficiency = heater.efficiency; // transfer into air
     const energyTotal = powerWatts * efficiency * dt; // joules per timestep
 
     const c = 1005; // J/(kg·K), specific heat of air

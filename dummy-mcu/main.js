@@ -6,7 +6,7 @@ let temp = ambient.temperature;
 let power = 0;
 let M155Interval = 0;
 let pidInterval = 0;
-let pidController = new Controller(0.06, 0.001, 0.0, simSpeed * simTimeWarp);
+let pidController = new Controller(0.7, 0.00004, 120.0, simSpeed * simTimeWarp);
 
 ipcMain.handle('dummy-mcu:initialize', (event, data) => {
   require('./simulation.js').initialize(
@@ -85,9 +85,9 @@ ipcMain.handle('dummy-mcu:receive', (event, data) => {
       respond('ok');
       break;
     case 'M503':
-      respond(`kp: ${pidController.k_p.toFixed(3)}`);
-      respond(`ki: ${pidController.k_i.toFixed(3)}`);
-      respond(`kd: ${pidController.k_d.toFixed(3)}`);
+      respond(`kp: ${pidController.k_p.toFixed(6)}`);
+      respond(`ki: ${pidController.k_i.toFixed(6)}`);
+      respond(`kd: ${pidController.k_d.toFixed(6)}`);
       break;
     default:
       if (command.name) {

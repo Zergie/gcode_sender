@@ -151,8 +151,9 @@ exports.initialize = function () {
   // Map temperature to color
   function temperatureToColor(x, y, z, temp) {
     const { minT, maxT } = getMinMaxT();
+    const tolerance = 2.5;
 
-    if ((target - 1) <= temp && temp <= (target + 1)) {
+    if ((target - tolerance) <= temp && temp <= (target + tolerance)) {
       return new THREE.Color(0x00ff00); // Green for target temperature
     } else if (temp > target) {
         return new THREE.Color(0xff00ff); // Magenta for target temperature

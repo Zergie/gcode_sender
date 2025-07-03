@@ -1,5 +1,6 @@
 const autoComplete = require("@tarekraafat/autocomplete.js");
 const { gcode } = require('./gcode.js');
+const { builtins } = require('./builtins.js')
 
 let firmware = {
   FIRMWARE_NAME: "",
@@ -24,7 +25,7 @@ require('./storage.js').register(__filename, {
   },
 });
 
-function availableCommands() {
+function availableCommandsForMcu() {
   if (firmware.gcode) {
     return Promise.resolve(firmware.gcode);
   }
@@ -42,6 +43,12 @@ function availableCommands() {
   }
   return Promise.resolve(Array.from(gcode));
 }
+
+async function availableCommands() {
+  const array = await availableCommandsForMcu();
+  return array.concat(Array.from(builtins || []));
+}
+exports.availableCommands = availableCommands;
 
 const autoCompleteJS = new autoComplete({
   selector: "#terminal-input",

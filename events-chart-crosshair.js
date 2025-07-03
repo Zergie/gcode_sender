@@ -17,17 +17,17 @@ exports.crosshairPlugin = {
         chart.draw(); // Clear crosshair
         break;
       case 'click':
-        const point = {
-          x: chart.scales.x.getValueForPixel(e.x),
-          y: chart.scales.y.getValueForPixel(e.y),
-        };
-        if (mouseClicks.length >= 2) {
-          mouseClicks = [point];
-        } else if (mouseClicks.length == 1 && mouseClicks[0].x == e.x) {
-          mouseClicks = [];
-        } else {
-          mouseClicks.push(point);
-        }
+        // const point = {
+        //   x: chart.scales.x.getValueForPixel(e.x),
+        //   y: chart.scales.y.getValueForPixel(e.y),
+        // };
+        // if (mouseClicks.length >= 2) {
+        //   mouseClicks = [point];
+        // } else if (mouseClicks.length == 1 && mouseClicks[0].x == e.x) {
+        //   mouseClicks = [];
+        // } else {
+        //   mouseClicks.push(point);
+        // }
         break;
     }
   },

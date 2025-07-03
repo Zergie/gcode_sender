@@ -1,6 +1,6 @@
-const { send } = require('./events-ui-settings.js');
+const { send, print, warn, error } = require('./events-ui-settings.js');
 require('./events-chart.js');
-require('./events-autocomplete.js');
+const { availableCommands } = require('./events-autocomplete.js');
 
 let terminal_history_index = 0;
 let terminal_history = [];
@@ -21,11 +21,39 @@ require('./storage.js').register(__filename, {
     },
   });
 
+async function builtin(command) {
+    const el = document.createElement('span');
+    el.className = 'terminal-command-sent';
+    el.innerText = command;
+    document.querySelector('#terminal-output').insertBefore(el, document.querySelector('#terminal-output-bottom'));
+    document.querySelector('#terminal-output-bottom').scrollIntoView();
+
+    switch (command) {
+        case ".list":
+            await availableCommands().then(array => {
+                array
+                    .filter(x => x.code != undefined)
+                    .sort((a, b) => cmp(a.code[0], b.code[0]) || cmp(parseInt(a.code.substring(1)), parseInt(b.code.substring(1))))
+                    .forEach(x => print(`${x.code} - ${x.description}`));
+              });
+            break;
+    
+        default:
+            error("Invalid builtin command.");
+            break;
+    }
+}
+
 const terminal_input = document.getElementById('terminal-input');
 terminal_input.addEventListener('keydown', function (event) {
     if (event.key === 'Enter' && !event.shiftKey) {
         event.preventDefault();  // Prevent newline insertion
-        if (terminal_input.value.length > 0) {
+        if (terminal_input.value.length <= 0) {
+        } else if (terminal_input.value.startsWith(".")) {
+            builtin(terminal_input.value);
+            terminal_history.push(terminal_input.value);
+            terminal_history_index = 0;
+        } else {
             send(terminal_input.value);
             terminal_history.push(terminal_input.value);
             terminal_history_index = 0;

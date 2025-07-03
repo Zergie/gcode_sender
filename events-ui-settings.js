@@ -1,4 +1,5 @@
 const { SerialPort, ReadlineParser } = require('serialport');
+const { availableCommands } = require('./events-autocomplete.js');
 const { dispatchEvent } = require('./dispatchEvent.js');
 let terminal_send_buffer = [];
 
@@ -148,7 +149,7 @@ function send (gcode, silent = false) {
 }
 exports.send = send;
 exports.print = function(data) { print(`// ${data}`, 'var(--print-text-color)'); };
-exports.warn = function(data) { print(`// ${data}`, 'var(--warn-text-color)'); };
+exports.warn  = function(data) { print(`// ${data}`, 'var(--warn-text-color)' ); };
 exports.error = function(data) { print(`// ${data}`, 'var(--error-text-color)'); };
 
 async function updateSerialPortList() {

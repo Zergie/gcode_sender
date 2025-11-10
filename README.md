@@ -40,25 +40,6 @@ GCode Sender is an Electron application designed to interface with Arduino, STM3
 4. Send GCode commands using the provided interface.
 5. View responses from the connected device.
 
-## Development
-
-To contribute to the development of this application:
-
-1. Fork the repository.
-2. Create a new branch for your feature or bugfix:
-    ```sh
-    git checkout -b feature-name
-    ```
-3. Make your changes and commit them:
-    ```sh
-    git commit -m "Description of changes"
-    ```
-4. Push your changes to your fork:
-    ```sh
-    git push origin feature-name
-    ```
-5. Create a pull request on GitHub.
-
 ## License
 
 This project is licensed under the GPL-2.0-only License. See the [LICENSE](http://_vscodecontentref_/0) file for details.

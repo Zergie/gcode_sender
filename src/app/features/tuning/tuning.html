@@ -1,0 +1,543 @@
+<div class="page tuning-page">
+  <app-page-header
+    title="Tuning & Profiles"
+    description="Version PID schedules, calibrate live hardware, and manage oven models."
+  >
+    <button class="button secondary" type="button" (click)="store.importProfiles()">
+      Import JSON
+    </button>
+    <button
+      class="button secondary"
+      type="button"
+      [disabled]="store.profiles().length === 0"
+      (click)="exportAllProfiles()"
+    >
+      Export profiles
+    </button>
+  </app-page-header>
+
+  <nav class="section-tabs" aria-label="Tuning sections">
+    <button
+      type="button"
+      [class.active]="section() === 'schedule'"
+      [attr.aria-pressed]="section() === 'schedule'"
+      (click)="section.set('schedule')"
+    >
+      PID schedule
+    </button>
+    <button
+      type="button"
+      [class.active]="section() === 'autotune'"
+      [attr.aria-pressed]="section() === 'autotune'"
+      (click)="section.set('autotune')"
+    >
+      Live heater tuning
+    </button>
+    <button
+      type="button"
+      [class.active]="section() === 'profiles'"
+      [attr.aria-pressed]="section() === 'profiles'"
+      (click)="section.set('profiles')"
+    >
+      Profile library
+    </button>
+  </nav>
+
+  @if (section() === 'schedule') {
+    <section class="tuning-grid">
+      <article class="panel schedule-editor">
+        <header class="panel-header">
+          <div>
+            <span class="panel-kicker">VERSIONED PROFILE</span>
+            <h2>Per-temperature PID schedule</h2>
+            <p>Gains are linearly interpolated between breakpoints and transitioned smoothly.</p>
+          </div>
+          <span class="state-chip draft">DRAFT</span>
+        </header>
+        <label class="field profile-name"
+          ><span>Profile name</span
+          ><input [ngModel]="profileName()" (ngModelChange)="profileName.set($event)"
+        /></label>
+        <div class="pid-table">
+          <div class="pid-row pid-head">
+            <span>Temperature</span><span>Kp</span><span>Ki</span><span>Kd</span><span></span>
+          </div>
+          @for (row of breakpoints(); track row.id; let index = $index) {
+            <div class="pid-row">
+              <label
+                ><span class="mobile-label">Temperature</span>
+                <div class="unit-input">
+                  <input
+                    type="number"
+                    min="0"
+                    max="250"
+                    [ngModel]="row.temperatureC"
+                    (ngModelChange)="updateBreakpoint(row.id, 'temperatureC', $event)"
+                  /><em>°C</em>
+                </div></label
+              >
+              <label
+                ><span class="mobile-label">Kp</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".01"
+                  [ngModel]="row.kp"
+                  (ngModelChange)="updateBreakpoint(row.id, 'kp', $event)"
+              /></label>
+              <label
+                ><span class="mobile-label">Ki</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".001"
+                  [ngModel]="row.ki"
+                  (ngModelChange)="updateBreakpoint(row.id, 'ki', $event)"
+              /></label>
+              <label
+                ><span class="mobile-label">Kd</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".01"
+                  [ngModel]="row.kd"
+                  (ngModelChange)="updateBreakpoint(row.id, 'kd', $event)"
+              /></label>
+              <button
+                class="icon-button delete-row"
+                type="button"
+                [disabled]="breakpoints().length <= 1"
+                (click)="removeBreakpoint(row.id)"
+                aria-label="Remove breakpoint"
+              >
+                ×
+              </button>
+            </div>
+          }
+        </div>
+        @if (validatedSchedule().error; as error) {
+          <p class="field-error" role="alert">{{ error }}</p>
+        }
+        <button class="add-row" type="button" (click)="addBreakpoint()">+ Add breakpoint</button>
+        <footer class="editor-actions">
+          <div class="volatile-note">
+            <app-icon name="alert" /><span
+              >Firmware persistence is intentionally disabled. The app never sends
+              <code>M500</code>.</span
+            >
+          </div>
+          <button
+            class="button secondary"
+            type="button"
+            [disabled]="validatedSchedule().schedule === null"
+            (click)="saveDraft()"
+          >
+            Save draft
+          </button>
+          <button
+            class="button primary"
+            type="button"
+            [disabled]="!store.connected() || validatedSchedule().schedule === null"
+            (click)="applySchedule()"
+          >
+            Apply active gains
+          </button>
+        </footer>
+      </article>
+
+      <aside class="tuning-rail">
+        <article class="panel interpolation-card">
+          <span class="panel-kicker">EFFECTIVE AT REQUESTED TARGET</span>
+          <div class="effective-temp">
+            {{ store.requestedTarget().toFixed(0) }}<small>°C</small>
+          </div>
+          <div class="gain-triplet">
+            <div>
+              <span>Kp</span><strong>{{ effectiveGains().kp.toFixed(3) }}</strong>
+            </div>
+            <div>
+              <span>Ki</span><strong>{{ effectiveGains().ki.toFixed(3) }}</strong>
+            </div>
+            <div>
+              <span>Kd</span><strong>{{ effectiveGains().kd.toFixed(3) }}</strong>
+            </div>
+          </div>
+          <div class="interpolation-visual">
+            @for (row of breakpoints(); track row.id) {
+              <i [style.left.%]="(row.temperatureC / 250) * 100"
+                ><b></b><span>{{ row.temperatureC }}°</span></i
+              >
+            }
+            <em [style.left.%]="(store.requestedTarget() / 250) * 100"></em>
+          </div>
+          <p>Changes to the effective target produce a bounded, smooth <code>M301</code> update.</p>
+        </article>
+        <article class="panel profile-health">
+          <span class="panel-kicker">PROFILE HEALTH</span>
+          <div>
+            <span>Breakpoint order</span
+            ><strong [class.good]="validatedSchedule().schedule !== null">{{
+              validatedSchedule().schedule === null ? 'Needs attention' : 'Valid'
+            }}</strong>
+          </div>
+          <div>
+            <span>Gain values</span
+            ><strong [class.good]="validatedSchedule().schedule !== null">{{
+              validatedSchedule().schedule === null ? 'Invalid' : 'Non-negative'
+            }}</strong>
+          </div>
+          <div>
+            <span>Temperature coverage</span><strong>{{ scheduleRange() }}</strong>
+          </div>
+          <div><span>Transition duration</span><strong>5.0 s</strong></div>
+        </article>
+      </aside>
+    </section>
+  }
+
+  @if (section() === 'autotune') {
+    <section class="autotune-layout">
+      <article class="panel tune-wizard">
+        <header class="tune-steps" aria-label="Tuning progress">
+          <div class="active"><b>1</b><span>Prepare</span></div>
+          <i></i>
+          <div [class.active]="tunePhase() !== 'setup'"><b>2</b><span>Relay cycles</span></div>
+          <i></i>
+          <div [class.active]="tunePhase() === 'results'"><b>3</b><span>Review draft</span></div>
+        </header>
+
+        @if (tunePhase() === 'setup') {
+          <div class="tune-setup">
+            <div class="tune-intro">
+              <span class="relay-mark">∿</span>
+              <div>
+                <span class="panel-kicker">KLIPPER-STYLE RELAY TUNING</span>
+                <h2>Automated live-heater tune</h2>
+                <p>
+                  Captures twelve alternating peaks per target, derives Ku/Tu, then proposes
+                  QuickPID-scaled Ziegler–Nichols gains and a conservative alternative.
+                </p>
+              </div>
+            </div>
+            <div class="risk-card">
+              <app-icon name="alert" />
+              <div>
+                <strong>Supervised experiment — not a safety system</strong>
+                <p>
+                  The desktop temporarily applies high P-only gains, cycles the target by 5 °C, and
+                  verifies reported output near 255/0. Firmware watchdogs remain the only safety
+                  authority. You may disconnect at any time.
+                </p>
+              </div>
+            </div>
+            <div class="tune-targets">
+              <div class="section-title">
+                <div>
+                  <span class="panel-kicker">CALIBRATION TARGETS</span>
+                  <h3>Ascending sequence</h3>
+                </div>
+                <button class="text-button" type="button" (click)="addTuneTarget()">
+                  + Add target
+                </button>
+              </div>
+              <div class="target-chip-row">
+                @for (target of tuneTargets(); track $index; let index = $index) {
+                  <label class="target-chip"
+                    ><span>{{ index + 1 }}</span
+                    ><input
+                      type="number"
+                      min="1"
+                      max="250"
+                      [ngModel]="target"
+                      (ngModelChange)="updateTuneTarget(index, $event)"
+                    /><em>°C</em
+                    ><button
+                      type="button"
+                      [disabled]="tuneTargets().length <= 1"
+                      (click)="removeTuneTarget(index)"
+                      aria-label="Remove target"
+                    >
+                      ×
+                    </button></label
+                  >
+                }
+              </div>
+            </div>
+            <div class="preflight-list">
+              <div [class.good]="store.connected()">
+                <i>{{ store.connected() ? '✓' : '!' }}</i
+                ><span
+                  ><strong>Controller connected</strong
+                  ><small>{{
+                    store.connected()
+                      ? store.connection().portPath + ' · firmware responding'
+                      : 'Connect hardware before starting'
+                  }}</small></span
+                >
+              </div>
+              <div>
+                <i>✓</i
+                ><span
+                  ><strong>Standard load</strong
+                  ><small>Required condition for this tuning run</small></span
+                >
+              </div>
+              <div>
+                <i>✓</i
+                ><span
+                  ><strong>Rollback snapshot</strong
+                  ><small
+                    ><code>M503</code> must return readable Kp, Ki, and Kd before heating
+                    begins</small
+                  ></span
+                >
+              </div>
+            </div>
+            <label class="check-row"
+              ><input
+                type="checkbox"
+                [ngModel]="supervised()"
+                (ngModelChange)="supervised.set($event)"
+              /><span
+                >I will supervise the oven and understand that desktop disconnect behavior is
+                outside this workflow.</span
+              ></label
+            >
+            <button
+              class="button primary tune-start"
+              type="button"
+              [disabled]="!store.connected() || !supervised() || !tuneTargetsValid()"
+              (click)="startLiveTune()"
+            >
+              Snapshot gains & start tune
+            </button>
+            @if (!tuneTargetsValid()) {
+              <p class="field-error" role="alert">
+                Targets must be unique, strictly ascending, and between 1 and 250 °C.
+              </p>
+            }
+          </div>
+        }
+
+        @if (tunePhase() === 'running') {
+          <div class="tune-running">
+            <div class="relay-animation">
+              <div class="pulse-ring"></div>
+              <span>{{ currentTuneTarget() }}<small>°C</small></span>
+            </div>
+            <span class="panel-kicker">{{
+              store.isDesktop() ? 'LIVE HARDWARE' : 'BROWSER DEMO'
+            }}</span>
+            <h2>Calibrating target {{ tuneTargetIndex() + 1 }} of {{ tuneTargets().length }}</h2>
+            <p>{{ tuneMessage() }}</p>
+            <div class="big-progress"><span [style.width.%]="tuneProgress()"></span></div>
+            <div class="tune-live-stats">
+              <div>
+                <span>Peaks captured</span><strong>{{ peaks() }} / 12</strong>
+              </div>
+              <div>
+                <span>T0</span><strong>{{ store.telemetry().average.toFixed(1) }} °C</strong>
+              </div>
+              <div>
+                <span>Output verification</span
+                ><strong class="good">{{
+                  store.telemetry().power > 200 || store.telemetry().power < 25
+                    ? 'Within band'
+                    : 'Observing'
+                }}</strong>
+              </div>
+              <div>
+                <span>Rollback gains</span
+                ><strong>{{
+                  store.liveTuning().rollbackGains ? 'Captured' : 'Snapshot pending'
+                }}</strong>
+              </div>
+            </div>
+            <button class="button danger-ghost" type="button" (click)="abortTune()">
+              Abort tune + request heater off
+            </button>
+          </div>
+        }
+
+        @if (tunePhase() === 'results') {
+          <div class="tune-results">
+            <span class="result-check">✓</span
+            ><span class="panel-kicker">{{
+              store.isDesktop() ? 'LIVE RESULT' : 'BROWSER DEMO RESULT'
+            }}</span>
+            <h2>Draft gains are ready for review</h2>
+            <p>
+              No firmware settings have been changed permanently. Validate or apply the draft
+              explicitly.
+            </p>
+            <div class="result-table">
+              <div class="result-row result-head">
+                <span>Target</span><span>Kp</span><span>Ki</span><span>Kd</span
+                ><span>Alternative</span>
+              </div>
+              @for (row of tunedRows(); track row.temperature) {
+                <div class="result-row">
+                  <strong>{{ row.temperature }} °C</strong><span>{{ row.kp.toFixed(2) }}</span
+                  ><span>{{ row.ki.toFixed(3) }}</span
+                  ><span>{{ row.kd.toFixed(1) }}</span
+                  ><span
+                    >P {{ row.conservativeKp.toFixed(2) }} · I {{ row.conservativeKi.toFixed(3) }} ·
+                    D {{ row.conservativeKd.toFixed(1) }}</span
+                  >
+                </div>
+              }
+            </div>
+            <div class="validation-summary">
+              <div>
+                <span>Peak integrity</span><strong class="good">{{ resultPeakSummary() }}</strong>
+              </div>
+              <div>
+                <span>Ku consistency</span><strong>{{ resultKuSpread() }}</strong>
+              </div>
+              <div><span>Standard load</span><strong>Recorded</strong></div>
+            </div>
+            <div class="result-actions">
+              <button
+                class="button secondary"
+                type="button"
+                [disabled]="!store.connected() || store.validation().status === 'running'"
+                (click)="runValidation()"
+              >
+                Run validation</button
+              ><button class="button secondary" type="button" (click)="keepTuneDraft()">
+                Keep as draft</button
+              ><button class="button primary" type="button" (click)="applyTuneResult()">
+                Apply gains
+              </button>
+            </div>
+            @if (store.validation().status !== 'idle') {
+              <div class="validation-run" role="status">
+                <div>
+                  <span>Bounded validation</span><strong>{{ store.validation().status }}</strong>
+                </div>
+                <p>
+                  {{ store.validation().sampleCount }} telemetry samples · maximum 20 minutes ·
+                  Standard load
+                </p>
+                @if (store.validation().metrics; as metrics) {
+                  <dl>
+                    <div>
+                      <dt>Overshoot</dt>
+                      <dd>{{ metrics.overshootC.toFixed(2) }} °C</dd>
+                    </div>
+                    <div>
+                      <dt>Steady error</dt>
+                      <dd>{{ metrics.steadyStateErrorC.toFixed(2) }} °C</dd>
+                    </div>
+                    <div>
+                      <dt>Sensor spread</dt>
+                      <dd>{{ metrics.maximumSensorSpreadC.toFixed(2) }} °C</dd>
+                    </div>
+                    <div>
+                      <dt>Outcome</dt>
+                      <dd>{{ metrics.passed ? 'Passed' : 'Review' }}</dd>
+                    </div>
+                  </dl>
+                }
+                @if (store.validation().error; as error) {
+                  <p class="field-error">{{ error }}</p>
+                }
+                @if (store.validation().status === 'running') {
+                  <button
+                    class="button danger-ghost"
+                    type="button"
+                    (click)="store.cancelValidation()"
+                  >
+                    Stop validation + request heater off
+                  </button>
+                }
+              </div>
+            }
+          </div>
+        }
+      </article>
+      <aside class="panel tune-method">
+        <span class="panel-kicker">METHOD</span>
+        <h3>What the workbench does</h3>
+        <ol>
+          <li>
+            <b>1</b
+            ><span>Read current gains with <code>M503</code>; refuse without rollback data.</span>
+          </li>
+          <li><b>2</b><span>Apply high P-only gains with I and D at zero.</span></li>
+          <li>
+            <b>3</b><span>Toggle <code>M104</code> between target and target − 5 °C.</span>
+          </li>
+          <li><b>4</b><span>Verify firmware output is near full-on/full-off.</span></li>
+          <li><b>5</b><span>Fit twelve peaks, propose gains, restore snapshot.</span></li>
+        </ol>
+        <div class="method-source">
+          Algorithm style <strong>Klipper pid_calibrate</strong
+          ><span>Adapted for target-only STM32 firmware</span>
+        </div>
+      </aside>
+    </section>
+  }
+
+  @if (section() === 'profiles') {
+    <section class="profile-library">
+      <div class="library-toolbar">
+        <div>
+          <span class="panel-kicker">LOCAL LIBRARY</span>
+          <h2>Profile revisions</h2>
+        </div>
+        <label class="search-field"
+          ><span aria-hidden="true">⌕</span
+          ><input
+            aria-label="Search profiles"
+            placeholder="Search profiles"
+            [ngModel]="profileSearch()"
+            (ngModelChange)="profileSearch.set($event)"
+        /></label>
+      </div>
+      <div class="profile-grid">
+        @for (profile of visibleProfiles(); track profile.id) {
+          <article class="panel profile-card">
+            <header>
+              <span class="profile-kind">{{ profile.kind.replace('-', ' ').toUpperCase() }}</span
+              ><span
+                class="state-chip"
+                [class.applied]="profile.state === 'applied'"
+                [class.validated]="profile.state === 'validated'"
+                >{{ profile.state.toUpperCase() }}</span
+              >
+            </header>
+            <h3>{{ profile.name }}</h3>
+            <p>{{ profileNote(profile) }}</p>
+            <div class="profile-meta">
+              <span>Schema v{{ profile.version }}</span
+              ><span>{{ profile.updatedAt | date: 'medium' }}</span>
+            </div>
+            <footer>
+              <button class="text-button" type="button" (click)="loadProfile(profile)">
+                {{ profile.kind === 'pid-schedule' ? 'Open in editor' : 'Use profile' }}</button
+              ><button
+                class="icon-button"
+                type="button"
+                (click)="removeProfile(profile)"
+                [attr.aria-label]="'Delete ' + profile.name"
+              >
+                ×
+              </button>
+            </footer>
+          </article>
+        }
+        @if (visibleProfiles().length === 0) {
+          <article class="panel empty-profile-card">
+            <strong>No profile revisions found</strong>
+            <span>Save a PID schedule or oven model to create the first revision.</span>
+          </article>
+        }
+        <button class="new-profile-card" type="button" (click)="section.set('schedule')">
+          <span>+</span><strong>New PID profile</strong
+          ><small>Start with a breakpoint schedule</small>
+        </button>
+      </div>
+    </section>
+  }
+</div>

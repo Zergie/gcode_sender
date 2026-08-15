@@ -1,0 +1,251 @@
+<div class="page settings-page">
+  <app-page-header
+    title="Settings"
+    description="Configure the desktop connection, appearance, and offline data policy."
+  >
+    <button class="button primary" type="button" (click)="saveRuntimeSettings()">
+      Save settings
+    </button>
+  </app-page-header>
+
+  <section class="settings-layout">
+    <div class="settings-main">
+      <article class="panel settings-card">
+        <header>
+          <div class="settings-icon"><app-icon name="plug" /></div>
+          <div>
+            <span class="panel-kicker">HARDWARE</span>
+            <h2>Serial connection</h2>
+            <p>Ports are always selected manually. The workbench never auto-connects.</p>
+          </div>
+        </header>
+        <div class="settings-fields">
+          <label class="field"
+            ><span>Serial port</span>
+            <select [ngModel]="store.selectedPort()" (ngModelChange)="selectPort($event)">
+              <option value="">Choose a serial port</option>
+              @for (port of store.ports(); track port.path) {
+                <option [value]="port.path">
+                  {{ port.path }} — {{ port.friendlyName ?? port.manufacturer ?? 'Serial device' }}
+                </option>
+              }
+            </select>
+          </label>
+          <div class="field">
+            <span>Baud rate</span>
+            <div class="fixed-value"><strong>115200</strong><em>FIXED BY FIRMWARE</em></div>
+          </div>
+          <button
+            class="button secondary refresh-ports"
+            type="button"
+            (click)="store.refreshPorts()"
+          >
+            Refresh ports
+          </button>
+        </div>
+        <div class="connection-summary" [class.connected]="store.connected()">
+          <span
+            ><i></i><strong>{{ store.connected() ? 'Connected' : 'Disconnected' }}</strong
+            ><small>{{ store.connection().portPath ?? 'No active port' }}</small></span
+          ><button
+            class="button secondary"
+            type="button"
+            [disabled]="!store.connected() && !store.selectedPort()"
+            (click)="store.toggleConnection()"
+          >
+            {{ store.connected() ? 'Disconnect' : 'Connect' }}
+          </button>
+        </div>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
+          <div class="settings-icon">&gt;_</div>
+          <div>
+            <span class="panel-kicker">SESSION START</span>
+            <h2>Startup macro</h2>
+            <p>
+              Optional commands sent after a successful firmware handshake. Empty means disabled.
+            </p>
+          </div>
+        </header>
+        <label class="field"
+          ><span>Commands · one per line</span
+          ><textarea
+            rows="4"
+            spellcheck="false"
+            placeholder="M105&#10;M503"
+            [ngModel]="startupMacro()"
+            (ngModelChange)="startupMacro.set($event)"
+          ></textarea>
+        </label>
+        <div class="settings-inline-note">
+          <span>{{
+            startupMacro().trim()
+              ? startupMacro().trim().split('\n').length + ' command(s) will run'
+              : 'No startup macro configured'
+          }}</span
+          ><small>There is intentionally no separate enable switch.</small>
+        </div>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
+          <div class="settings-icon"><app-icon name="sun" /></div>
+          <div>
+            <span class="panel-kicker">APPEARANCE</span>
+            <h2>Theme</h2>
+            <p>Optimized for dense, high-DPI desktop displays.</p>
+          </div>
+        </header>
+        <div class="theme-options">
+          @for (theme of ['dark', 'light', 'system']; track theme) {
+            <button
+              type="button"
+              [class.active]="store.settings().theme === theme"
+              [attr.aria-pressed]="store.settings().theme === theme"
+              (click)="changeTheme($any(theme))"
+            >
+              <span class="theme-preview" [class]="theme"><i></i><i></i><i></i></span>
+              <strong>{{ themeLabel(theme) }}</strong>
+              <small>{{
+                theme === 'dark'
+                  ? 'Low-glare control room'
+                  : theme === 'light'
+                    ? 'Bright workspace'
+                    : 'Match operating system'
+              }}</small>
+            </button>
+          }
+        </div>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
+          <div class="settings-icon">⌛</div>
+          <div>
+            <span class="panel-kicker">STREAMING</span>
+            <h2>Command response timeout</h2>
+            <p>
+              A missing completion always pauses for an explicit Retry, Continue, or Stop decision.
+            </p>
+          </div>
+        </header>
+        <label class="field timeout-field"
+          ><span>Timeout</span>
+          <div class="unit-input">
+            <input
+              type="number"
+              min="1"
+              max="120"
+              [ngModel]="timeoutSeconds()"
+              (ngModelChange)="timeoutSeconds.set($event)"
+            /><em>seconds</em>
+          </div></label
+        >
+      </article>
+    </div>
+
+    <aside class="settings-rail">
+      <article class="panel catalog-card">
+        <header>
+          <div>
+            <span class="panel-kicker">COMMAND CATALOG</span>
+            <h2>Firmware reference</h2>
+          </div>
+          <span class="state-chip" [class.validated]="!store.catalog().stale">{{
+            store.catalog().stale ? 'STALE' : store.catalog().source.toUpperCase()
+          }}</span>
+        </header>
+        @if (store.catalogApproval(); as approval) {
+          <section class="catalog-approval" role="alertdialog" aria-labelledby="catalog-title">
+            <span class="panel-kicker">REMOTE ACCESS REQUEST</span>
+            <h3 id="catalog-title">Allow catalog host?</h3>
+            <strong>{{ approval.host }}</strong>
+            <p>{{ approval.url }}</p>
+            <div>
+              <button
+                class="button secondary"
+                type="button"
+                (click)="store.resolveCatalogApproval(false)"
+              >
+                Reject
+              </button>
+              <button
+                class="button primary"
+                type="button"
+                (click)="store.resolveCatalogApproval(true)"
+              >
+                Approve host
+              </button>
+            </div>
+          </section>
+        }
+        <div class="catalog-stat">
+          <strong>{{ store.catalog().entries.length }}</strong
+          ><span>commands available for terminal completion</span>
+        </div>
+        <dl>
+          <div>
+            <dt>Source</dt>
+            <dd>{{ store.catalog().source }}</dd>
+          </div>
+          <div>
+            <dt>Last fetched</dt>
+            <dd>{{ store.catalog().fetchedAt ?? 'Bundled fallback' }}</dd>
+          </div>
+          <div>
+            <dt>Policy</dt>
+            <dd>24 hour cache</dd>
+          </div>
+          <div>
+            <dt>Remote hosts</dt>
+            <dd>Approve once</dd>
+          </div>
+        </dl>
+        <button class="button secondary full" type="button" (click)="store.refreshCatalog()">
+          Refresh catalog
+        </button>
+        <p class="fine-print">
+          HTTPS only. Fetching occurs in the Electron main process with schema, timeout, and size
+          validation.
+        </p>
+      </article>
+
+      <article class="panel notification-card">
+        <span class="panel-kicker">NOTIFICATIONS</span>
+        <label class="switch-row"
+          ><span><strong>OS notifications</strong><small>When the window is unfocused</small></span
+          ><input
+            type="checkbox"
+            [ngModel]="osNotifications()"
+            (ngModelChange)="osNotifications.set($event)" /><i></i
+        ></label>
+        <div class="switch-row disabled">
+          <span><strong>Sound</strong><small>Off by design</small></span
+          ><em>OFF</em>
+        </div>
+        <div class="switch-row">
+          <span><strong>In-app messages</strong><small>Always enabled</small></span
+          ><em>ON</em>
+        </div>
+      </article>
+
+      <article class="panel data-card">
+        <span class="panel-kicker">LOCAL DATA</span>
+        <h3>Retention</h3>
+        <p>
+          Keep the latest 100 sessions or 90 days. Pinned sessions and profiles remain until
+          deleted.
+        </p>
+        <div>
+          <span>Sessions</span><strong>{{ store.sessions().length }}</strong>
+        </div>
+        <div>
+          <span>Profile revisions</span><strong>{{ store.profiles().length }}</strong>
+        </div>
+        <div><span>Storage</span><strong>Application data</strong></div>
+      </article>
+    </aside>
+  </section>
+</div>

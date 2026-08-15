@@ -1,20 +1,46 @@
+const path = require('node:path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
+const imagePath = (...segments) => path.resolve(__dirname, 'images', ...segments);
+
 module.exports = {
   packagerConfig: {
-    asar: true,
-    icon: "images/icon",
-    extraResource: [
-      "images/icon.ico",
-      "images/icon.png",
-    ]
+    asar: {
+      unpack: '**/*.node',
+    },
+    icon:
+      process.platform === 'win32'
+        ? imagePath('icon.ico')
+        : process.platform === 'linux'
+          ? imagePath('icon.png')
+          : undefined,
+    extraResource: [path.resolve(__dirname, 'images')],
+    ignore: [
+      /^\/\.angular(?:\/|$)/,
+      /^\/\.git(?:\/|$)/,
+      /^\/\.github(?:\/|$)/,
+      /^\/coverage(?:\/|$)/,
+      /^\/electron(?:\/|$)/,
+      /^\/out(?:\/|$)/,
+      /^\/public(?:\/|$)/,
+      /^\/shared(?:\/|$)/,
+      /^\/src(?:\/|$)/,
+      /^\/test-results(?:\/|$)/,
+      /^\/angular\.json$/,
+      /^\/eslint\.config\.mjs$/,
+      /^\/forge\.config\.js$/,
+      /^\/tsconfig(?:\.[^/]+)?\.json$/,
+    ],
   },
   rebuildConfig: {},
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        name: 'gcode_sender',
+        setupIcon: imagePath('icon.ico'),
+      },
     },
     {
       name: '@electron-forge/maker-zip',
@@ -22,11 +48,21 @@ module.exports = {
     },
     {
       name: '@electron-forge/maker-deb',
-      config: {},
+      config: {
+        options: {
+          icon: imagePath('icon.png'),
+          categories: ['Utility'],
+        },
+      },
     },
     {
       name: '@electron-forge/maker-rpm',
-      config: {},
+      config: {
+        options: {
+          icon: imagePath('icon.png'),
+          categories: ['Utility'],
+        },
+      },
     },
   ],
   plugins: [
@@ -34,8 +70,6 @@ module.exports = {
       name: '@electron-forge/plugin-auto-unpack-natives',
       config: {},
     },
-    // Fuses are used to enable/disable various Electron functionality
-    // at package time, before code signing the application
     new FusesPlugin({
       version: FuseVersion.V1,
       [FuseV1Options.RunAsNode]: false,

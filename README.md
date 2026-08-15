@@ -1,73 +1,124 @@
-# GCode Sender
+# GCode Sender v2
 
-GCode Sender is an Electron application designed to interface with Arduino, STM32, and RP2040 projects via GCode over a serial connection.
+GCode Sender is a cross-platform Electron + Angular workstation for the
+[pid_temp_with_gcode_stm32](https://github.com/Zergie/pid_temp_with_gcode_stm32)
+oven controller. It combines live thermal monitoring, manual G-code, streamed
+jobs, deterministic oven simulation, gain-scheduled PID profiles, model-assisted
+control, and supervised live PID calibration.
 
-![image](https://github.com/user-attachments/assets/ad176b5f-24e9-46e5-9d53-fa1faf02ae4e)
+> [!WARNING]
+> This desktop application is not a safety controller. Heater-off and Stop are
+> best effort. Disconnect intentionally closes the link without issuing a
+> heater-off command; the STM32 firmware and its watchdogs are the only safety
+> authority. Always supervise live heating.
 
-## Features
+## Supported hardware
 
-- Connect to serial ports with selectable baud rates.
-- Send GCode commands to connected devices.
-- Visualize temperatures in graphical form.
-- Suggest common GCode commands and and parameters as you type
-- View received messages from the device.
-- Simple and intuitive user interface.
-- Developed using Electron, making it cross-platform.
+v2 intentionally supports one hardware configuration:
 
-## Installation
+- two physical heaters (top and bottom) sharing one GPIO / actuator;
+- three thermistors, where T0 is the T1/T2 average and T3 is the
+  enclosure/safety sensor;
+- the existing pid_temp_with_gcode_stm32 firmware at fixed 115200 baud;
+- Marlin-leaning, line-oriented G-code without assuming full Marlin flow
+  control.
 
-1. Clone the repository:
-    ```sh
-    git clone https://github.com/Zergie/gcode_sender.git
-    cd gcode_sender
-    ```
+The firmware is out of scope for this repository. There is no required v2
+firmware. The desktop never sends M500, because persistence in the current
+firmware cannot be treated as reliable.
 
-2. Install dependencies:
-    ```sh
-    npm install
-    ```
+## Highlights
 
-3. Start the application:
-    ```sh
-    npm start
-    ```
+- Dashboard with T0–T3, target, power, connection state, and live trends.
+- Terminal with command history, telemetry, and a bundled 451-command catalog.
+- Streaming for .gcode, .gco, .gc, and .txt files, with completion-aware
+  pacing, pause/resume, explicit retry/continue/stop decisions, restart-line
+  logging, and no automatic resume after a disconnect.
+- Deterministic dual-zone oven simulation with 1x, 5x, 20x, 100x, and maximum
+  time warp.
+- PID-only and model-assisted PID control modes. Model-assisted mode shapes the
+  firmware target; the firmware always owns the actuator loop.
+- Target-temperature PID breakpoints with interpolation and paced M301
+  updates.
+- Supervised live-heater tuning based on Klipper's relay-peak method, adapted to
+  this firmware's target-only interface. Results remain drafts until explicitly
+  applied and are never persisted with M500.
+- Versioned profiles, session retention, pinning, and JSON import/export.
+- Firmware command-catalog refresh over approved HTTPS hosts with validation,
+  a 24-hour cache, and bundled fallback.
+- Dark, light, and system themes with a responsive 900x600 minimum layout.
 
-## Usage
+## Application layout
 
-1. Launch the application.
-2. Select the appropriate serial port and baud rate.
-3. Click the "Connect" button to establish a connection.
-4. Send GCode commands using the provided interface.
-5. View responses from the connected device.
+The navigation order is Dashboard, Terminal, Jobs, Simulation, Tuning &
+Profiles, Settings, and About.
+
+The startup macro is optional and empty by default. A serial port is never
+opened automatically; choose a port and connect manually. Disconnect remains
+available at all times.
 
 ## Development
 
-To contribute to the development of this application:
+Requirements:
 
-1. Fork the repository.
-2. Create a new branch for your feature or bugfix:
-    ```sh
-    git checkout -b feature-name
-    ```
-3. Make your changes and commit them:
-    ```sh
-    git commit -m "Description of changes"
-    ```
-4. Push your changes to your fork:
-    ```sh
-    git push origin feature-name
-    ```
-5. Create a pull request on GitHub.
+- Windows 10/11 for the verified development and packaging workflow;
+- Node.js 24.19 or newer;
+- npm 12 or newer.
 
-## License
+Install and start:
 
-This project is licensed under the GPL-2.0-only License. See the [LICENSE](http://_vscodecontentref_/0) file for details.
+    npm install
+    npm start
 
-## Author
+Useful commands:
 
-Developed by Wolfgang Puchinger.
+    npm run build
+    npm test
+    npm run lint
+    npm run format:check
+    npm run rebuild:native
+    npm run package
+    npm run make
 
-## Links
+npm start runs the Angular development server and Electron together.
+npm run package creates an unpacked Windows application; npm run make creates
+the configured Windows installer.
 
-- [Homepage](https://github.com/Zergie/gcode_sender)
-- [Issues](https://github.com/Zergie/gcode_sender/issues)
+Electron Forge also contains macOS ZIP and Linux DEB/RPM makers. Those targets
+are kept portable in the source, but this release was tested only on Windows
+and is not signed or notarized.
+
+## Design boundaries
+
+- Electron's renderer is sandboxed and communicates through a typed preload API;
+  serial and filesystem access stay in the main process.
+- A single exclusive activity lane prevents job streaming and live tuning from
+  issuing overlapping machine commands.
+- Time warp advances simulation time only. It never accelerates commands sent to
+  physical hardware.
+- Feed-forward is exposed as model-assisted PID correction, not uncontrolled
+  open-loop heater power.
+- A live tune snapshots firmware gains using M503, validates reported output,
+  gathers 12 alternating peaks, derives draft candidates, sets M104 S0, and
+  restores prior gains when the protocol permits. A cable pull or application
+  crash can still prevent rollback.
+- Unknown job-command timeouts require an explicit operator decision.
+- G-code files are streamed as provided after comment/blank-line normalization;
+  they are not semantically preflighted.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the module and protocol design.
+
+## Privacy and network access
+
+The app has no updater and does not send telemetry. Its only intended network
+operation is an operator-approved HTTPS command-catalog fetch from the URL
+reported by firmware. Cached and bundled catalogs keep the terminal usable
+offline.
+
+## License and attribution
+
+GCode Sender is licensed under [GPL-3.0-or-later](LICENSE). The live tuning
+method is derived from Klipper's pid_calibrate.py; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+Copyright © 2026 Wolfgang Puchinger and contributors.

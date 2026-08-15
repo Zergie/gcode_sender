@@ -1,0 +1,249 @@
+<div class="page dashboard-page">
+  <app-page-header
+    title="Dashboard"
+    description="Live thermal state, target control, and run supervision."
+  >
+    <div class="segmented" aria-label="Control mode">
+      <button
+        type="button"
+        [class.active]="store.controlMode() === 'pid'"
+        [attr.aria-pressed]="store.controlMode() === 'pid'"
+        (click)="store.setMode('pid')"
+      >
+        PID
+      </button>
+      <button
+        type="button"
+        [class.active]="store.controlMode() === 'model-assisted'"
+        [attr.aria-pressed]="store.controlMode() === 'model-assisted'"
+        (click)="store.setMode('model-assisted')"
+      >
+        Model-assisted PID
+      </button>
+    </div>
+  </app-page-header>
+
+  @if (!store.connected()) {
+    <section class="notice-banner warning">
+      <app-icon name="alert" />
+      <div>
+        <strong>Oven is disconnected</strong
+        ><span>Choose a serial port in Settings, then connect when the controller is ready.</span>
+      </div>
+      <button class="button secondary" type="button" (click)="store.toggleConnection()">
+        Connect
+      </button>
+    </section>
+  }
+  @if (store.connection().error; as error) {
+    <section class="notice-banner danger">
+      <app-icon name="alert" />
+      <div>
+        <strong>{{ error.code }}</strong
+        ><span>{{ error.message }}</span>
+      </div>
+      <button class="button secondary" type="button" (click)="store.refreshPorts()">
+        Refresh ports
+      </button>
+    </section>
+  }
+
+  <section class="metric-grid">
+    <article class="metric-card primary">
+      <div class="metric-top">
+        <span class="sensor-dot t0"></span><span>CONTROL AVERAGE</span><em>T0</em>
+      </div>
+      <div class="metric-value">{{ store.telemetry().average.toFixed(1) }}<small>°C</small></div>
+      <div class="metric-footer">
+        <span
+          [class.positive]="
+            store.telemetryLive() && store.controlArmed() && store.averageDelta() > 0
+          "
+          >{{
+            !store.telemetryLive()
+              ? 'Awaiting telemetry'
+              : store.controlArmed()
+                ? '↗ ' + store.averageDelta().toFixed(1) + '° to target'
+                : 'Desktop control disarmed'
+          }}</span
+        ><span>AVG T1/T2</span>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-top">
+        <span class="sensor-dot t1"></span><span>TOP SENSOR</span><em>T1</em>
+      </div>
+      <div class="metric-value">
+        {{ store.telemetry().thermistors[0].toFixed(1) }}<small>°C</small>
+      </div>
+      <div class="metric-footer">
+        <span>{{
+          store.telemetryLive()
+            ? (store.telemetry().thermistors[0] - store.telemetry().average).toFixed(1) + '° vs avg'
+            : 'Awaiting telemetry'
+        }}</span
+        ><span>TOP HEATER</span>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-top">
+        <span class="sensor-dot t2"></span><span>BOTTOM SENSOR</span><em>T2</em>
+      </div>
+      <div class="metric-value">
+        {{ store.telemetry().thermistors[1].toFixed(1) }}<small>°C</small>
+      </div>
+      <div class="metric-footer">
+        <span>{{
+          store.telemetryLive()
+            ? (store.telemetry().thermistors[1] - store.telemetry().average).toFixed(1) + '° vs avg'
+            : 'Awaiting telemetry'
+        }}</span
+        ><span>BOTTOM HEATER</span>
+      </div>
+    </article>
+    <article class="metric-card">
+      <div class="metric-top">
+        <span class="sensor-dot t3"></span><span>ENCLOSURE</span><em>T3</em>
+      </div>
+      <div class="metric-value">
+        {{ store.telemetry().thermistors[2].toFixed(1) }}<small>°C</small>
+      </div>
+      <div class="metric-footer">
+        <span [class.safe]="store.telemetryLive()">{{
+          store.telemetryLive() ? 'Within expected range' : 'Awaiting telemetry'
+        }}</span
+        ><span>SAFETY</span>
+      </div>
+    </article>
+  </section>
+
+  <section class="dashboard-layout">
+    <article class="panel chart-panel">
+      <header class="panel-header">
+        <div>
+          <span class="panel-kicker">TEMPERATURE HISTORY</span>
+          <h2>Thermal response</h2>
+        </div>
+        <div class="chart-tools">
+          <div class="legend">
+            <span class="avg">T0 average</span><span class="top">T1</span
+            ><span class="bottom">T2</span><span class="model">Model target</span>
+          </div>
+          <div class="segmented compact">
+            @for (item of ['5m', '30m', '2h', 'Job']; track item) {
+              <button
+                type="button"
+                [class.active]="range() === item"
+                [attr.aria-pressed]="range() === item"
+                (click)="range.set(item)"
+              >
+                {{ item }}
+              </button>
+            }
+          </div>
+        </div>
+      </header>
+      <div class="chart-body"><app-trend-chart [points]="chartPoints()" /></div>
+      <footer class="chart-status">
+        <div>
+          <span>Requested</span><strong>{{ store.requestedTarget().toFixed(1) }}°C</strong>
+        </div>
+        <div>
+          <span>Model target</span
+          ><strong class="blue">{{ store.modelTarget().toFixed(1) }}°C</strong>
+        </div>
+        <div>
+          <span>Firmware target</span><strong>{{ store.telemetry().target.toFixed(1) }}°C</strong>
+        </div>
+        <div>
+          <span>Sample state</span><strong>{{ store.telemetryLive() ? 'Live' : '—' }}</strong>
+        </div>
+      </footer>
+    </article>
+
+    <aside class="dashboard-rail">
+      <article class="panel target-panel">
+        <div class="panel-kicker">HEATER TARGET</div>
+        <div class="target-input">
+          <button type="button" (click)="adjustTarget(-5)" aria-label="Decrease target">−</button>
+          <label
+            ><input
+              type="number"
+              min="0"
+              max="250"
+              step="1"
+              [ngModel]="targetDraft()"
+              (ngModelChange)="targetDraft.set($event)"
+            /><span>°C</span></label
+          >
+          <button type="button" (click)="adjustTarget(5)" aria-label="Increase target">+</button>
+        </div>
+        <input
+          class="target-slider"
+          type="range"
+          min="0"
+          max="250"
+          step="1"
+          [ngModel]="targetDraft()"
+          (ngModelChange)="targetDraft.set($event)"
+          aria-label="Target temperature"
+        />
+        <div class="scale"><span>0°</span><span>125°</span><span>250°</span></div>
+        <button
+          class="button primary full"
+          type="button"
+          [disabled]="!store.connected()"
+          (click)="applyTarget()"
+        >
+          {{ store.controlArmed() ? 'Update armed target' : 'Apply & arm control' }}
+        </button>
+        <button class="button danger-ghost full" type="button" (click)="store.stopHeating()">
+          <app-icon name="power" /> Stop heating
+        </button>
+        <p class="fine-print">
+          Connecting only starts <code>M155 S1</code> monitoring. Target control remains disarmed
+          until you apply it here. Stop sends <code>M104 S0</code> and waits for firmware
+          acknowledgement, but remains best effort under link loss.
+        </p>
+      </article>
+
+      <article class="panel output-panel">
+        <div class="output-head">
+          <div>
+            <span class="panel-kicker">SHARED HEATER OUTPUT</span
+            ><strong>{{ ((store.telemetry().power / 255) * 100).toFixed(0) }}%</strong>
+          </div>
+          <span>{{ store.telemetry().power.toFixed(0) }} / 255</span>
+        </div>
+        <div class="power-track">
+          <span [style.width.%]="(store.telemetry().power / 255) * 100"></span>
+        </div>
+        <div class="heater-pair">
+          <div><i class="heat top"></i><span>TOP</span><strong>920 W</strong></div>
+          <div class="link-line">ONE GPIO</div>
+          <div><i class="heat bottom"></i><span>BOTTOM</span><strong>920 W</strong></div>
+        </div>
+      </article>
+
+      <article class="panel run-card">
+        <div class="run-title">
+          <span class="job-icon">G</span>
+          <div>
+            <span class="panel-kicker">CURRENT JOB</span
+            ><strong>{{ store.job().file?.name ?? 'No active job' }}</strong>
+          </div>
+          <em>{{ store.job().status }}</em>
+        </div>
+        @if (store.job().progress; as progress) {
+          <div class="progress-line"><span [style.width.%]="progress.percent"></span></div>
+          <div class="run-meta">
+            <span>{{ progress.percent.toFixed(0) }}% · line {{ progress.sourceLine }}</span
+            ><span>{{
+              progress.etaMs === null ? '—' : (progress.etaMs / 60000).toFixed(0) + ' min left'
+            }}</span>
+          </div>
+        }
+      </article>
+    </aside>
+  </section>
+</div>

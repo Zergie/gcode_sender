@@ -1,0 +1,105 @@
+<div class="page terminal-page">
+  <app-page-header
+    title="Terminal"
+    description="Raw firmware conversation with command history and catalog assistance."
+  >
+    <span class="status-chip" [class.online]="store.connected()"
+      ><i></i
+      >{{ store.connected() ? store.connection().portPath + ' · 115200' : 'Not connected' }}</span
+    >
+    <button class="button secondary" type="button" (click)="store.clearTerminal()">Clear</button>
+    <button class="button secondary" type="button" (click)="store.saveTerminalSession()">
+      Save session
+    </button>
+    <button class="button secondary" type="button" (click)="store.exportTerminalSession('csv')">
+      Export CSV
+    </button>
+  </app-page-header>
+
+  @if (store.terminalLocked()) {
+    <section class="notice-banner warning">
+      <app-icon name="alert" />
+      <div>
+        <strong>Manual transmission locked</strong
+        ><span
+          >{{ store.activity().active ?? 'File streaming' }} owns the serial channel. Incoming
+          output remains visible.</span
+        >
+      </div>
+    </section>
+  }
+
+  <section class="terminal-shell panel">
+    <header class="terminal-toolbar">
+      <div class="traffic-legend">
+        <span class="rx">RX</span> Controller <span class="tx">TX</span> Workbench
+      </div>
+      <div>
+        <span>{{ store.terminal().length }} lines</span><span>UTF-8</span><span>Auto-scroll</span>
+      </div>
+    </header>
+    <div class="terminal-output" role="log" aria-live="polite">
+      @for (entry of store.terminal(); track entry.id) {
+        <div
+          class="terminal-line"
+          [class.tx]="entry.direction === 'tx'"
+          [class.system]="entry.origin === 'system'"
+        >
+          <time>{{ entry.timestamp | date: 'HH:mm:ss.SSS' }}</time>
+          <span class="direction">{{ entry.direction.toUpperCase() }}</span>
+          <code>{{ entry.line }}</code>
+        </div>
+      } @empty {
+        <div class="terminal-empty">No serial traffic in this session.</div>
+      }
+    </div>
+    <footer class="terminal-composer">
+      <div class="prompt">&gt;</div>
+      <div class="command-field">
+        <textarea
+          rows="2"
+          spellcheck="false"
+          autocomplete="off"
+          aria-label="G-code command"
+          placeholder="Enter G-code · Shift+Enter for a new line"
+          [disabled]="store.terminalLocked()"
+          [ngModel]="command()"
+          (ngModelChange)="command.set($event)"
+          (keydown)="onKeydown($event)"
+        ></textarea>
+        @if (suggestions().length > 0 && command().length > 0) {
+          <div class="autocomplete" role="listbox">
+            @for (suggestion of suggestions(); track suggestion.code) {
+              <button
+                type="button"
+                role="option"
+                aria-selected="false"
+                (click)="useSuggestion(suggestion.code)"
+              >
+                <code>{{ suggestion.code }}</code
+                ><span>{{ suggestion.description }}</span>
+              </button>
+            }
+          </div>
+        }
+      </div>
+      <button
+        class="button primary send-button"
+        type="button"
+        [disabled]="store.terminalLocked() || !command().trim()"
+        (click)="send()"
+      >
+        Send <kbd>↵</kbd>
+      </button>
+    </footer>
+  </section>
+
+  <div class="terminal-hints">
+    <span><kbd>↑</kbd><kbd>↓</kbd> History</span>
+    <span><kbd>Shift</kbd> + <kbd>Enter</kbd> Multi-line</span>
+    <span
+      >Catalog: <strong>{{ store.catalog().entries.length }} commands</strong> ·
+      {{ store.catalog().source }}</span
+    >
+  </div>
+</div>

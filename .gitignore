@@ -48,6 +48,11 @@ web_modules/
 # TypeScript cache
 *.tsbuildinfo
 
+# Angular and Electron build output
+.angular/
+out/
+.playwright-cli/
+
 # Optional npm cache directory
 .npm
 

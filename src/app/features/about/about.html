@@ -1,0 +1,132 @@
+<div class="page about-page">
+  <app-page-header title="About" description="Build, license, compatibility, and safety scope." />
+
+  <section class="about-hero panel">
+    <div class="about-mark"><span></span><span></span></div>
+    <div>
+      <span class="panel-kicker">GCODE SENDER</span>
+      <h1>Thermal G-code Workbench</h1>
+      <p>
+        A focused desktop environment for monitoring, streaming, simulation, and temperature-control
+        tuning.
+      </p>
+    </div>
+    <div class="about-version"><span>VERSION</span><strong>2.0.0</strong><em>v2 branch</em></div>
+  </section>
+
+  <section class="about-grid">
+    <article class="panel about-card">
+      <span class="about-card-icon">⌁</span><span class="panel-kicker">SUPPORTED HARDWARE</span>
+      <h2>STM32 PID oven controller</h2>
+      <p>
+        Built around the current <code>pid_temp_with_gcode_stm32</code> firmware and its
+        Marlin-leaning G-code dialect.
+      </p>
+      <dl>
+        <div>
+          <dt>Heaters</dt>
+          <dd>Top + bottom · one GPIO</dd>
+        </div>
+        <div>
+          <dt>Sensors</dt>
+          <dd>T1, T2, T3 · T0 average</dd>
+        </div>
+        <div>
+          <dt>Serial</dt>
+          <dd>115200 baud</dd>
+        </div>
+      </dl>
+      <span class="scope-chip">ONLY SUPPORTED HARDWARE</span>
+    </article>
+    <article class="panel about-card">
+      <span class="about-card-icon license">§</span><span class="panel-kicker">OPEN SOURCE</span>
+      <h2>GPL-3.0-or-later</h2>
+      <p>
+        You may use, study, share, and modify this application under the GNU General Public License,
+        version 3 or any later version.
+      </p>
+      <button
+        class="text-button"
+        type="button"
+        (click)="store.openExternal('https://www.gnu.org/licenses/gpl-3.0.html')"
+      >
+        Read the license ↗
+      </button>
+    </article>
+    <article class="panel about-card">
+      <span class="about-card-icon safety"><app-icon name="alert" /></span
+      ><span class="panel-kicker">SAFETY BOUNDARY</span>
+      <h2>Firmware is the authority</h2>
+      <p>
+        Desktop Stop is best effort. Disconnect intentionally closes the link without issuing a
+        heater-off command. This application is not a safety controller and relies exclusively on
+        firmware watchdogs and protections.
+      </p>
+      <div class="safety-rule">
+        <strong>Always supervise live heating.</strong
+        ><span>What happens after disconnect is defined by firmware, not this app.</span>
+      </div>
+    </article>
+  </section>
+
+  <section class="about-details">
+    <article class="panel">
+      <header class="panel-header">
+        <div>
+          <span class="panel-kicker">RUNTIME</span>
+          <h2>System information</h2>
+        </div>
+        <span class="state-chip applied">{{
+          store.isDesktop() ? 'ELECTRON' : 'BROWSER DEMO'
+        }}</span>
+      </header>
+      <div class="runtime-grid">
+        <div>
+          <span>Platform</span><strong>{{ store.systemInfo().platform }}</strong>
+        </div>
+        <div>
+          <span>Architecture</span><strong>{{ store.systemInfo().arch }}</strong>
+        </div>
+        <div>
+          <span>Electron</span
+          ><strong>{{ store.systemInfo().versions['electron'] ?? 'Preview' }}</strong>
+        </div>
+        <div><span>Angular</span><strong>22</strong></div>
+      </div>
+    </article>
+    <article class="panel attribution">
+      <span class="panel-kicker">ATTRIBUTION</span>
+      <h2>Built on excellent work</h2>
+      <p>
+        The live PID calibration workflow follows the relay-peak approach used by Klipper's
+        <code>pid_calibrate.py</code>, adapted for firmware that exposes temperature targets rather
+        than raw PWM.
+      </p>
+      <button
+        class="text-button"
+        type="button"
+        (click)="
+          store.openExternal(
+            'https://github.com/Klipper3d/klipper/blob/master/klippy/extras/pid_calibrate.py'
+          )
+        "
+      >
+        View upstream method ↗
+      </button>
+    </article>
+  </section>
+
+  <footer class="about-footer">
+    <span>© 2026 Wolfgang Puchinger and contributors</span>
+    <div>
+      <button type="button" (click)="store.openExternal('https://github.com/Zergie/gcode_sender')">
+        Source code ↗</button
+      ><button
+        type="button"
+        (click)="store.openExternal('https://github.com/Zergie/gcode_sender/issues')"
+      >
+        Report an issue ↗
+      </button>
+    </div>
+  </footer>
+</div>

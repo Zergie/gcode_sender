@@ -1,0 +1,495 @@
+<div class="page simulation-page">
+  <app-page-header
+    title="Simulation"
+    description="Explore a deterministic dual-zone oven model before touching hardware."
+  >
+    <button class="button secondary" type="button" (click)="saveModelDraft()">Save draft</button>
+    <button
+      class="button secondary"
+      type="button"
+      [disabled]="configurationError() !== null"
+      (click)="useForControl()"
+    >
+      Use for model-assisted control
+    </button>
+    <button
+      class="button primary"
+      type="button"
+      [disabled]="configurationError() !== null"
+      (click)="run()"
+    >
+      Run simulation
+    </button>
+  </app-page-header>
+
+  <section class="simulation-layout">
+    <aside class="simulation-controls panel">
+      <div class="model-heading">
+        <div>
+          <span class="panel-kicker">OVEN MODEL</span>
+          <h2>{{ profile().name }}</h2>
+        </div>
+        <span class="version-chip">MODEL v1</span>
+      </div>
+      <p class="model-summary">
+        Two 920 W elements, one shared actuator, three thermistors. T0 is always the mean of T1 and
+        T2.
+      </p>
+      <label class="field model-name"
+        ><span>Model name</span
+        ><input [ngModel]="profile().name" (ngModelChange)="updateProfile('name', $event)"
+      /></label>
+
+      <div class="form-section">
+        <h3>Scenario</h3>
+        <div class="field-grid two">
+          <label class="field"
+            ><span>Target</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="0"
+                max="250"
+                [ngModel]="target()"
+                (ngModelChange)="updateTarget($event)"
+              /><em>°C</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Duration</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                max="180"
+                [ngModel]="durationMinutes()"
+                (ngModelChange)="updateDuration($event)"
+              /><em>min</em>
+            </div></label
+          >
+        </div>
+        @if (configurationError(); as error) {
+          <p class="field-error" role="alert">{{ error }}</p>
+        }
+      </div>
+
+      <div class="form-section">
+        <h3>Environment & power</h3>
+        <label class="range-field"
+          ><span
+            ><b>Ambient</b><output>{{ profile().ambientTemperatureC }} °C</output></span
+          ><input
+            type="range"
+            min="0"
+            max="45"
+            step="1"
+            [ngModel]="profile().ambientTemperatureC"
+            (ngModelChange)="updateProfile('ambientTemperatureC', $event)"
+        /></label>
+        <label class="range-field"
+          ><span
+            ><b>Top element</b><output>{{ profile().topHeater.watts }} W</output></span
+          ><input
+            type="range"
+            min="200"
+            max="1600"
+            step="10"
+            [ngModel]="profile().topHeater.watts"
+            (ngModelChange)="updateHeater('topHeater', $event)"
+        /></label>
+        <label class="range-field"
+          ><span
+            ><b>Bottom element</b><output>{{ profile().bottomHeater.watts }} W</output></span
+          ><input
+            type="range"
+            min="200"
+            max="1600"
+            step="10"
+            [ngModel]="profile().bottomHeater.watts"
+            (ngModelChange)="updateHeater('bottomHeater', $event)"
+        /></label>
+        <label class="range-field"
+          ><span
+            ><b>Actuator dead time</b
+            ><output>{{ profile().actuationDeadTimeSeconds }} s</output></span
+          ><input
+            type="range"
+            min="0"
+            max="15"
+            step=".25"
+            [ngModel]="profile().actuationDeadTimeSeconds"
+            (ngModelChange)="updateProfile('actuationDeadTimeSeconds', $event)"
+        /></label>
+      </div>
+
+      <button class="advanced-toggle" type="button" (click)="advanced.update((value) => !value)">
+        <span>{{ advanced() ? '−' : '+' }}</span> Advanced model parameters
+        <em>{{ advanced() ? 'Hide' : 'Show' }}</em>
+      </button>
+      @if (advanced()) {
+        <div class="form-section advanced-fields">
+          <label class="field"
+            ><span>Top thermal mass (J/°C)</span
+            ><input
+              type="number"
+              [ngModel]="profile().thermal.topZoneThermalMassJPerC"
+              (ngModelChange)="updateThermal('topZoneThermalMassJPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Bottom thermal mass (J/°C)</span
+            ><input
+              type="number"
+              [ngModel]="profile().thermal.bottomZoneThermalMassJPerC"
+              (ngModelChange)="updateThermal('bottomZoneThermalMassJPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Enclosure thermal mass (J/°C)</span
+            ><input
+              type="number"
+              min="1"
+              [ngModel]="profile().thermal.enclosureThermalMassJPerC"
+              (ngModelChange)="updateThermal('enclosureThermalMassJPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Top heat loss (W/°C)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().thermal.topZoneHeatLossWPerC"
+              (ngModelChange)="updateThermal('topZoneHeatLossWPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Bottom heat loss (W/°C)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().thermal.bottomZoneHeatLossWPerC"
+              (ngModelChange)="updateThermal('bottomZoneHeatLossWPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Enclosure heat loss (W/°C)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().thermal.enclosureHeatLossWPerC"
+              (ngModelChange)="updateThermal('enclosureHeatLossWPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Zone coupling (W/°C)</span
+            ><input
+              type="number"
+              step=".1"
+              [ngModel]="profile().thermal.zoneCouplingWPerC"
+              (ngModelChange)="updateThermal('zoneCouplingWPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Top/enclosure coupling (W/°C)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().thermal.topToEnclosureCouplingWPerC"
+              (ngModelChange)="updateThermal('topToEnclosureCouplingWPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Bottom/enclosure coupling (W/°C)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().thermal.bottomToEnclosureCouplingWPerC"
+              (ngModelChange)="updateThermal('bottomToEnclosureCouplingWPerC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Top efficiency (0–1)</span
+            ><input
+              type="number"
+              min="0.01"
+              max="1"
+              step=".01"
+              [ngModel]="profile().topHeater.efficiency"
+              (ngModelChange)="updateHeaterEfficiency('topHeater', $event)"
+          /></label>
+          <label class="field"
+            ><span>Bottom efficiency (0–1)</span
+            ><input
+              type="number"
+              min="0.01"
+              max="1"
+              step=".01"
+              [ngModel]="profile().bottomHeater.efficiency"
+              (ngModelChange)="updateHeaterEfficiency('bottomHeater', $event)"
+          /></label>
+          <label class="field"
+            ><span>T1 sensor lag (s)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().sensors.t1LagSeconds"
+              (ngModelChange)="updateSensor('t1LagSeconds', $event)"
+          /></label>
+          <label class="field"
+            ><span>T2 sensor lag (s)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().sensors.t2LagSeconds"
+              (ngModelChange)="updateSensor('t2LagSeconds', $event)"
+          /></label>
+          <label class="field"
+            ><span>T3 sensor lag (s)</span
+            ><input
+              type="number"
+              min="0"
+              step=".1"
+              [ngModel]="profile().sensors.t3LagSeconds"
+              (ngModelChange)="updateSensor('t3LagSeconds', $event)"
+          /></label>
+          <label class="field"
+            ><span>Sensor noise (σ °C)</span
+            ><input
+              type="number"
+              step=".01"
+              [ngModel]="profile().sensors.noiseStandardDeviationC"
+              (ngModelChange)="updateSensor('noiseStandardDeviationC', $event)"
+          /></label>
+          <label class="field"
+            ><span>Heating ramp (°C/min)</span
+            ><input
+              type="number"
+              min="0.1"
+              step="1"
+              [ngModel]="modelAssistance().heatingRampCPerMinute"
+              (ngModelChange)="updateAssistance('heatingRampCPerMinute', $event)"
+          /></label>
+          <label class="field"
+            ><span>Cooling ramp (°C/min)</span
+            ><input
+              type="number"
+              min="0.1"
+              step="1"
+              [ngModel]="modelAssistance().coolingRampCPerMinute"
+              (ngModelChange)="updateAssistance('coolingRampCPerMinute', $event)"
+          /></label>
+          <label class="field"
+            ><span>Prediction horizon (s)</span
+            ><input
+              type="number"
+              min="0"
+              step="1"
+              [ngModel]="modelAssistance().predictionHorizonSeconds"
+              (ngModelChange)="updateAssistance('predictionHorizonSeconds', $event)"
+          /></label>
+          <label class="field"
+            ><span>Maximum target lead (°C)</span
+            ><input
+              type="number"
+              min="0"
+              step="1"
+              [ngModel]="modelAssistance().maximumTargetLeadC"
+              (ngModelChange)="updateAssistance('maximumTargetLeadC', $event)"
+          /></label>
+        </div>
+      }
+      <div class="fixed-step-note">
+        <span>FIXED SOLVER STEP</span><strong>{{ profile().solverStepSeconds }} s</strong
+        ><small
+          >Timewarp changes pacing, never Δt. Both variants use the active
+          {{ store.pidSchedule().length }}-breakpoint PID schedule.</small
+        >
+      </div>
+    </aside>
+
+    <div class="simulation-workspace">
+      <article class="panel oven-visual-panel">
+        <header class="panel-header">
+          <div>
+            <span class="panel-kicker">LIVE MODEL STATE</span>
+            <h2>Thermal cutaway</h2>
+          </div>
+          <div class="simulation-clock">
+            <span>SIM TIME</span
+            ><strong>{{ (currentSample()?.timeSeconds ?? 0) / 60 | number: '1.1-1' }} min</strong>
+          </div>
+        </header>
+        <div class="oven-visual">
+          <div class="oven-shell">
+            <div
+              class="coil top"
+              [style.opacity]="0.25 + (currentSample()?.actuator?.applied ?? 0) * 0.75"
+            >
+              <i></i><i></i><i></i><i></i>
+            </div>
+            <div class="oven-air">
+              <span class="flow one">⌁</span><span class="flow two">⌁</span>
+              <div class="standard-load"><span>STANDARD</span><strong>LOAD</strong></div>
+            </div>
+            <div
+              class="coil bottom"
+              [style.opacity]="0.25 + (currentSample()?.actuator?.applied ?? 0) * 0.75"
+            >
+              <i></i><i></i><i></i><i></i>
+            </div>
+            <div class="sensor-pin pin-1">
+              T1
+              <b
+                >{{
+                  (currentSample()?.temperatures?.t1C ?? profile().ambientTemperatureC).toFixed(1)
+                }}°</b
+              >
+            </div>
+            <div class="sensor-pin pin-2">
+              T2
+              <b
+                >{{
+                  (currentSample()?.temperatures?.t2C ?? profile().ambientTemperatureC).toFixed(1)
+                }}°</b
+              >
+            </div>
+            <div class="sensor-pin pin-3">
+              T3
+              <b
+                >{{
+                  (currentSample()?.temperatures?.t3C ?? profile().ambientTemperatureC).toFixed(1)
+                }}°</b
+              >
+            </div>
+          </div>
+          <div class="visual-readout">
+            <div>
+              <span>T0 CONTROL</span
+              ><strong
+                >{{
+                  (currentSample()?.temperatures?.t0C ?? profile().ambientTemperatureC).toFixed(1)
+                }}<small>°C</small></strong
+              >
+            </div>
+            <div>
+              <span>SHARED GPIO</span
+              ><strong
+                >{{ ((currentSample()?.actuator?.applied ?? 0) * 100).toFixed(0)
+                }}<small>%</small></strong
+              >
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="panel simulation-chart">
+        <header class="panel-header">
+          <div>
+            <span class="panel-kicker">CONTROLLER COMPARISON</span>
+            <h2>Predicted response</h2>
+          </div>
+          <div class="segmented compact">
+            <button
+              type="button"
+              [class.active]="selectedVariant() === 'pid'"
+              [attr.aria-pressed]="selectedVariant() === 'pid'"
+              (click)="
+                selectedVariant.set('pid'); cursor.set(activeEntry()?.result?.samples?.length ?? 0)
+              "
+            >
+              PID
+            </button>
+            <button
+              type="button"
+              [class.active]="selectedVariant() === 'assisted'"
+              [attr.aria-pressed]="selectedVariant() === 'assisted'"
+              (click)="
+                selectedVariant.set('assisted');
+                cursor.set(activeEntry()?.result?.samples?.length ?? 0)
+              "
+            >
+              Model-assisted
+            </button>
+          </div>
+        </header>
+        <div class="chart-body"><app-trend-chart [points]="visibleTrend()" /></div>
+        <footer class="playback-bar">
+          <button
+            class="round-control"
+            type="button"
+            (click)="reset()"
+            aria-label="Reset simulation"
+          >
+            ↺
+          </button>
+          <button
+            class="round-control main"
+            type="button"
+            (click)="togglePlayback()"
+            [attr.aria-label]="paused() ? 'Play simulation' : 'Pause simulation'"
+          >
+            {{ paused() ? '▶' : 'Ⅱ' }}
+          </button>
+          <button class="round-control" type="button" (click)="step()" aria-label="Single step">
+            ▷|
+          </button>
+          <div class="playback-progress">
+            <span
+              [style.width.%]="(cursor() / (activeEntry()?.result?.samples?.length ?? 1)) * 100"
+            ></span>
+          </div>
+          <div class="timewarp">
+            <span>TIMEWARP</span>
+            @for (warp of warps; track warp) {
+              <button
+                type="button"
+                [class.active]="timewarp() === warp"
+                [attr.aria-pressed]="timewarp() === warp"
+                (click)="selectWarp(warp)"
+              >
+                {{ warp === 'maximum' ? 'MAX' : warp + '×' }}
+              </button>
+            }
+          </div>
+        </footer>
+      </article>
+
+      @if (comparison(); as result) {
+        <section class="simulation-metrics">
+          @for (entry of result.entries; track entry.id) {
+            <article
+              class="panel metric-comparison"
+              [class.preferred]="entry.id === preferredVariantId()"
+            >
+              <header>
+                <div>
+                  <span>{{ entry.id === 'pid' ? 'BASELINE' : 'MODEL-ASSISTED' }}</span
+                  ><strong>{{ entry.label }}</strong>
+                </div>
+                @if (entry.id === preferredVariantId()) {
+                  <em>LOWEST RMSE</em>
+                }
+              </header>
+              <div>
+                <span>RMSE</span
+                ><strong>{{ entry.result.metrics.rootMeanSquareErrorC.toFixed(2) }} °C</strong>
+              </div>
+              <div>
+                <span>Max overshoot</span
+                ><strong>{{ entry.result.metrics.maximumOvershootC.toFixed(2) }} °C</strong>
+              </div>
+              <div>
+                <span>Energy</span
+                ><strong>{{ entry.result.metrics.energyWh.toFixed(0) }} Wh</strong>
+              </div>
+              <div>
+                <span>Sensor spread</span
+                ><strong
+                  >{{ entry.result.metrics.maximumControlSensorSpreadC.toFixed(2) }} °C</strong
+                >
+              </div>
+            </article>
+          }
+        </section>
+      }
+    </div>
+  </section>
+</div>

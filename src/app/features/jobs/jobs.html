@@ -1,0 +1,179 @@
+<div class="page jobs-page">
+  <app-page-header
+    title="Jobs"
+    description="Stream large G-code files with explicit pacing and recovery decisions."
+  >
+    <button class="button primary" type="button" (click)="store.chooseJob()">Choose file</button>
+  </app-page-header>
+
+  @if (store.jobTimeout(); as timeout) {
+    <section class="notice-banner danger">
+      <app-icon name="alert" />
+      <div>
+        <strong>No completion received for line {{ timeout.sourceLine }}</strong
+        ><span
+          ><code>{{ timeout.command }}</code> exceeded {{ timeout.timeoutMs / 1000 }} seconds. The
+          command was not skipped.</span
+        >
+      </div>
+      <button class="button secondary" type="button" (click)="store.resolveJobTimeout('retry')">
+        Retry
+      </button>
+      <button class="button secondary" type="button" (click)="store.resolveJobTimeout('continue')">
+        Continue
+      </button>
+      <button class="button danger" type="button" (click)="store.resolveJobTimeout('stop')">
+        Stop
+      </button>
+    </section>
+  }
+
+  <div class="jobs-layout">
+    <section class="jobs-main">
+      <article
+        class="drop-zone panel"
+        [class.dragging]="dragging()"
+        (dragover)="onDragOver($event)"
+        (dragleave)="onDragLeave($event)"
+        (drop)="onDrop($event)"
+      >
+        <div class="drop-icon"><app-icon name="jobs" /></div>
+        <div>
+          <strong>Drop a G-code file here</strong>
+          <span>.gcode, .gco, .gc, or .txt · UTF-8 / ASCII</span>
+        </div>
+        <button class="button secondary" type="button" (click)="store.chooseJob()">
+          Browse files
+        </button>
+      </article>
+
+      @if (store.selectedJob(); as file) {
+        <article class="panel selected-file">
+          <header class="panel-header">
+            <div class="file-identity">
+              <span class="file-badge">G</span>
+              <div>
+                <span class="panel-kicker">SELECTED FILE</span>
+                <h2>{{ file.name }}</h2>
+                <p>
+                  {{ formatBytes(file.sizeBytes) }} · modified
+                  {{ file.modifiedAt | date: 'medium' }}
+                </p>
+              </div>
+            </div>
+            <span class="format-chip">{{ file.extension.slice(1).toUpperCase() }}</span>
+          </header>
+          <div class="stream-facts">
+            <div><span>Streaming mode</span><strong>Line-by-line</strong></div>
+            <div><span>Blank lines & comments</span><strong>Removed during stream</strong></div>
+            <div><span>Command checks</span><strong>None</strong></div>
+            <div><span>Unknown completion</span><strong>Ask before continuing</strong></div>
+          </div>
+          <p class="fine-print">
+            The file is streamed rather than loaded into memory. Commands are not preflighted or
+            whitelisted.
+          </p>
+        </article>
+      }
+
+      @if (store.job().progress; as progress) {
+        <article class="panel job-progress-card">
+          <header class="panel-header">
+            <div>
+              <span class="panel-kicker">STREAM SESSION</span>
+              <h2>
+                {{
+                  store.job().status === 'streaming' ? 'Running' : (store.job().status | titlecase)
+                }}
+              </h2>
+            </div>
+            <span class="status-chip online"><i></i>{{ store.job().status }}</span>
+          </header>
+          <div class="big-progress"><span [style.width.%]="progress.percent"></span></div>
+          <div class="progress-stats">
+            <div>
+              <span>Progress</span><strong>{{ progress.percent.toFixed(1) }}%</strong>
+            </div>
+            <div>
+              <span>Source line</span><strong>{{ progress.sourceLine }}</strong>
+            </div>
+            <div>
+              <span>Commands completed</span><strong>{{ progress.completedCommands }}</strong>
+            </div>
+            <div>
+              <span>Elapsed</span><strong>{{ formatDuration(progress.elapsedMs) }}</strong>
+            </div>
+            <div>
+              <span>Estimated remaining</span><strong>{{ formatDuration(progress.etaMs) }}</strong>
+            </div>
+          </div>
+          <div class="job-controls">
+            <button class="button secondary" type="button" (click)="store.pauseOrResumeJob()">
+              {{ store.job().status === 'paused' ? 'Resume' : 'Pause after current' }}
+            </button>
+            <button class="button danger-ghost" type="button" (click)="store.stopJob()">
+              Stop stream + heater
+            </button>
+          </div>
+        </article>
+      }
+    </section>
+
+    <aside class="jobs-rail">
+      <article class="panel start-card">
+        <span class="panel-kicker">START POSITION</span>
+        <label class="field"
+          ><span>Source line</span
+          ><input
+            type="number"
+            min="1"
+            [ngModel]="restartLine()"
+            (ngModelChange)="restartLine.set($event)"
+        /></label>
+        <p>Restart is manual. Review the machine state before resuming from a prior line.</p>
+        <button
+          class="button primary full"
+          type="button"
+          [disabled]="!store.selectedJob() || store.job().status === 'streaming'"
+          (click)="start()"
+        >
+          Start streaming
+        </button>
+      </article>
+
+      <article class="panel">
+        <header class="panel-header">
+          <div>
+            <span class="panel-kicker">RECENT</span>
+            <h2>Job sessions</h2>
+          </div>
+        </header>
+        <div class="recent-list">
+          @for (job of recentJobs(); track job.id) {
+            <div class="recent-row">
+              <span class="file-badge small">G</span>
+              <div>
+                <strong>{{ job.name }}</strong
+                ><span>{{ job.endedAt | date: 'medium' }} · {{ job.duration }}</span>
+              </div>
+              <em [class.good]="job.result === 'completed'">{{ job.result | titlecase }}</em>
+            </div>
+          } @empty {
+            <div class="recent-empty">No completed job sessions yet.</div>
+          }
+        </div>
+      </article>
+
+      <article class="panel protocol-note">
+        <app-icon name="alert" />
+        <div>
+          <strong>Blocking firmware commands</strong>
+          <p>
+            <code>M109</code> and <code>G4</code> cannot be interrupted by the desktop. Disconnect
+            is always available.
+          </p>
+        </div>
+      </article>
+    </aside>
+  </div>
+</div>

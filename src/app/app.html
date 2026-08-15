@@ -1,0 +1,93 @@
+<div class="workbench-shell">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"><span></span><span></span></div>
+      <div class="brand-copy"><strong>THERMAL</strong><small>GCODE WORKBENCH</small></div>
+      <button
+        class="icon-button nav-collapse"
+        type="button"
+        (click)="collapseSidebar()"
+        [attr.aria-label]="collapsed() ? 'Expand navigation' : 'Collapse navigation'"
+        [attr.aria-expanded]="!collapsed()"
+      >
+        <app-icon name="menu" />
+      </button>
+    </div>
+
+    <nav aria-label="Main navigation">
+      @for (item of navigation; track item.path) {
+        <a
+          class="nav-item"
+          [routerLink]="item.path"
+          routerLinkActive="active"
+          #routeActive="routerLinkActive"
+          [routerLinkActiveOptions]="{ exact: true }"
+          [attr.aria-label]="item.label"
+          [attr.aria-current]="routeActive.isActive ? 'page' : null"
+          [attr.title]="collapsed() ? item.label : null"
+        >
+          <app-icon [name]="item.icon" />
+          <span class="nav-label">{{ item.label }}</span>
+          @if (item.path === '/jobs' && store.job().status === 'streaming') {
+            <span class="nav-pulse" aria-label="Job streaming"></span>
+          }
+        </a>
+      }
+    </nav>
+
+    <div class="sidebar-spacer"></div>
+    <section class="machine-mini" aria-label="Machine connection">
+      <div class="machine-icon"><app-icon name="plug" /></div>
+      <div class="nav-label machine-copy">
+        <span class="status-line"
+          ><i [class.online]="store.connected()"></i
+          >{{ store.connected() ? 'OVEN ONLINE' : 'OVEN OFFLINE' }}</span
+        >
+        <small>{{ store.connection().portPath ?? 'No serial port' }} · 115200</small>
+      </div>
+    </section>
+    <div class="sidebar-version nav-label">
+      <span>v2.0.0</span
+      ><span [class.desktop]="store.isDesktop()">{{
+        store.isDesktop() ? 'DESKTOP' : 'BROWSER DEMO'
+      }}</span>
+    </div>
+  </aside>
+
+  <main class="workspace">
+    <header class="topbar">
+      <div class="topbar-context">
+        <span class="live-dot" [class.offline]="!store.connected()"></span
+        ><strong>{{ store.connected() ? 'MONITORING' : 'DISCONNECTED' }}</strong
+        ><small>{{ store.connection().firmware?.firmwareName ?? 'No firmware handshake' }}</small>
+      </div>
+      <div class="topbar-spacer"></div>
+      <div class="top-temperature">
+        <span>T0</span><strong>{{ store.telemetry().average.toFixed(1) }}°</strong
+        ><small>/ {{ store.requestedTarget().toFixed(0) }}°C</small>
+      </div>
+      <button
+        class="icon-button"
+        type="button"
+        (click)="cycleTheme()"
+        [attr.aria-label]="store.resolvedTheme() === 'dark' ? 'Use light theme' : 'Use dark theme'"
+      >
+        <app-icon [name]="store.resolvedTheme() === 'dark' ? 'sun' : 'moon'" />
+      </button>
+      <button
+        class="connection-button"
+        type="button"
+        [class.connected]="store.connected()"
+        (click)="store.toggleConnection()"
+      >
+        <span></span>{{ store.connected() ? 'Disconnect' : 'Connect' }}
+      </button>
+    </header>
+
+    <div class="route-stage"><router-outlet /></div>
+  </main>
+</div>
+
+@if (store.toast(); as message) {
+  <div class="toast" role="status"><span></span>{{ message }}</div>
+}

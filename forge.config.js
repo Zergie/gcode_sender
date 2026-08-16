@@ -12,21 +12,22 @@ module.exports = {
     icon:
       process.platform === 'win32'
         ? imagePath('icon.ico')
-        : process.platform === 'linux'
-          ? imagePath('icon.png')
-          : undefined,
-    extraResource: [path.resolve(__dirname, 'images')],
+        : process.platform === 'darwin'
+          ? imagePath('icon.icns')
+          : imagePath('icon.png'),
     ignore: [
       /^\/\.angular(?:\/|$)/,
       /^\/\.git(?:\/|$)/,
       /^\/\.github(?:\/|$)/,
       /^\/coverage(?:\/|$)/,
       /^\/electron(?:\/|$)/,
+      /^\/images(?:\/|$)/,
       /^\/out(?:\/|$)/,
       /^\/public(?:\/|$)/,
       /^\/shared(?:\/|$)/,
       /^\/src(?:\/|$)/,
       /^\/test-results(?:\/|$)/,
+      /^\/artifacts(?:\/|$)/,
       /^\/angular\.json$/,
       /^\/eslint\.config\.mjs$/,
       /^\/forge\.config\.js$/,

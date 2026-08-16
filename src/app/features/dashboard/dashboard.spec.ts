@@ -30,11 +30,79 @@ describe('DashboardComponent', () => {
 
   it('does not present ambient placeholders as live telemetry while disconnected', () => {
     const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
     fixture.detectChanges();
-    const content = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    const element = fixture.nativeElement as HTMLElement;
+    const content = element.textContent ?? '';
+    const values = [...element.querySelectorAll<HTMLElement>('.metric-value')];
 
     expect(content).toContain('Awaiting telemetry');
-    expect(TestBed.inject(WorkbenchStore).telemetryLive()).toBe(false);
+    expect(content).not.toContain('22.0');
+    expect(values).toHaveLength(4);
+    expect(values.every((value) => value.classList.contains('unknown'))).toBe(true);
+    expect(values.every((value) => value.textContent?.includes('—'))).toBe(true);
+    expect(store.telemetryLive()).toBe(false);
+
+    store.connection.update((connection) => ({ ...connection, status: 'connected' }));
+    fixture.detectChanges();
+    expect(store.telemetryLive()).toBe(false);
+    expect(
+      [...element.querySelectorAll<HTMLElement>('.metric-value')].every((value) =>
+        value.classList.contains('unknown'),
+      ),
+    ).toBe(true);
+  });
+
+  it('shows live temperatures after the first connected telemetry sample', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
+    store.connection.update((connection) => ({ ...connection, status: 'connected' }));
+    store.telemetry.set({
+      timestamp: new Date().toISOString(),
+      average: 73.2,
+      target: 90,
+      power: 64,
+      thermistors: [74.1, 72.3, 38.6],
+      raw: 'T0:73.2 /90 @:64 T1:74.1 T2:72.3 T3:38.6',
+    });
+    store.hasTelemetry.set(true);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const values = [...element.querySelectorAll<HTMLElement>('.metric-value')];
+    expect(values.map((value) => value.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      '73.2°C',
+      '74.1°C',
+      '72.3°C',
+      '38.6°C',
+    ]);
+    expect(values.every((value) => !value.classList.contains('unknown'))).toBe(true);
+  });
+
+  it('hides model-only targets and heater wattage in PID mode', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
+    store.setMode('pid');
+    fixture.detectChanges();
+
+    const content = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(content).not.toContain('Model target');
+    expect(content).not.toContain('920 W');
+    expect(fixture.nativeElement.querySelector('.series.model')).toBeNull();
+    expect(fixture.nativeElement.querySelector('.heater-pair')).toBeNull();
+    expect(content).toContain('TOP SENSOR');
+    expect(content).toContain('BOTTOM SENSOR');
+  });
+
+  it('retains model targets and heater wattage in model-assisted mode', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+
+    const content = (fixture.nativeElement as HTMLElement).textContent ?? '';
+    expect(content).toContain('Model target');
+    expect(content).toContain('920 W');
+    expect(fixture.nativeElement.querySelector('.series.model')).not.toBeNull();
+    expect(fixture.nativeElement.querySelector('.heater-pair')).not.toBeNull();
   });
 
   it('opens the shared serial-port chooser from the disconnected notice', async () => {

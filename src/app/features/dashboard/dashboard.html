@@ -53,7 +53,17 @@
       <div class="metric-top">
         <span class="sensor-dot t0"></span><span>CONTROL AVERAGE</span><em>T0</em>
       </div>
-      <div class="metric-value">{{ store.telemetry().average.toFixed(1) }}<small>°C</small></div>
+      <div
+        class="metric-value"
+        [class.unknown]="!store.telemetryLive()"
+        [attr.aria-label]="store.telemetryLive() ? null : 'Control average temperature unknown'"
+      >
+        @if (store.telemetryLive()) {
+          {{ store.telemetry().average.toFixed(1) }}<small>°C</small>
+        } @else {
+          —
+        }
+      </div>
       <div class="metric-footer">
         <span
           [class.positive]="
@@ -73,8 +83,16 @@
       <div class="metric-top">
         <span class="sensor-dot t1"></span><span>TOP SENSOR</span><em>T1</em>
       </div>
-      <div class="metric-value">
-        {{ store.telemetry().thermistors[0].toFixed(1) }}<small>°C</small>
+      <div
+        class="metric-value"
+        [class.unknown]="!store.telemetryLive()"
+        [attr.aria-label]="store.telemetryLive() ? null : 'Top sensor temperature unknown'"
+      >
+        @if (store.telemetryLive()) {
+          {{ store.telemetry().thermistors[0].toFixed(1) }}<small>°C</small>
+        } @else {
+          —
+        }
       </div>
       <div class="metric-footer">
         <span>{{
@@ -89,8 +107,16 @@
       <div class="metric-top">
         <span class="sensor-dot t2"></span><span>BOTTOM SENSOR</span><em>T2</em>
       </div>
-      <div class="metric-value">
-        {{ store.telemetry().thermistors[1].toFixed(1) }}<small>°C</small>
+      <div
+        class="metric-value"
+        [class.unknown]="!store.telemetryLive()"
+        [attr.aria-label]="store.telemetryLive() ? null : 'Bottom sensor temperature unknown'"
+      >
+        @if (store.telemetryLive()) {
+          {{ store.telemetry().thermistors[1].toFixed(1) }}<small>°C</small>
+        } @else {
+          —
+        }
       </div>
       <div class="metric-footer">
         <span>{{
@@ -105,8 +131,16 @@
       <div class="metric-top">
         <span class="sensor-dot t3"></span><span>ENCLOSURE</span><em>T3</em>
       </div>
-      <div class="metric-value">
-        {{ store.telemetry().thermistors[2].toFixed(1) }}<small>°C</small>
+      <div
+        class="metric-value"
+        [class.unknown]="!store.telemetryLive()"
+        [attr.aria-label]="store.telemetryLive() ? null : 'Enclosure temperature unknown'"
+      >
+        @if (store.telemetryLive()) {
+          {{ store.telemetry().thermistors[2].toFixed(1) }}<small>°C</small>
+        } @else {
+          —
+        }
       </div>
       <div class="metric-footer">
         <span [class.safe]="store.telemetryLive()">{{
@@ -127,7 +161,10 @@
         <div class="chart-tools">
           <div class="legend">
             <span class="avg">T0 average</span><span class="top">T1</span
-            ><span class="bottom">T2</span><span class="model">Model target</span>
+            ><span class="bottom">T2</span>
+            @if (store.controlMode() === 'model-assisted') {
+              <span class="model">Model target</span>
+            }
           </div>
           <div class="segmented compact">
             @for (item of ['5m', '30m', '2h', 'Job']; track item) {
@@ -143,17 +180,27 @@
           </div>
         </div>
       </header>
-      <div class="chart-body"><app-trend-chart [points]="chartPoints()" /></div>
+      <div class="chart-body">
+        <app-trend-chart
+          [points]="chartPoints()"
+          [showModelTarget]="store.controlMode() === 'model-assisted'"
+        />
+      </div>
       <footer class="chart-status">
         <div>
           <span>Requested</span><strong>{{ store.requestedTarget().toFixed(1) }}°C</strong>
         </div>
+        @if (store.controlMode() === 'model-assisted') {
+          <div>
+            <span>Model target</span
+            ><strong class="blue">{{ store.modelTarget().toFixed(1) }}°C</strong>
+          </div>
+        }
         <div>
-          <span>Model target</span
-          ><strong class="blue">{{ store.modelTarget().toFixed(1) }}°C</strong>
-        </div>
-        <div>
-          <span>Firmware target</span><strong>{{ store.telemetry().target.toFixed(1) }}°C</strong>
+          <span>Firmware target</span
+          ><strong>{{
+            store.telemetryLive() ? store.telemetry().target.toFixed(1) + '°C' : '—'
+          }}</strong>
         </div>
         <div>
           <span>Sample state</span><strong>{{ store.telemetryLive() ? 'Live' : '—' }}</strong>
@@ -218,11 +265,13 @@
         <div class="power-track">
           <span [style.width.%]="(store.telemetry().power / 255) * 100"></span>
         </div>
-        <div class="heater-pair">
-          <div><i class="heat top"></i><span>TOP</span><strong>920 W</strong></div>
-          <div class="link-line">ONE GPIO</div>
-          <div><i class="heat bottom"></i><span>BOTTOM</span><strong>920 W</strong></div>
-        </div>
+        @if (store.controlMode() === 'model-assisted') {
+          <div class="heater-pair">
+            <div><i class="heat top"></i><span>TOP</span><strong>920 W</strong></div>
+            <div class="link-line">ONE GPIO</div>
+            <div><i class="heat bottom"></i><span>BOTTOM</span><strong>920 W</strong></div>
+          </div>
+        }
       </article>
 
       <article class="panel run-card">

@@ -33,7 +33,9 @@ interface ChartSeries {
         <path class="series t2" [attr.d]="paths().t2" />
         <path class="series t3" [attr.d]="paths().t3" />
         <path class="series requested" [attr.d]="paths().target" />
-        <path class="series model" [attr.d]="paths().model" />
+        @if (showModelTarget()) {
+          <path class="series model" [attr.d]="paths().model" />
+        }
         <path class="series comparison" [attr.d]="paths().comparison" />
         <path class="series average" [attr.d]="paths().average" />
         <g class="axis-labels">
@@ -115,6 +117,7 @@ interface ChartSeries {
 export class TrendChartComponent {
   readonly points = input.required<readonly TrendPoint[]>();
   readonly comparisonPoints = input<readonly TrendPoint[]>([]);
+  readonly showModelTarget = input(true);
   readonly paths = computed<ChartSeries>(() => {
     const points = this.points();
     const make = (source: readonly TrendPoint[], pick: (point: TrendPoint) => number): string =>

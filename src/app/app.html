@@ -63,8 +63,16 @@
       </div>
       <div class="topbar-spacer"></div>
       <div class="top-temperature">
-        <span>T0</span><strong>{{ store.telemetry().average.toFixed(1) }}°</strong
-        ><small>/ {{ store.requestedTarget().toFixed(0) }}°C</small>
+        <span>T0</span
+        ><strong
+          [class.unknown]="!store.telemetryLive()"
+          [attr.aria-label]="store.telemetryLive() ? null : 'Temperature unknown'"
+          >{{ store.telemetryLive() ? store.telemetry().average.toFixed(1) + '°' : '—' }}</strong
+        ><small>{{
+          store.telemetryLive()
+            ? '/ ' + store.requestedTarget().toFixed(0) + '°C'
+            : 'temperature unknown'
+        }}</small>
       </div>
       <button
         class="icon-button"

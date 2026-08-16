@@ -17,6 +17,27 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
+  it('keeps the header temperature unknown until a connected controller reports telemetry', () => {
+    const fixture = TestBed.createComponent(App);
+    const store = TestBed.inject(WorkbenchStore);
+    fixture.detectChanges();
+
+    const temperature = () =>
+      fixture.nativeElement.querySelector('.top-temperature strong') as HTMLElement;
+    expect(temperature().textContent?.trim()).toBe('—');
+    expect(temperature().classList).toContain('unknown');
+
+    store.connection.update((state) => ({ ...state, status: 'connected' }));
+    fixture.detectChanges();
+    expect(temperature().textContent?.trim()).toBe('—');
+
+    store.telemetry.update((telemetry) => ({ ...telemetry, average: 68.4 }));
+    store.hasTelemetry.set(true);
+    fixture.detectChanges();
+    expect(temperature().textContent?.trim()).toBe('68.4°');
+    expect(temperature().classList).not.toContain('unknown');
+  });
+
   it('renders the required navigation order', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();

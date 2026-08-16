@@ -336,7 +336,10 @@
                 <span>Peaks captured</span><strong>{{ peaks() }} / 12</strong>
               </div>
               <div>
-                <span>T0</span><strong>{{ store.telemetry().average.toFixed(1) }} °C</strong>
+                <span>T0</span
+                ><strong>{{
+                  store.telemetryLive() ? store.telemetry().average.toFixed(1) + ' °C' : 'Unknown'
+                }}</strong>
               </div>
               <div>
                 <span>Output verification</span

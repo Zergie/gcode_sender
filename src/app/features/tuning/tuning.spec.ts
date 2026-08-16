@@ -55,4 +55,37 @@ describe('TuningComponent', () => {
     expect(store.profiles()[0]?.state).toBe('applied');
     fixture.destroy();
   });
+
+  it('keeps the live temperature unknown until connected telemetry arrives', () => {
+    const fixture = TestBed.createComponent(TuningComponent);
+    const component = fixture.componentInstance;
+    const store = TestBed.inject(WorkbenchStore);
+    component.section.set('autotune');
+    component.tunePhase.set('running');
+
+    fixture.detectChanges();
+    const temperatureValue = (): string =>
+      (
+        fixture.nativeElement.querySelector(
+          '.tune-live-stats > div:nth-child(2) strong',
+        ) as HTMLElement
+      ).textContent ?? '';
+    expect(temperatureValue()).toContain('Unknown');
+    expect(fixture.nativeElement.textContent).not.toContain('22.0 °C');
+
+    store.connection.set({
+      status: 'connected',
+      portPath: 'COM3',
+      baudRate: 115200,
+      firmware: null,
+      connectedAt: new Date(0).toISOString(),
+      error: null,
+    });
+    store.hasTelemetry.set(true);
+    store.telemetry.update((telemetry) => ({ ...telemetry, average: 48.25 }));
+    fixture.detectChanges();
+
+    expect(temperatureValue()).toContain('48.3 °C');
+    fixture.destroy();
+  });
 });

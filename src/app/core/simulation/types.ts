@@ -9,6 +9,8 @@ import type {
 export interface HeaterSourceConfiguration {
   readonly watts: number;
   readonly efficiency: number;
+  /** First-order element-to-zone heat-release lag. */
+  readonly responseTimeSeconds: number;
 }
 
 export interface DualZoneThermalConfiguration {

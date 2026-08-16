@@ -224,6 +224,28 @@
               (ngModelChange)="updateHeaterEfficiency('bottomHeater', $event)"
           /></label>
           <label class="field"
+            ><span>Top heater response time (s)</span
+            ><input
+              type="number"
+              min="0"
+              step="1"
+              [ngModel]="profile().topHeater.responseTimeSeconds"
+              (ngModelChange)="updateHeaterResponseTime('topHeater', $event)"
+          /></label>
+          <label class="field"
+            ><span>Bottom heater response time (s)</span
+            ><input
+              type="number"
+              min="0"
+              step="1"
+              [ngModel]="profile().bottomHeater.responseTimeSeconds"
+              (ngModelChange)="updateHeaterResponseTime('bottomHeater', $event)"
+          /></label>
+          <p class="field-help advanced-help">
+            Models the delay between GPIO power and heat entering each oven zone. Increase it for
+            elements that continue releasing heat after power switches off.
+          </p>
+          <label class="field"
             ><span>T1 sensor lag (s)</span
             ><input
               type="number"
@@ -386,7 +408,7 @@
             <span class="panel-kicker">CONTROLLER COMPARISON</span>
             <h2>Predicted response</h2>
           </div>
-          <div class="segmented compact">
+          <div class="segmented compact controller-selector" role="group" aria-label="Controller">
             <button
               type="button"
               [class.active]="selectedVariant() === 'pid'"
@@ -410,33 +432,62 @@
             </button>
           </div>
         </header>
-        <div class="chart-body"><app-trend-chart [points]="visibleTrend()" /></div>
+        @if (comparisonInsight(); as insight) {
+          <div class="comparison-insight" [class.equivalent]="insight.kind === 'equivalent'">
+            <span aria-hidden="true">{{ insight.kind === 'equivalent' ? '≈' : '↗' }}</span>
+            <div>
+              <strong>{{ insight.title }}</strong>
+              <p>{{ insight.detail }}</p>
+            </div>
+          </div>
+        }
+        <div class="comparison-legend" aria-label="Chart series">
+          <span class="selected-response">{{ activeEntry()?.label ?? 'Selected' }} T0</span>
+          <span class="alternate-response">{{ comparisonEntry()?.label ?? 'Alternate' }} T0</span>
+          <span class="sensor-t1">T1 top</span>
+          <span class="sensor-t2">T2 bottom</span>
+          <span class="sensor-t3">T3 safety</span>
+          <span class="requested-target">Requested target</span>
+          <span class="firmware-target">Firmware target</span>
+        </div>
+        <div class="chart-body">
+          <app-trend-chart [points]="visibleTrend()" [comparisonPoints]="comparisonTrend()" />
+        </div>
         <footer class="playback-bar">
-          <button
-            class="round-control"
-            type="button"
-            (click)="reset()"
-            aria-label="Reset simulation"
+          <div class="transport-controls" role="group" aria-label="Simulation playback">
+            <button
+              class="round-control"
+              type="button"
+              (click)="reset()"
+              aria-label="Reset simulation"
+            >
+              ↺
+            </button>
+            <button
+              class="round-control main"
+              type="button"
+              (click)="togglePlayback()"
+              [attr.aria-label]="paused() ? 'Play simulation' : 'Pause simulation'"
+            >
+              {{ paused() ? '▶' : 'Ⅱ' }}
+            </button>
+            <button class="round-control" type="button" (click)="step()" aria-label="Single step">
+              ▷|
+            </button>
+          </div>
+          <div
+            class="playback-progress"
+            role="progressbar"
+            aria-label="Simulation playback position"
+            aria-valuemin="0"
+            [attr.aria-valuenow]="cursor()"
+            [attr.aria-valuemax]="activeEntry()?.result?.samples?.length ?? 0"
           >
-            ↺
-          </button>
-          <button
-            class="round-control main"
-            type="button"
-            (click)="togglePlayback()"
-            [attr.aria-label]="paused() ? 'Play simulation' : 'Pause simulation'"
-          >
-            {{ paused() ? '▶' : 'Ⅱ' }}
-          </button>
-          <button class="round-control" type="button" (click)="step()" aria-label="Single step">
-            ▷|
-          </button>
-          <div class="playback-progress">
             <span
               [style.width.%]="(cursor() / (activeEntry()?.result?.samples?.length ?? 1)) * 100"
             ></span>
           </div>
-          <div class="timewarp">
+          <div class="timewarp" role="group" aria-label="Timewarp">
             <span>TIMEWARP</span>
             @for (warp of warps; track warp) {
               <button

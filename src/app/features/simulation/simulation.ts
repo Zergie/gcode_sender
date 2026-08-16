@@ -9,6 +9,7 @@ import {
   validateOvenModelProfile,
   type OvenModelProfile,
   type SimulationComparisonResult,
+  type SimulationSample,
   type SimulationTimewarp,
 } from '../../core/simulation';
 import {
@@ -19,6 +20,15 @@ import type { TrendPoint } from '../../core/platform/workbench.store';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
 import { PageHeaderComponent } from '../../shared/page-header';
 import { TrendChartComponent } from '../../shared/trend-chart';
+
+const SIMULATION_TREND_ORIGIN_MS = Date.UTC(2026, 7, 15, 12, 0, 0);
+const DISPLAYED_METRIC_TOLERANCE_C = 0.005;
+
+interface ControllerComparisonInsight {
+  readonly kind: 'different' | 'equivalent';
+  readonly title: string;
+  readonly detail: string;
+}
 
 @Component({
   selector: 'app-simulation',
@@ -50,33 +60,90 @@ export class SimulationComponent implements OnDestroy {
       null
     );
   });
+  readonly comparisonEntry = computed(() => {
+    const activeId = this.activeEntry()?.id;
+    return this.comparison()?.entries.find((entry) => entry.id !== activeId) ?? null;
+  });
   readonly visibleTrend = computed<readonly TrendPoint[]>(() => {
     const samples = this.activeEntry()?.result.samples.slice(0, this.cursor()) ?? [];
-    const origin = Date.now() - (samples.at(-1)?.timeSeconds ?? 0) * 1000;
-    return samples.map((sample) => ({
-      time: origin + sample.timeSeconds * 1000,
-      average: sample.temperatures.t0C,
-      t1: sample.temperatures.t1C,
-      t2: sample.temperatures.t2C,
-      t3: sample.temperatures.t3C,
-      target: sample.requestedTargetC,
-      modelTarget: sample.firmwareTargetC,
-      power: sample.actuator.pidOutput,
-    }));
+    return this.toTrendPoints(samples);
   });
+  readonly comparisonTrend = computed<readonly TrendPoint[]>(() =>
+    this.toTrendPoints(this.comparisonEntry()?.result.samples.slice(0, this.cursor()) ?? []),
+  );
   readonly currentSample = computed(
     () => this.activeEntry()?.result.samples[Math.max(0, this.cursor() - 1)] ?? null,
   );
   readonly preferredVariantId = computed(() => {
-    const entries = this.comparison()?.entries ?? [];
-    return entries.reduce<string | null>((bestId, entry) => {
-      if (bestId === null) return entry.id;
-      const best = entries.find((candidate) => candidate.id === bestId);
-      return best === undefined ||
-        entry.result.metrics.rootMeanSquareErrorC < best.result.metrics.rootMeanSquareErrorC
-        ? entry.id
-        : bestId;
-    }, null);
+    const entries = [...(this.comparison()?.entries ?? [])].sort(
+      (left, right) =>
+        left.result.metrics.rootMeanSquareErrorC - right.result.metrics.rootMeanSquareErrorC,
+    );
+    if (entries.length === 0) return null;
+    if (
+      entries.length > 1 &&
+      Math.abs(
+        entries[1]!.result.metrics.rootMeanSquareErrorC -
+          entries[0]!.result.metrics.rootMeanSquareErrorC,
+      ) < DISPLAYED_METRIC_TOLERANCE_C
+    ) {
+      return null;
+    }
+    return entries[0]!.id;
+  });
+  readonly comparisonInsight = computed<ControllerComparisonInsight | null>(() => {
+    const comparison = this.comparison();
+    const baseline = comparison?.entries.find((entry) => entry.id === comparison.baselineId);
+    const candidate = comparison?.entries.find((entry) => entry.id !== comparison.baselineId);
+    if (baseline === undefined || candidate === undefined) return null;
+
+    const pairedSamples = Math.min(baseline.result.samples.length, candidate.result.samples.length);
+    let maximumResponseDifferenceC = 0;
+    let maximumTargetDifferenceC = 0;
+    for (let index = 0; index < pairedSamples; index += 1) {
+      const baselineSample = baseline.result.samples[index]!;
+      const candidateSample = candidate.result.samples[index]!;
+      maximumResponseDifferenceC = Math.max(
+        maximumResponseDifferenceC,
+        Math.abs(baselineSample.temperatures.t0C - candidateSample.temperatures.t0C),
+      );
+      maximumTargetDifferenceC = Math.max(
+        maximumTargetDifferenceC,
+        Math.abs(baselineSample.firmwareTargetC - candidateSample.firmwareTargetC),
+      );
+    }
+
+    const rmseDifferenceC =
+      candidate.result.metrics.rootMeanSquareErrorC - baseline.result.metrics.rootMeanSquareErrorC;
+    if (
+      Math.abs(rmseDifferenceC) < DISPLAYED_METRIC_TOLERANCE_C &&
+      maximumResponseDifferenceC < DISPLAYED_METRIC_TOLERANCE_C
+    ) {
+      const targetDetail =
+        maximumTargetDifferenceC >= DISPLAYED_METRIC_TOLERANCE_C
+          ? `Firmware targets differ by up to ${maximumTargetDifferenceC.toFixed(1)} °C, but T0 does not separate at displayed precision.`
+          : 'Both controllers produce the same targets and T0 response at displayed precision.';
+      return {
+        kind: 'equivalent',
+        title: 'No measurable response difference in this scenario',
+        detail: targetDetail,
+      };
+    }
+
+    if (Math.abs(rmseDifferenceC) < DISPLAYED_METRIC_TOLERANCE_C) {
+      return {
+        kind: 'different',
+        title: 'Controllers predict different responses',
+        detail: `Their headline RMSE is equal at displayed precision. Maximum T0 separation is ${maximumResponseDifferenceC.toFixed(2)} °C.`,
+      };
+    }
+
+    const preferred = rmseDifferenceC < 0 ? candidate : baseline;
+    return {
+      kind: 'different',
+      title: `${preferred.label} predicts the better tracking response`,
+      detail: `${preferred.label} lowers RMSE by ${Math.abs(rmseDifferenceC).toFixed(2)} °C. Maximum T0 separation is ${maximumResponseDifferenceC.toFixed(2)} °C.`,
+    };
   });
   readonly configurationError = computed(() => {
     try {
@@ -252,6 +319,13 @@ export class SimulationComponent implements OnDestroy {
     }));
   }
 
+  updateHeaterResponseTime(which: 'topHeater' | 'bottomHeater', responseTimeSeconds: number): void {
+    this.profile.update((profile) => ({
+      ...profile,
+      [which]: { ...profile[which], responseTimeSeconds: Number(responseTimeSeconds) },
+    }));
+  }
+
   updateThermal(key: keyof OvenModelProfile['thermal'], value: number): void {
     this.profile.update((profile) => ({
       ...profile,
@@ -286,5 +360,18 @@ export class SimulationComponent implements OnDestroy {
       clearInterval(this.playback);
       this.playback = undefined;
     }
+  }
+
+  private toTrendPoints(samples: readonly SimulationSample[]): readonly TrendPoint[] {
+    return samples.map((sample) => ({
+      time: SIMULATION_TREND_ORIGIN_MS + sample.timeSeconds * 1000,
+      average: sample.temperatures.t0C,
+      t1: sample.temperatures.t1C,
+      t2: sample.temperatures.t2C,
+      t3: sample.temperatures.t3C,
+      target: sample.requestedTargetC,
+      modelTarget: sample.firmwareTargetC,
+      power: sample.actuator.pidOutput,
+    }));
   }
 }

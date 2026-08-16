@@ -13,13 +13,14 @@ const M105_PATTERN = new RegExp(
   String.raw`^T0:(${NUMBER})\s+\/(${NUMBER})\s+@:(${NUMBER})\s+T1:(${NUMBER})\s+T2:(${NUMBER})\s+T3:(${NUMBER})$`,
 );
 
-const M115_MARKERS = [
-  'FIRMWARE_NAME:',
-  'SOURCE_CODE_URL:',
-  'G_CODE_URL:',
-  'PROTOCOL_VERSION:',
-  'MACHINE_TYPE:',
-  'UUID:',
+const M115_FIELD_PATTERN =
+  /(?:^|\s)(FIRMWARE_NAME|SOURCE_CODE_URL|G_CODE_URL|PROTOCOL_VERSION|MACHINE_TYPE|UUID)\s*:\s*/g;
+const REQUIRED_M115_FIELDS = [
+  'FIRMWARE_NAME',
+  'SOURCE_CODE_URL',
+  'PROTOCOL_VERSION',
+  'MACHINE_TYPE',
+  'UUID',
 ] as const;
 
 const SETTINGS_PATTERN = /^([^:]+):\s*(.+)$/;
@@ -60,29 +61,31 @@ export function parseM105(
 
 export function parseM115(line: string): FirmwareInfo | null {
   const trimmed = line.trim();
-  if (!trimmed.startsWith(M115_MARKERS[0])) {
+  const matches = [...trimmed.matchAll(M115_FIELD_PATTERN)];
+  if (matches[0]?.[1] !== 'FIRMWARE_NAME' || matches[0].index !== 0) {
     return null;
-  }
-
-  const positions = M115_MARKERS.map((marker) => ({ marker, index: trimmed.indexOf(marker) }));
-  if (positions.some(({ index }) => index < 0)) {
-    return null;
-  }
-
-  for (let index = 1; index < positions.length; index += 1) {
-    if (positions[index]!.index <= positions[index - 1]!.index) {
-      return null;
-    }
   }
 
   const values = new Map<string, string>();
-  positions.forEach(({ marker, index }, positionIndex) => {
-    const start = index + marker.length;
-    const end = positions[positionIndex + 1]?.index ?? trimmed.length;
-    values.set(marker, trimmed.slice(start, end).trim());
+  const duplicateFields = new Set<string>();
+  matches.forEach((match, matchIndex) => {
+    const name = match[1];
+    const start = (match.index ?? 0) + match[0].length;
+    const end = matches[matchIndex + 1]?.index ?? trimmed.length;
+    if (name !== undefined) {
+      if (values.has(name)) duplicateFields.add(name);
+      values.set(name, trimmed.slice(start, end).trim());
+    }
   });
 
-  const firmwareName = values.get('FIRMWARE_NAME:') ?? '';
+  if (
+    duplicateFields.size > 0 ||
+    REQUIRED_M115_FIELDS.some((field) => (values.get(field) ?? '').length === 0)
+  ) {
+    return null;
+  }
+
+  const firmwareName = values.get('FIRMWARE_NAME') ?? '';
   if (firmwareName.length === 0) {
     return null;
   }
@@ -90,11 +93,11 @@ export function parseM115(line: string): FirmwareInfo | null {
   return {
     raw: line,
     firmwareName,
-    ...optionalField('sourceCodeUrl', values.get('SOURCE_CODE_URL:')),
-    ...optionalField('gcodeCatalogUrl', values.get('G_CODE_URL:')),
-    ...optionalField('protocolVersion', values.get('PROTOCOL_VERSION:')),
-    ...optionalField('machineType', values.get('MACHINE_TYPE:')),
-    ...optionalField('uuid', values.get('UUID:')),
+    ...optionalField('sourceCodeUrl', values.get('SOURCE_CODE_URL')),
+    ...optionalField('gcodeCatalogUrl', values.get('G_CODE_URL')),
+    ...optionalField('protocolVersion', values.get('PROTOCOL_VERSION')),
+    ...optionalField('machineType', values.get('MACHINE_TYPE')),
+    ...optionalField('uuid', values.get('UUID')),
   };
 }
 

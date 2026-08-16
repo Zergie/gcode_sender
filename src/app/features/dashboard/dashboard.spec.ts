@@ -36,4 +36,19 @@ describe('DashboardComponent', () => {
     expect(content).toContain('Awaiting telemetry');
     expect(TestBed.inject(WorkbenchStore).telemetryLive()).toBe(false);
   });
+
+  it('opens the shared serial-port chooser from the disconnected notice', async () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.detectChanges();
+
+    const connect = fixture.nativeElement.querySelector(
+      '.notice-banner.warning button',
+    ) as HTMLButtonElement;
+    connect.click();
+    await fixture.whenStable();
+
+    const store = TestBed.inject(WorkbenchStore);
+    expect(store.serialPortDialogOpen()).toBe(true);
+    expect(store.ports().map((port) => port.path)).toEqual(['COM4', 'COM7']);
+  });
 });

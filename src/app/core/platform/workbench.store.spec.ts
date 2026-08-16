@@ -23,6 +23,17 @@ describe('WorkbenchStore control integration', () => {
     expect(store.selectedJob()).toBeNull();
   });
 
+  it('deduplicates overlapping serial-port refreshes', async () => {
+    const first = store.refreshPorts();
+    const second = store.refreshPorts();
+
+    expect(second).toBe(first);
+    expect(store.serialPortsRefreshing()).toBe(true);
+    await first;
+    expect(store.serialPortsRefreshing()).toBe(false);
+    expect(store.ports().map((port) => port.path)).toEqual(['COM4', 'COM7']);
+  });
+
   it('connects in monitoring-only mode until the operator explicitly applies a target', async () => {
     await store.initialize();
     store.selectedPort.set('COM4');

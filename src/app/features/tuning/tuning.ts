@@ -19,7 +19,11 @@ import {
   type PidSchedule,
 } from '../../core/control';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
-import { validateOvenModelProfile, type OvenModelProfile } from '../../core/simulation';
+import {
+  cloneOvenModelProfile,
+  validateOvenModelProfile,
+  type OvenModelProfile,
+} from '../../core/simulation';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
 
@@ -360,9 +364,10 @@ export class TuningComponent implements OnDestroy {
       };
       try {
         if (data.profile === undefined || data.modelAssistance === undefined) throw new Error();
-        validateOvenModelProfile(data.profile);
+        const profile = cloneOvenModelProfile(data.profile);
+        validateOvenModelProfile(profile);
         validateTargetShaperConfiguration(data.modelAssistance);
-        this.store.useModelAssistedControl(data.profile, data.modelAssistance);
+        this.store.useModelAssistedControl(profile, data.modelAssistance);
       } catch {
         this.store.notify('This simulation profile is not compatible with model version 1.');
       }

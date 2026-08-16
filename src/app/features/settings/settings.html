@@ -47,12 +47,7 @@
           <span
             ><i></i><strong>{{ store.connected() ? 'Connected' : 'Disconnected' }}</strong
             ><small>{{ store.connection().portPath ?? 'No active port' }}</small></span
-          ><button
-            class="button secondary"
-            type="button"
-            [disabled]="!store.connected() && !store.selectedPort()"
-            (click)="store.toggleConnection()"
-          >
+          ><button class="button secondary" type="button" (click)="store.toggleConnection()">
             {{ store.connected() ? 'Disconnect' : 'Connect' }}
           </button>
         </div>

@@ -7,6 +7,7 @@ import {
   validatePidControllerConfiguration,
   validateTargetShaperConfiguration,
 } from '../control';
+import { cloneOvenModelProfile } from './default-profile';
 import { SeededRandom } from './seeded-random';
 import { SimulationDomainError } from './simulation-error';
 import type {
@@ -27,6 +28,8 @@ interface PlantState {
   readonly topZoneC: number;
   readonly bottomZoneC: number;
   readonly enclosureC: number;
+  readonly topHeaterFraction: number;
+  readonly bottomHeaterFraction: number;
 }
 
 interface SensorState {
@@ -71,6 +74,7 @@ function assertNonNegative(value: number, path: string): void {
 }
 
 export function validateOvenModelProfile(profile: OvenModelProfile): void {
+  profile = cloneOvenModelProfile(profile);
   if (profile.version !== 1 || profile.kind !== 'dual-zone-shared-actuator') {
     throw new SimulationDomainError(
       'INVALID_MODEL_PROFILE',
@@ -89,6 +93,11 @@ export function validateOvenModelProfile(profile: OvenModelProfile): void {
   assertFinite(profile.ambientTemperatureC, 'profile.ambientTemperatureC', 'INVALID_MODEL_PROFILE');
   assertPositive(profile.topHeater.watts, 'profile.topHeater.watts', 'INVALID_MODEL_PROFILE');
   assertPositive(profile.bottomHeater.watts, 'profile.bottomHeater.watts', 'INVALID_MODEL_PROFILE');
+  assertNonNegative(profile.topHeater.responseTimeSeconds, 'profile.topHeater.responseTimeSeconds');
+  assertNonNegative(
+    profile.bottomHeater.responseTimeSeconds,
+    'profile.bottomHeater.responseTimeSeconds',
+  );
   for (const [path, efficiency] of [
     ['profile.topHeater.efficiency', profile.topHeater.efficiency],
     ['profile.bottomHeater.efficiency', profile.bottomHeater.efficiency],
@@ -308,14 +317,26 @@ function updatePlant(
   appliedActuator: number,
 ): PlantState {
   const { thermal, ambientTemperatureC: ambient, solverStepSeconds: dt } = profile;
+  const topHeaterFraction = lagged(
+    state.topHeaterFraction,
+    appliedActuator,
+    dt,
+    profile.topHeater.responseTimeSeconds,
+  );
+  const bottomHeaterFraction = lagged(
+    state.bottomHeaterFraction,
+    appliedActuator,
+    dt,
+    profile.bottomHeater.responseTimeSeconds,
+  );
   const zoneTransfer = thermal.zoneCouplingWPerC * (state.bottomZoneC - state.topZoneC);
   const topEnclosureTransfer =
     thermal.topToEnclosureCouplingWPerC * (state.enclosureC - state.topZoneC);
   const bottomEnclosureTransfer =
     thermal.bottomToEnclosureCouplingWPerC * (state.enclosureC - state.bottomZoneC);
-  const topHeaterPower = appliedActuator * profile.topHeater.watts * profile.topHeater.efficiency;
+  const topHeaterPower = topHeaterFraction * profile.topHeater.watts * profile.topHeater.efficiency;
   const bottomHeaterPower =
-    appliedActuator * profile.bottomHeater.watts * profile.bottomHeater.efficiency;
+    bottomHeaterFraction * profile.bottomHeater.watts * profile.bottomHeater.efficiency;
 
   const topPower =
     topHeaterPower +
@@ -348,6 +369,8 @@ function updatePlant(
       profile.minimumTemperatureC,
       profile.maximumTemperatureC,
     ),
+    topHeaterFraction,
+    bottomHeaterFraction,
   };
 }
 
@@ -469,15 +492,19 @@ function createSample(
  * mutated; timewarp only determines internal batch size and result metadata.
  */
 export function simulate(request: SimulationRequest): SimulationResult {
-  validateSimulationRequest(request);
+  const normalizedRequest: SimulationRequest = {
+    ...request,
+    profile: cloneOvenModelProfile(request.profile),
+  };
+  validateSimulationRequest(normalizedRequest);
 
-  const { profile, scenario, controller } = request;
+  const { profile, scenario, controller } = normalizedRequest;
   const dt = profile.solverStepSeconds;
   const totalSteps = Math.round(scenario.durationSeconds / dt);
   const sampleStepCount = Math.round(scenario.sampleEverySeconds / dt);
-  const timewarp = request.timewarp ?? 1;
+  const timewarp = normalizedRequest.timewarp ?? 1;
   const stepsPerBatch = batchSize(timewarp, totalSteps);
-  const seed = (request.seed ?? DEFAULT_SEED) >>> 0;
+  const seed = (normalizedRequest.seed ?? DEFAULT_SEED) >>> 0;
   const random = new SeededRandom(seed);
   const initialTemperatureC = scenario.initialTemperatureC ?? profile.ambientTemperatureC;
 
@@ -485,6 +512,8 @@ export function simulate(request: SimulationRequest): SimulationResult {
     topZoneC: initialTemperatureC,
     bottomZoneC: initialTemperatureC,
     enclosureC: initialTemperatureC,
+    topHeaterFraction: 0,
+    bottomHeaterFraction: 0,
   };
   let sensors: SensorState = {
     filteredT1C: initialTemperatureC,

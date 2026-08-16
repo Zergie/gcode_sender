@@ -46,6 +46,39 @@ describe('dual-zone oven simulation', () => {
     expect(final?.actuator.commanded).toBeLessThanOrEqual(1);
   });
 
+  it('makes element heat-release lag independently tunable', () => {
+    const laggedResponse = simulate(request());
+    const immediateResponse = simulate(
+      request({
+        profile: {
+          ...DEFAULT_OVEN_PROFILE,
+          topHeater: { ...DEFAULT_OVEN_PROFILE.topHeater, responseTimeSeconds: 0 },
+          bottomHeater: { ...DEFAULT_OVEN_PROFILE.bottomHeater, responseTimeSeconds: 0 },
+        },
+      }),
+    );
+
+    expect(immediateResponse.samples.at(-1)?.temperatures.t0C).toBeGreaterThan(
+      laggedResponse.samples.at(-1)?.temperatures.t0C ?? 0,
+    );
+  });
+
+  it('defaults heater response time for version-1 profiles saved before the field existed', () => {
+    const legacyProfile = {
+      ...DEFAULT_OVEN_PROFILE,
+      topHeater: {
+        watts: DEFAULT_OVEN_PROFILE.topHeater.watts,
+        efficiency: DEFAULT_OVEN_PROFILE.topHeater.efficiency,
+      },
+      bottomHeater: {
+        watts: DEFAULT_OVEN_PROFILE.bottomHeater.watts,
+        efficiency: DEFAULT_OVEN_PROFILE.bottomHeater.efficiency,
+      },
+    } as unknown as SimulationRequest['profile'];
+
+    expect(simulate(request({ profile: legacyProfile }))).toEqual(simulate(request()));
+  });
+
   it('keeps fixed-step physics identical at every timewarp', () => {
     const normal = simulate(request({ timewarp: 1 }));
     const maximum = simulate(request({ timewarp: 'maximum' }));
@@ -71,5 +104,43 @@ describe('dual-zone oven simulation', () => {
     const first = simulate(request({ seed: 1 }));
     const second = simulate(request({ seed: 2 }));
     expect(first.samples[1]?.temperatures.t1C).not.toBe(second.samples[1]?.temperatures.t1C);
+  });
+
+  it('reproduces the sustained heater cycling seen around a held temperature', () => {
+    const targetC = 200;
+    const result = simulate(
+      request({
+        profile: {
+          ...DEFAULT_OVEN_PROFILE,
+          sensors: { ...DEFAULT_OVEN_PROFILE.sensors, noiseStandardDeviationC: 0 },
+        },
+        scenario: {
+          durationSeconds: 2_100,
+          targets: [{ atSeconds: 0, targetC }],
+          sampleEverySeconds: 1,
+        },
+      }),
+    );
+    const settledTrace = result.samples.filter((sample) => sample.timeSeconds >= 1_500);
+    const errors = settledTrace.map((sample) => sample.temperatures.t0C - targetC);
+    const crossingTimes = settledTrace
+      .slice(1)
+      .filter((sample, index) => {
+        const error = sample.temperatures.t0C - targetC;
+        const previousError = errors[index] ?? error;
+        return error * previousError < 0;
+      })
+      .map((sample) => sample.timeSeconds);
+    const fullPeriodsSeconds = crossingTimes
+      .slice(2)
+      .map((crossingTime, index) => crossingTime - crossingTimes[index]!);
+    const peakToPeakC = Math.max(...errors) - Math.min(...errors);
+
+    expect(crossingTimes.length).toBeGreaterThanOrEqual(4);
+    expect(crossingTimes.length).toBeLessThanOrEqual(12);
+    expect(peakToPeakC).toBeGreaterThanOrEqual(5);
+    expect(peakToPeakC).toBeLessThanOrEqual(7);
+    expect(fullPeriodsSeconds.length).toBeGreaterThan(0);
+    expect(fullPeriodsSeconds.every((period) => period >= 120 && period <= 360)).toBe(true);
   });
 });

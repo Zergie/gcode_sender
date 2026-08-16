@@ -27,6 +27,8 @@
   --shadow: 0 16px 48px rgba(0, 0, 0, 0.24);
   --sidebar-width: 228px;
   --topbar-height: 64px;
+  --text-caption: 11px;
+  --text-micro: 10px;
 }
 
 :root[data-theme='light'] {
@@ -107,6 +109,10 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
+}
+button[aria-disabled='true'] {
+  cursor: progress;
+  opacity: 0.62;
 }
 code,
 kbd {
@@ -765,7 +771,7 @@ kbd {
 }
 .toast {
   position: fixed;
-  z-index: 20;
+  z-index: 40;
   right: 22px;
   bottom: 22px;
   display: flex;
@@ -1670,6 +1676,19 @@ kbd {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 9px;
 }
+.field-help {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+.advanced-help {
+  grid-column: 1 / -1;
+  margin-top: -2px;
+  padding: 9px 10px;
+  border-left: 2px solid var(--blue);
+  background: var(--bg-raised);
+}
 .fixed-step-note {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -1869,29 +1888,124 @@ kbd {
   color: var(--text-muted);
 }
 .simulation-chart {
-  padding: 15px 17px 0;
+  overflow: hidden;
+  padding: 18px 18px 0;
 }
 .simulation-chart .chart-body {
-  height: 240px;
+  height: 285px;
+  padding-top: 6px;
+}
+.controller-selector button {
+  min-height: 34px;
+  padding-inline: 12px;
+}
+.comparison-insight {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--green) 30%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--green) 7%, var(--bg-raised));
+}
+.comparison-insight > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--green) 18%, transparent);
+  color: var(--green);
+  font: 700 13px var(--font-mono);
+}
+.comparison-insight strong {
+  display: block;
+  font-size: 12px;
+}
+.comparison-insight p {
+  margin: 3px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.comparison-insight.equivalent {
+  border-color: color-mix(in srgb, var(--yellow) 30%, var(--line));
+  background: color-mix(in srgb, var(--yellow) 6%, var(--bg-raised));
+}
+.comparison-insight.equivalent > span {
+  background: color-mix(in srgb, var(--yellow) 16%, transparent);
+  color: var(--yellow);
+}
+.comparison-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 15px;
+  padding-top: 13px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.comparison-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.comparison-legend span::before {
+  width: 14px;
+  height: 2px;
+  flex: 0 0 auto;
+  background: var(--accent);
+  content: '';
+}
+.comparison-legend .alternate-response::before {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--purple) 0 5px, transparent 5px 8px);
+}
+.comparison-legend .sensor-t1::before {
+  background: #f59e5b;
+  opacity: 0.75;
+}
+.comparison-legend .sensor-t2::before {
+  background: #bb86fc;
+  opacity: 0.75;
+}
+.comparison-legend .sensor-t3::before {
+  background: #69c6a4;
+  opacity: 0.85;
+}
+.comparison-legend .requested-target::before {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--text-faint) 0 6px, transparent 6px 10px);
+}
+.comparison-legend .firmware-target::before {
+  height: 1px;
+  background: repeating-linear-gradient(90deg, var(--blue) 0 3px, transparent 3px 6px);
 }
 .playback-bar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(80px, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  margin: 0 -17px;
-  padding: 9px 14px;
+  gap: 12px;
+  margin: 0 -18px;
+  padding: 11px 16px;
   border-top: 1px solid var(--line-soft);
+}
+.transport-controls {
+  display: flex;
+  gap: 7px;
 }
 .round-control {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   place-items: center;
   border: 1px solid var(--line);
   border-radius: 50%;
   background: var(--surface-2);
-  font: 9px var(--font-mono);
+  font: 12px var(--font-mono);
 }
 .round-control.main {
   border-color: var(--accent);
@@ -1900,27 +2014,29 @@ kbd {
 }
 .playback-progress {
   flex: 1;
-  margin: 0 5px;
+  min-width: 70px;
 }
 .timewarp {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 .timewarp > span {
-  margin-right: 4px;
+  margin-right: 5px;
   color: var(--text-faint);
-  font-size: 7px;
+  font-size: 10px;
   font-weight: 800;
+  letter-spacing: 0.06em;
 }
 .timewarp button {
-  height: 24px;
-  padding: 0 6px;
+  min-width: 30px;
+  height: 32px;
+  padding: 0 7px;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
   color: var(--text-faint);
-  font: 8px var(--font-mono);
+  font: 11px var(--font-mono);
 }
 .timewarp button.active {
   border-color: var(--line);
@@ -3294,6 +3410,18 @@ kbd {
     grid-column: 2;
   }
 }
+@media (min-width: 981px) {
+  .simulation-workspace {
+    display: contents;
+  }
+  .oven-visual-panel {
+    grid-column: 2;
+  }
+  .simulation-chart,
+  .simulation-metrics {
+    grid-column: 1 / -1;
+  }
+}
 @media (max-width: 1020px) {
   .jobs-layout,
   .settings-layout,
@@ -3348,4 +3476,156 @@ kbd {
   .simulation-layout {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Keep operational text legible on the 900 × 600 minimum viewport. */
+.status-line,
+.machine-copy small,
+.topbar-context strong,
+.topbar-context small,
+.top-temperature span,
+.top-temperature small,
+.segmented.compact button,
+.field > span,
+.range-field > span b,
+.field-error,
+.unit-input em,
+.fine-print,
+.metric-top,
+.metric-top em,
+.metric-footer,
+.legend,
+.chart-status span,
+.target-input label span,
+.scale,
+.output-head > span,
+.heater-pair span,
+.heater-pair strong,
+.run-title strong,
+.run-title em,
+.run-meta,
+.terminal-toolbar,
+.traffic-legend span,
+.terminal-line .direction,
+.autocomplete button,
+.terminal-hints,
+.drop-zone span,
+.file-identity p,
+.stream-facts span,
+.stream-facts strong,
+.progress-stats span,
+.start-card p,
+.recent-empty,
+.file-badge.small,
+.recent-row strong,
+.recent-row span,
+.recent-row em,
+.protocol-note strong,
+.protocol-note p,
+.model-summary,
+.range-field output,
+.advanced-toggle,
+.advanced-toggle em,
+.fixed-step-note span,
+.fixed-step-note strong,
+.fixed-step-note small,
+.simulation-clock span,
+.sensor-pin,
+.sensor-pin b,
+.visual-readout span,
+.visual-readout small,
+.round-control,
+.timewarp > span,
+.timewarp button,
+.metric-comparison header span,
+.metric-comparison > div span,
+.metric-comparison header em,
+.metric-comparison > div strong,
+.pid-head,
+.pid-row label input,
+.pid-row .unit-input input,
+.add-row,
+.volatile-note,
+.effective-temp small,
+.gain-triplet span,
+.gain-triplet strong,
+.interpolation-visual i span,
+.interpolation-card p,
+.profile-health > div,
+.profile-health strong,
+.tune-steps > div,
+.tune-steps b,
+.risk-card strong,
+.risk-card p,
+.target-chip > span,
+.target-chip em,
+.preflight-list i,
+.preflight-list strong,
+.preflight-list small,
+.check-row,
+.tune-method li,
+.tune-method li b,
+.method-source,
+.relay-animation small,
+.tune-live-stats span,
+.tune-live-stats strong,
+.result-row,
+.validation-summary span,
+.validation-summary strong,
+.validation-run > div:first-child,
+.validation-run > p,
+.validation-run dt,
+.validation-run dd,
+.profile-kind,
+.profile-card p,
+.profile-meta,
+.empty-profile-card span,
+.new-profile-card small,
+.settings-card header p,
+.fixed-value strong,
+.connection-summary strong,
+.connection-summary small,
+.settings-inline-note,
+.settings-inline-note small,
+.theme-options strong,
+.theme-options small,
+.catalog-approval > strong,
+.catalog-approval > p,
+.catalog-stat span,
+.catalog-card dl div,
+.data-card > div,
+.switch-row strong,
+.switch-row small,
+.switch-row em,
+.data-card > p,
+.data-card > div strong,
+.about-hero p,
+.about-version em,
+.about-card > p,
+.about-card dl div,
+.safety-rule strong,
+.safety-rule span,
+.runtime-grid span,
+.runtime-grid strong,
+.attribution p,
+.about-footer,
+.about-footer button {
+  font-size: var(--text-caption);
+}
+
+.brand-copy small,
+.sidebar-version,
+.eyebrow,
+.panel-kicker,
+.status-chip,
+.state-chip,
+.format-chip,
+.version-chip,
+.scope-chip,
+.link-line,
+.standard-load span,
+.standard-load strong,
+.fixed-value em,
+.about-version span {
+  font-size: var(--text-micro);
 }

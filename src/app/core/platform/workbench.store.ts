@@ -42,6 +42,7 @@ import {
 } from '../control';
 import {
   DEFAULT_OVEN_PROFILE,
+  STANDARD_LOAD_PID_SCHEDULE,
   cloneOvenModelProfile,
   validateOvenModelProfile,
   type OvenModelProfile,
@@ -132,14 +133,10 @@ const DEFAULT_VALIDATION: ValidationRunState = {
   error: null,
 };
 
-const DEFAULT_PID_SCHEDULE: PidSchedule = createPidSchedule([
-  { temperatureC: 100, gains: { kp: 15.8, ki: 0.52, kd: 68 } },
-  { temperatureC: 150, gains: { kp: 18.2, ki: 0.73, kd: 82 } },
-  { temperatureC: 200, gains: { kp: 21.6, ki: 0.91, kd: 96 } },
-]);
+const DEFAULT_PID_SCHEDULE: PidSchedule = STANDARD_LOAD_PID_SCHEDULE;
 
 const DEFAULT_TARGET_ASSISTANCE: ModelAssistedTargetConfiguration = {
-  heatingRampCPerMinute: 60,
+  heatingRampCPerMinute: 15,
   coolingRampCPerMinute: 120,
   predictionHorizonSeconds: 15,
   maximumTargetLeadC: 15,
@@ -168,6 +165,7 @@ export class WorkbenchStore implements OnDestroy {
   private readonly unsubscribe: Array<() => void> = [];
   private controlTimer: ReturnType<typeof setInterval> | undefined;
   private validationTimer: ReturnType<typeof setTimeout> | undefined;
+  private portsRefreshPromise: Promise<void> | null = null;
   private targetShaperState: TargetShaperState = createTargetShaperState(0);
   private lastControlTick = performance.now();
   private lastFirmwareTargetSent: number | null = null;
@@ -189,6 +187,11 @@ export class WorkbenchStore implements OnDestroy {
   readonly connection = signal<SerialConnectionState>(DEFAULT_CONNECTION);
   readonly ports = signal<readonly SerialPortDescriptor[]>([]);
   readonly selectedPort = signal('');
+  readonly serialPortDialogOpen = signal(false);
+  readonly serialPortsRefreshing = signal(false);
+  readonly selectedPortAvailable = computed(() =>
+    this.ports().some((port) => port.path === this.selectedPort()),
+  );
   readonly settings = signal<AppSettings>(DEFAULT_SETTINGS);
   readonly telemetry = signal<TemperatureTelemetry>({
     timestamp: new Date().toISOString(),
@@ -265,6 +268,7 @@ export class WorkbenchStore implements OnDestroy {
 
     this.registerDesktopEvents();
     await Promise.all([this.loadSettings(), this.refreshPorts(), this.loadDesktopState()]);
+    this.clearUnavailableSelectedPort();
     this.targetShaperState = createTargetShaperState(this.telemetry().target);
     this.startControlLoop();
   }
@@ -294,26 +298,73 @@ export class WorkbenchStore implements OnDestroy {
     this.notify(mode === 'pid' ? 'PID control selected' : 'Model-assisted PID selected');
   }
 
-  async refreshPorts(): Promise<void> {
-    if (this.api === undefined) {
-      this.ports.set([
-        {
-          path: 'COM4',
-          friendlyName: 'STM32 Virtual COM Port',
-          manufacturer: 'STMicroelectronics',
-        },
-        { path: 'COM7', friendlyName: 'USB Serial Device' },
-      ]);
-      return;
+  refreshPorts(): Promise<void> {
+    if (this.portsRefreshPromise !== null) return this.portsRefreshPromise;
+    this.serialPortsRefreshing.set(true);
+    const refresh = this.loadPorts().finally(() => {
+      if (this.portsRefreshPromise === refresh) {
+        this.portsRefreshPromise = null;
+        this.serialPortsRefreshing.set(false);
+      }
+    });
+    this.portsRefreshPromise = refresh;
+    return refresh;
+  }
+
+  private async loadPorts(): Promise<void> {
+    try {
+      if (this.api === undefined) {
+        this.ports.set([
+          {
+            path: 'COM4',
+            friendlyName: 'STM32 Virtual COM Port',
+            manufacturer: 'STMicroelectronics',
+          },
+          { path: 'COM7', friendlyName: 'USB Serial Device' },
+        ]);
+        this.clearUnavailableSelectedPort();
+        return;
+      }
+      const result = await this.api.serial.listPorts();
+      if (result.ok) {
+        this.ports.set(result.value);
+        this.clearUnavailableSelectedPort();
+      } else {
+        this.ports.set([]);
+        this.clearUnavailableSelectedPort();
+        this.notify(result.error.message);
+      }
+    } catch (error) {
+      this.ports.set([]);
+      this.clearUnavailableSelectedPort();
+      this.notify(error instanceof Error ? error.message : 'Unable to enumerate serial ports.');
     }
-    const result = await this.api.serial.listPorts();
-    if (result.ok) this.ports.set(result.value);
-    else this.notify(result.error.message);
   }
 
   async toggleConnection(): Promise<void> {
     if (this.connected()) await this.disconnect();
-    else await this.connect();
+    else await this.openSerialPortDialog();
+  }
+
+  async openSerialPortDialog(): Promise<void> {
+    this.serialPortDialogOpen.set(true);
+    await this.refreshPorts();
+  }
+
+  dismissSerialPortDialog(): void {
+    this.serialPortDialogOpen.set(false);
+  }
+
+  async connectSelectedPort(): Promise<void> {
+    if (!this.serialPortDialogOpen()) return;
+    if (this.serialPortsRefreshing()) return;
+    if (!this.selectedPortAvailable()) {
+      this.notify('Select one of the currently available serial ports.');
+      return;
+    }
+    this.serialPortDialogOpen.set(false);
+    await this.updateSettings({ lastSerialPort: this.selectedPort() });
+    await this.connect();
   }
 
   async connect(): Promise<void> {
@@ -321,7 +372,7 @@ export class WorkbenchStore implements OnDestroy {
     this.hasTelemetry.set(false);
     const path = this.selectedPort();
     if (!path) {
-      this.notify('Choose a serial port first.');
+      await this.openSerialPortDialog();
       return;
     }
     if (this.api === undefined) {
@@ -534,19 +585,20 @@ export class WorkbenchStore implements OnDestroy {
     profile: OvenModelProfile,
     assistance: ModelAssistedTargetConfiguration,
   ): boolean {
+    const normalizedProfile = cloneOvenModelProfile(profile);
     try {
-      validateOvenModelProfile(profile);
+      validateOvenModelProfile(normalizedProfile);
       validateTargetShaperConfiguration(assistance);
     } catch (error) {
       this.notify(error instanceof Error ? error.message : 'The oven model is invalid.');
       return false;
     }
-    this.ovenModelProfile.set(cloneOvenModelProfile(profile));
+    this.ovenModelProfile.set(normalizedProfile);
     this.modelAssistance.set({ ...assistance });
-    this.activeProfile.set(profile.name);
+    this.activeProfile.set(normalizedProfile.name);
     this.controlMode.set('model-assisted');
     this.targetShaperState = createTargetShaperState(this.modelTarget());
-    this.notify(`${profile.name} is now used for model-assisted target shaping.`);
+    this.notify(`${normalizedProfile.name} is now used for model-assisted target shaping.`);
     return true;
   }
 
@@ -890,6 +942,13 @@ export class WorkbenchStore implements OnDestroy {
       this.settings.set(result.value);
       this.applyTheme(result.value.theme);
       if (result.value.lastSerialPort !== null) this.selectedPort.set(result.value.lastSerialPort);
+    }
+  }
+
+  private clearUnavailableSelectedPort(): void {
+    const selected = this.selectedPort();
+    if (selected !== '' && !this.ports().some((port) => port.path === selected)) {
+      this.selectedPort.set('');
     }
   }
 

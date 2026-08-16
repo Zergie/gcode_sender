@@ -3,6 +3,7 @@ import type { TrendPoint } from '../core/platform/workbench.store';
 
 interface ChartSeries {
   readonly average: string;
+  readonly comparison: string;
   readonly target: string;
   readonly model: string;
   readonly t1: string;
@@ -33,6 +34,7 @@ interface ChartSeries {
         <path class="series t3" [attr.d]="paths().t3" />
         <path class="series requested" [attr.d]="paths().target" />
         <path class="series model" [attr.d]="paths().model" />
+        <path class="series comparison" [attr.d]="paths().comparison" />
         <path class="series average" [attr.d]="paths().average" />
         <g class="axis-labels">
           <text x="5" y="27">250°</text>
@@ -47,6 +49,7 @@ interface ChartSeries {
   styles: `
     :host {
       display: block;
+      height: 100%;
       min-height: 0;
     }
     .trend-wrap {
@@ -66,7 +69,7 @@ interface ChartSeries {
     }
     .axis-labels {
       fill: var(--text-faint);
-      font: 11px var(--font-mono);
+      font: 16px var(--font-mono);
     }
     .series {
       fill: none;
@@ -97,6 +100,12 @@ interface ChartSeries {
       stroke: #53b9e8;
       stroke-dasharray: 3 4;
     }
+    .series.comparison {
+      stroke: var(--purple);
+      stroke-width: 2;
+      stroke-dasharray: 9 5;
+      opacity: 0.9;
+    }
     .area {
       fill: url(#temperature-area);
       stroke: none;
@@ -105,24 +114,26 @@ interface ChartSeries {
 })
 export class TrendChartComponent {
   readonly points = input.required<readonly TrendPoint[]>();
+  readonly comparisonPoints = input<readonly TrendPoint[]>([]);
   readonly paths = computed<ChartSeries>(() => {
     const points = this.points();
-    const make = (pick: (point: TrendPoint) => number): string =>
-      points
+    const make = (source: readonly TrendPoint[], pick: (point: TrendPoint) => number): string =>
+      source
         .map((point, index) => {
-          const x = 44 + (index / Math.max(points.length - 1, 1)) * 840;
+          const x = 44 + (index / Math.max(source.length - 1, 1)) * 840;
           const y = 270 - (Math.max(0, Math.min(250, pick(point))) / 250) * 248;
           return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
         })
         .join(' ');
-    const average = make((point) => point.average);
+    const average = make(points, (point) => point.average);
     return {
       average,
-      target: make((point) => point.target),
-      model: make((point) => point.modelTarget),
-      t1: make((point) => point.t1),
-      t2: make((point) => point.t2),
-      t3: make((point) => point.t3),
+      comparison: make(this.comparisonPoints(), (point) => point.average),
+      target: make(points, (point) => point.target),
+      model: make(points, (point) => point.modelTarget),
+      t1: make(points, (point) => point.t1),
+      t2: make(points, (point) => point.t2),
+      t3: make(points, (point) => point.t3),
       area: average.length === 0 ? '' : `${average} L884 270 L44 270 Z`,
     };
   });

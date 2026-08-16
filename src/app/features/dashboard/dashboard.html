@@ -28,7 +28,7 @@
       <app-icon name="alert" />
       <div>
         <strong>Oven is disconnected</strong
-        ><span>Choose a serial port in Settings, then connect when the controller is ready.</span>
+        ><span>Select a serial port, then connect when the controller is ready.</span>
       </div>
       <button class="button secondary" type="button" (click)="store.toggleConnection()">
         Connect
@@ -42,8 +42,8 @@
         <strong>{{ error.code }}</strong
         ><span>{{ error.message }}</span>
       </div>
-      <button class="button secondary" type="button" (click)="store.refreshPorts()">
-        Refresh ports
+      <button class="button secondary" type="button" (click)="store.openSerialPortDialog()">
+        Choose port
       </button>
     </section>
   }

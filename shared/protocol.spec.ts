@@ -31,6 +31,40 @@ describe('firmware protocol parser', () => {
     });
   });
 
+  it('parses the exact legacy M115 response emitted by the connected STM32 firmware', () => {
+    const line =
+      'FIRMWARE_NAME: Arduino Gcode Interpreter v0.3 SOURCE_CODE_URL: https://github.com/Zergie PROTOCOL_VERSION: 1.0 MACHINE_TYPE: DIY Toaster UUID: 554d5e22-d685-4c68-973a-b57ff1e82f6f';
+
+    const parsed = parseFirmwareLine(line);
+
+    expect(parsed).toMatchObject({
+      kind: 'firmware',
+      value: {
+        firmwareName: 'Arduino Gcode Interpreter v0.3',
+        sourceCodeUrl: 'https://github.com/Zergie',
+        protocolVersion: '1.0',
+        machineType: 'DIY Toaster',
+        uuid: '554d5e22-d685-4c68-973a-b57ff1e82f6f',
+      },
+    });
+    expect(isCompletionForCommand('M115', parsed)).toBe(true);
+  });
+
+  it('does not treat an isolated firmware-name message as an M115 handshake', () => {
+    expect(parseM115('FIRMWARE_NAME: unrelated terminal output')).toBeNull();
+  });
+
+  it.each([
+    'FIRMWARE_NAME:x SOURCE_CODE_URL: PROTOCOL_VERSION:1 MACHINE_TYPE:OVEN UUID:abc',
+    'FIRMWARE_NAME:x SOURCE_CODE_URL:https://example.test PROTOCOL_VERSION: MACHINE_TYPE:OVEN UUID:abc',
+    'FIRMWARE_NAME:x SOURCE_CODE_URL:https://example.test PROTOCOL_VERSION:1 MACHINE_TYPE: UUID:abc',
+    'FIRMWARE_NAME:x SOURCE_CODE_URL:https://example.test PROTOCOL_VERSION:1 MACHINE_TYPE:OVEN UUID:',
+    'FIRMWARE_NAME:x SOURCE_CODE_URL:https://example.test PROTOCOL_VERSION:1 MACHINE_TYPE:OVEN UUID:a UUID:b',
+  ])('rejects malformed M115 identity fields: %s', (line) => {
+    expect(parseM115(line)).toBeNull();
+    expect(isCompletionForCommand('M115', parseFirmwareLine(line))).toBe(false);
+  });
+
   it('uses command-specific completion responses', () => {
     expect(
       isCompletionForCommand('M105', parseFirmwareLine('T0:20 /0 @:0 T1:20 T2:20 T3:20')),

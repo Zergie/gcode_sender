@@ -88,6 +88,85 @@
   </main>
 </div>
 
+@if (store.serialPortDialogOpen()) {
+  <div class="serial-port-backdrop">
+    <section
+      class="serial-port-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="serial-port-dialog-title"
+      tabindex="-1"
+      (keydown)="handleSerialPortDialogKeydown($event)"
+    >
+      <header>
+        <div class="serial-port-dialog-icon"><app-icon name="plug" /></div>
+        <div>
+          <span>CONTROLLER CONNECTION</span>
+          <h2 id="serial-port-dialog-title">Select serial port</h2>
+          <p>Choose the STM32 controller to connect at the fixed 115200 baud rate.</p>
+        </div>
+        <button
+          class="icon-button"
+          type="button"
+          aria-label="Close serial port selection"
+          (click)="store.dismissSerialPortDialog()"
+        >
+          ×
+        </button>
+      </header>
+
+      <div class="serial-port-options" role="radiogroup" aria-label="Available serial ports">
+        @for (port of store.ports(); track port.path) {
+          <label class="serial-port-option" [class.selected]="store.selectedPort() === port.path">
+            <input
+              type="radio"
+              name="serial-port"
+              [value]="port.path"
+              [checked]="store.selectedPort() === port.path"
+              (change)="store.selectedPort.set(port.path)"
+            />
+            <span>
+              <strong>{{ port.path }}</strong>
+              <small>{{ port.friendlyName ?? port.manufacturer ?? 'Serial device' }}</small>
+            </span>
+            @if (port.vendorId || port.productId) {
+              <em>{{ port.vendorId ?? '----' }}:{{ port.productId ?? '----' }}</em>
+            }
+          </label>
+        } @empty {
+          <div class="serial-port-empty">
+            <strong>No serial ports found</strong>
+            <span>Connect the controller, wait for Windows to detect it, then refresh.</span>
+          </div>
+        }
+      </div>
+
+      <footer>
+        <button
+          class="button secondary"
+          type="button"
+          [attr.aria-disabled]="store.serialPortsRefreshing()"
+          (click)="store.refreshPorts()"
+        >
+          {{ store.serialPortsRefreshing() ? 'Refreshing…' : 'Refresh ports' }}
+        </button>
+        <span></span>
+        <button class="button secondary" type="button" (click)="store.dismissSerialPortDialog()">
+          Cancel
+        </button>
+        <button
+          class="button primary"
+          type="button"
+          [disabled]="store.serialPortsRefreshing() || !store.selectedPortAvailable()"
+          (click)="store.connectSelectedPort()"
+        >
+          Connect to {{ store.selectedPort() || 'selected port' }}
+        </button>
+      </footer>
+    </section>
+  </div>
+}
+
 @if (store.toast(); as message) {
   <div class="toast" role="status"><span></span>{{ message }}</div>
 }

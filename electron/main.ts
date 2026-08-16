@@ -6,6 +6,7 @@ import { EventHub } from './event-hub';
 import { registerIpcHandlers } from './ipc-handlers';
 import { MainLogger, type Logger } from './logger';
 import { shutdownInOrder } from './shutdown';
+import { createMainWindowOptions } from './window-options';
 import { ActivityService } from './services/activity-service';
 import { CatalogService } from './services/catalog-service';
 import { JobService } from './services/job-service';
@@ -108,23 +109,14 @@ function wireEvents(current: Runtime): void {
 }
 
 async function createWindow(): Promise<void> {
-  const window = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 900,
-    minHeight: 600,
-    useContentSize: true,
-    show: false,
-    backgroundColor: '#0b1118',
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-    },
-  });
+  const window = new BrowserWindow(
+    createMainWindowOptions({
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged,
+      platform: process.platform,
+      preloadPath: path.join(__dirname, 'preload.js'),
+    }),
+  );
   mainWindow = window;
   runtime?.events.attach(window.webContents);
 

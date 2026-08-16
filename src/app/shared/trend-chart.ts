@@ -117,27 +117,45 @@ interface ChartSeries {
 export class TrendChartComponent {
   readonly points = input.required<readonly TrendPoint[]>();
   readonly comparisonPoints = input<readonly TrendPoint[]>([]);
+  readonly windowStart = input<number | null>(null);
+  readonly windowEnd = input<number | null>(null);
   readonly showModelTarget = input(true);
   readonly paths = computed<ChartSeries>(() => {
     const points = this.points();
+    const comparisonPoints = this.comparisonPoints();
+    const allPoints = [...points, ...comparisonPoints];
+    const requestedStart = this.windowStart();
+    const requestedEnd = this.windowEnd();
+    const start = requestedStart ?? Math.min(...allPoints.map((point) => point.time));
+    const end = requestedEnd ?? Math.max(...allPoints.map((point) => point.time));
+    const duration = Math.max(end - start, 1);
+    const xFor = (point: TrendPoint): number =>
+      44 + (Math.max(0, Math.min(1, (point.time - start) / duration)) || 0) * 840;
     const make = (source: readonly TrendPoint[], pick: (point: TrendPoint) => number): string =>
       source
         .map((point, index) => {
-          const x = 44 + (index / Math.max(source.length - 1, 1)) * 840;
+          const x = xFor(point);
           const y = 270 - (Math.max(0, Math.min(250, pick(point))) / 250) * 248;
           return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
         })
         .join(' ');
     const average = make(points, (point) => point.average);
+    const firstPoint = points.at(0);
+    const lastPoint = points.at(-1);
+    const firstX = firstPoint === undefined ? 44 : xFor(firstPoint);
+    const lastX = lastPoint === undefined ? 884 : xFor(lastPoint);
     return {
       average,
-      comparison: make(this.comparisonPoints(), (point) => point.average),
+      comparison: make(comparisonPoints, (point) => point.average),
       target: make(points, (point) => point.target),
       model: make(points, (point) => point.modelTarget),
       t1: make(points, (point) => point.t1),
       t2: make(points, (point) => point.t2),
       t3: make(points, (point) => point.t3),
-      area: average.length === 0 ? '' : `${average} L884 270 L44 270 Z`,
+      area:
+        average.length === 0
+          ? ''
+          : `${average} L${lastX.toFixed(1)} 270 L${firstX.toFixed(1)} 270 Z`,
     };
   });
 }

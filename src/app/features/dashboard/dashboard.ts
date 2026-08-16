@@ -15,19 +15,30 @@ export class DashboardComponent {
   readonly store = inject(WorkbenchStore);
   readonly targetDraft = signal(200);
   readonly range = signal('30m');
-  readonly chartPoints = computed(() => {
+  readonly chartWindow = computed(() => {
     const points = this.store.trend();
-    const latest = points.at(-1)?.time ?? Date.now();
+    const latestPointTime = points.at(-1)?.time ?? Date.now();
     const selectedRange = this.range();
-    const cutoff =
+    const jobStartedAt = Date.parse(this.store.job().startedAt ?? '');
+    if (selectedRange === 'Job') {
+      const start = Number.isFinite(jobStartedAt)
+        ? jobStartedAt
+        : (points.at(0)?.time ?? latestPointTime - 1);
+      return { start, end: Math.max(latestPointTime, start + 1) };
+    }
+    const start =
       selectedRange === '5m'
-        ? latest - 5 * 60_000
+        ? latestPointTime - 5 * 60_000
         : selectedRange === '30m'
-          ? latest - 30 * 60_000
-          : selectedRange === '2h'
-            ? latest - 2 * 60 * 60_000
-            : Date.parse(this.store.job().startedAt ?? '') || Number.NEGATIVE_INFINITY;
-    return points.filter((point) => point.time >= cutoff);
+          ? latestPointTime - 30 * 60_000
+          : latestPointTime - 2 * 60 * 60_000;
+    return { start, end: latestPointTime };
+  });
+  readonly chartPoints = computed(() => {
+    const window = this.chartWindow();
+    return this.store
+      .trend()
+      .filter((point) => point.time >= window.start && point.time <= window.end);
   });
 
   constructor() {

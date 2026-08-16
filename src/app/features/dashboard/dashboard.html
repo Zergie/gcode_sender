@@ -183,6 +183,8 @@
       <div class="chart-body">
         <app-trend-chart
           [points]="chartPoints()"
+          [windowStart]="chartWindow().start"
+          [windowEnd]="chartWindow().end"
           [showModelTarget]="store.controlMode() === 'model-assisted'"
         />
       </div>

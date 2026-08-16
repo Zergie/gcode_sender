@@ -27,6 +27,7 @@
     "start": "npm run dev",
     "test:renderer": "ng test --watch=false",
     "test:backend": "vitest run shared electron",
+    "verify:windows-dev-icon": "npm run build:electron && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-dev-icon.ps1",
     "rebuild:native": "electron-rebuild",
     "postinstall": "electron-rebuild"
   },

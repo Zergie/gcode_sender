@@ -15,24 +15,6 @@ export type PidSchedule = readonly PidBreakpoint[];
 export interface PidControllerConfiguration {
   readonly schedule: PidSchedule;
   readonly gainTransitionSeconds: number;
-  readonly outputMinimum: number;
-  readonly outputMaximum: number;
-  readonly integralMinimum: number;
-  readonly integralMaximum: number;
-  readonly derivativeFilterSeconds: number;
-}
-
-export interface PidControllerState {
-  readonly integralTerm: number;
-  readonly previousMeasurementC: number;
-  readonly filteredDerivativeCPerSecond: number;
-  readonly activeGains: PidGains;
-}
-
-export interface PidStepInput {
-  readonly setpointC: number;
-  readonly measurementC: number;
-  readonly stepSeconds: number;
 }
 
 export interface PidTerms {
@@ -41,19 +23,12 @@ export interface PidTerms {
   readonly derivative: number;
 }
 
-export interface PidStepResult {
-  readonly output: number;
-  readonly terms: PidTerms;
-  readonly gains: PidGains;
-  readonly state: PidControllerState;
-}
-
 export type ControlMode = 'pid' | 'model-assisted-pid';
 
 export interface ModelAssistedTargetConfiguration {
-  readonly heatingRampCPerMinute: number;
-  readonly coolingRampCPerMinute: number;
+  /** Length of each forked physical-twin/firmware forecast. */
   readonly predictionHorizonSeconds: number;
+  /** Whole-degree candidate commands are searched within this distance of the requested target. */
   readonly maximumTargetLeadC: number;
   readonly minimumCommandC: number;
   readonly maximumCommandC: number;

@@ -34,11 +34,15 @@ import { BUNDLED_COMMAND_CATALOG } from '../../../../shared/bundled-catalog';
 import { validateHeatingProfile } from '../../../../shared/heating-profile-document';
 import {
   advancePidGainTransition,
+  assimilateFirmwareQuickPidObservation,
+  createFirmwareQuickPidState,
   createPidSchedule,
   createTargetShaperState,
   interpolatePidGains,
-  stepTargetShaper,
+  setFirmwareQuickPidTunings,
+  stepFirmwareQuickPid,
   validateTargetShaperConfiguration,
+  type FirmwareQuickPidState,
   type ModelAssistedTargetConfiguration,
   type PidGains,
   type PidSchedule,
@@ -46,10 +50,19 @@ import {
 } from '../control';
 import {
   DEFAULT_OVEN_PROFILE,
+  DEFAULT_SIMULATION_CONTROLLER,
+  PHYSICAL_FORECAST_REPLAN_SECONDS,
   STANDARD_LOAD_PID_SCHEDULE,
   cloneOvenModelProfile,
+  createPhysicalForecastPlanner,
+  createPhysicalTwinObserver,
+  simulate,
+  stepPhysicalFeedForward,
   validateOvenModelProfile,
   type OvenModelProfile,
+  type PhysicalForecastPlan,
+  type PhysicalForecastPlanner,
+  type PhysicalTwinObserver,
 } from '../simulation';
 import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics } from '../tuning';
 
@@ -145,12 +158,7 @@ const DEFAULT_VALIDATION: ValidationRunState = {
 const DEFAULT_PID_SCHEDULE: PidSchedule = STANDARD_LOAD_PID_SCHEDULE;
 
 const DEFAULT_TARGET_ASSISTANCE: ModelAssistedTargetConfiguration = {
-  heatingRampCPerMinute: 15,
-  coolingRampCPerMinute: 120,
-  predictionHorizonSeconds: 15,
-  maximumTargetLeadC: 15,
-  minimumCommandC: 0,
-  maximumCommandC: 250,
+  ...DEFAULT_SIMULATION_CONTROLLER.modelAssistance,
 };
 
 const DEMO_FIXTURE_TIME_MS = Date.UTC(2026, 7, 15, 12, 0, 0);
@@ -178,6 +186,16 @@ export class WorkbenchStore implements OnDestroy {
   private validationTimer: ReturnType<typeof setTimeout> | undefined;
   private portsRefreshPromise: Promise<void> | null = null;
   private targetShaperState: TargetShaperState = createTargetShaperState(0);
+  private physicalForecastPlanner: PhysicalForecastPlanner | null = null;
+  private lastPhysicalForecastAtMs: number | null = null;
+  private lastPhysicalForecastRequestC: number | null = null;
+  private lastPhysicalForecastPlan: PhysicalForecastPlan | null = null;
+  private physicalTwinObserver: PhysicalTwinObserver | null = null;
+  private physicalFirmwarePidState: FirmwareQuickPidState | null = null;
+  private physicalPidRemainderSeconds = 0;
+  private lastPhysicalPidMeasurementC: number | null = null;
+  private lastPhysicalObservationAtMs: number | null = null;
+  private lastObservedPwm8 = 0;
   private lastControlTick = performance.now();
   private lastFirmwareTargetSent: number | null = null;
   private lastGainsSent: PidGains | null = null;
@@ -309,6 +327,10 @@ export class WorkbenchStore implements OnDestroy {
 
   setMode(mode: ControlMode): void {
     this.controlMode.set(mode);
+    this.physicalForecastPlanner = null;
+    this.lastPhysicalForecastAtMs = null;
+    this.lastPhysicalForecastRequestC = null;
+    this.lastPhysicalForecastPlan = null;
     this.targetShaperState = createTargetShaperState(
       mode === 'pid' ? this.requestedTarget() : this.modelTarget(),
     );
@@ -386,6 +408,7 @@ export class WorkbenchStore implements OnDestroy {
 
   async connect(): Promise<void> {
     this.disarmControl();
+    this.resetPhysicalControlModel();
     this.hasTelemetry.set(false);
     const path = this.selectedPort();
     if (!path) {
@@ -414,6 +437,7 @@ export class WorkbenchStore implements OnDestroy {
 
   async disconnect(): Promise<void> {
     this.disarmControl();
+    this.resetPhysicalControlModel();
     this.hasTelemetry.set(false);
     if (this.api === undefined) {
       this.connection.set(DEFAULT_CONNECTION);
@@ -614,8 +638,9 @@ export class WorkbenchStore implements OnDestroy {
     this.modelAssistance.set({ ...assistance });
     this.activeProfile.set(normalizedProfile.name);
     this.controlMode.set('model-assisted');
+    this.resetPhysicalControlModel();
     this.targetShaperState = createTargetShaperState(this.modelTarget());
-    this.notify(`${normalizedProfile.name} is now used for model-assisted target shaping.`);
+    this.notify(`${normalizedProfile.name} is now used for physical model-assisted control.`);
     return true;
   }
 
@@ -1312,6 +1337,7 @@ export class WorkbenchStore implements OnDestroy {
     this.connection.set(state);
     if (state.status !== 'connected') {
       this.hasTelemetry.set(false);
+      this.resetPhysicalControlModel();
       this.disarmControl();
       if (this.validation().status === 'running') {
         void this.finishValidation('failed', 'The controller disconnected during validation.');
@@ -1341,13 +1367,77 @@ export class WorkbenchStore implements OnDestroy {
     const stepSeconds = Math.max(0.1, Math.min(2, (now - this.lastControlTick) / 1_000));
     this.lastControlTick = now;
     const domainMode = this.controlMode() === 'model-assisted' ? 'model-assisted-pid' : 'pid';
-    const shaped = stepTargetShaper(
-      domainMode,
-      this.modelAssistance(),
-      this.targetShaperState,
-      this.requestedTarget(),
-      stepSeconds,
-    );
+    const measuredTemperatureC = this.hasTelemetry()
+      ? this.telemetry().average
+      : this.ovenModelProfile().ambientTemperatureC;
+    const observer = this.physicalTwinObserver;
+    let shaped: PhysicalForecastPlan;
+    const requestedTargetC = this.requestedTarget();
+    const forecastDue =
+      force ||
+      this.lastPhysicalForecastPlan === null ||
+      this.lastPhysicalForecastAtMs === null ||
+      requestedTargetC !== this.lastPhysicalForecastRequestC ||
+      now - this.lastPhysicalForecastAtMs >= PHYSICAL_FORECAST_REPLAN_SECONDS * 1_000;
+    if (
+      domainMode === 'model-assisted-pid' &&
+      observer !== null &&
+      this.hasTelemetry() &&
+      this.connected() &&
+      this.controlArmed() &&
+      this.activity().active === null &&
+      this.job().status !== 'streaming' &&
+      this.job().status !== 'pause-pending' &&
+      forecastDue
+    ) {
+      this.physicalForecastPlanner ??= createPhysicalForecastPlanner({
+        configuration: this.modelAssistance(),
+        initialTargetC: this.targetShaperState.trajectoryTargetC,
+      });
+      const estimatedPidState = setFirmwareQuickPidTunings(
+        this.physicalFirmwarePidState ??
+          createFirmwareQuickPidState({
+            measurementC: measuredTemperatureC,
+            output: this.telemetry().power,
+            tunings: this.activePidGains(),
+          }),
+        this.activePidGains(),
+      );
+      this.physicalFirmwarePidState = estimatedPidState;
+      const forecastElapsedSeconds =
+        this.lastPhysicalForecastAtMs === null
+          ? stepSeconds
+          : Math.max(0.1, (now - this.lastPhysicalForecastAtMs) / 1_000);
+      shaped = this.physicalForecastPlanner.plan({
+        mode: domainMode,
+        source: observer,
+        firmwarePidState: estimatedPidState,
+        requestedTargetC,
+        stepSeconds: forecastElapsedSeconds,
+      });
+      this.lastPhysicalForecastAtMs = now;
+      this.lastPhysicalForecastRequestC = requestedTargetC;
+      this.lastPhysicalForecastPlan = shaped;
+    } else if (
+      domainMode === 'model-assisted-pid' &&
+      this.lastPhysicalForecastPlan !== null &&
+      observer !== null &&
+      this.hasTelemetry()
+    ) {
+      shaped = this.lastPhysicalForecastPlan;
+    } else {
+      shaped = stepPhysicalFeedForward({
+        mode: domainMode,
+        profile: this.ovenModelProfile(),
+        configuration: this.modelAssistance(),
+        state: this.targetShaperState,
+        requestedTargetC,
+        measuredTemperatureC,
+        measuredPidOutput: this.hasTelemetry() ? this.telemetry().power : 0,
+        activeGains: this.activePidGains(),
+        stepSeconds,
+      });
+    }
     this.targetShaperState = shaped.state;
     this.modelTarget.set(shaped.firmwareTargetC);
 
@@ -1542,6 +1632,7 @@ export class WorkbenchStore implements OnDestroy {
   private consumeTelemetry(event: TemperatureTelemetry): void {
     this.telemetry.set(event);
     this.hasTelemetry.set(true);
+    this.observePhysicalTwin(event);
     this.trend.update((points) =>
       [
         ...points,
@@ -1591,21 +1682,119 @@ export class WorkbenchStore implements OnDestroy {
     }
   }
 
+  private observePhysicalTwin(event: TemperatureTelemetry): void {
+    const observedAtMs = Date.parse(event.timestamp);
+    const timestampMs = Number.isFinite(observedAtMs) ? observedAtMs : Date.now();
+    const sensors = {
+      t1C: event.thermistors[0],
+      t2C: event.thermistors[1],
+      t3C: event.thermistors[2],
+    };
+    const elapsedSeconds =
+      this.lastPhysicalObservationAtMs === null
+        ? 0
+        : Math.max(0, (timestampMs - this.lastPhysicalObservationAtMs) / 1_000);
+    if (this.physicalTwinObserver === null) {
+      this.physicalTwinObserver = createPhysicalTwinObserver({
+        profile: this.ovenModelProfile(),
+        initialTemperatureC: event.average,
+        initialSensorsC: sensors,
+      });
+      this.physicalForecastPlanner = null;
+      this.lastPhysicalForecastAtMs = null;
+      this.lastPhysicalForecastRequestC = null;
+      this.lastPhysicalForecastPlan = null;
+    } else {
+      this.physicalTwinObserver.observe({
+        ...sensors,
+        elapsedSeconds,
+        appliedPwm8: this.lastObservedPwm8,
+      });
+    }
+    this.observeFirmwarePid(event, elapsedSeconds);
+    this.lastPhysicalObservationAtMs = timestampMs;
+    this.lastObservedPwm8 = Math.min(255, Math.max(0, Math.trunc(event.power)));
+  }
+
+  private observeFirmwarePid(event: TemperatureTelemetry, elapsedSeconds: number): void {
+    const currentMeasurementC = event.average;
+    if (this.physicalFirmwarePidState === null) {
+      this.physicalFirmwarePidState = assimilateFirmwareQuickPidObservation(
+        createFirmwareQuickPidState({
+          measurementC: currentMeasurementC,
+          output: event.power,
+          tunings: this.activePidGains(),
+        }),
+        {
+          setpointC: event.target,
+          measurementC: currentMeasurementC,
+          output: event.power,
+        },
+      );
+      this.lastPhysicalPidMeasurementC = currentMeasurementC;
+      this.physicalPidRemainderSeconds = 0;
+      return;
+    }
+
+    let state = setFirmwareQuickPidTunings(this.physicalFirmwarePidState, this.activePidGains());
+    const previousMeasurementC = this.lastPhysicalPidMeasurementC ?? currentMeasurementC;
+    const availableSeconds = this.physicalPidRemainderSeconds + elapsedSeconds;
+    const sampleCount = Math.floor((availableSeconds + 1e-9) / 0.1);
+    for (let index = 0; index < sampleCount; index += 1) {
+      const fraction = sampleCount === 0 ? 1 : (index + 1) / sampleCount;
+      const measurementC =
+        previousMeasurementC + (currentMeasurementC - previousMeasurementC) * fraction;
+      state = stepFirmwareQuickPid(state, {
+        setpointC: event.target,
+        measurementC,
+        elapsedSeconds: 0.1,
+      }).state;
+    }
+    this.physicalPidRemainderSeconds = Math.max(0, availableSeconds - sampleCount * 0.1);
+    this.physicalFirmwarePidState = assimilateFirmwareQuickPidObservation(state, {
+      setpointC: event.target,
+      measurementC: currentMeasurementC,
+      output: event.power,
+    });
+    this.lastPhysicalPidMeasurementC = currentMeasurementC;
+  }
+
+  private resetPhysicalControlModel(): void {
+    this.physicalForecastPlanner = null;
+    this.lastPhysicalForecastAtMs = null;
+    this.lastPhysicalForecastRequestC = null;
+    this.lastPhysicalForecastPlan = null;
+    this.physicalTwinObserver = null;
+    this.physicalFirmwarePidState = null;
+    this.physicalPidRemainderSeconds = 0;
+    this.lastPhysicalPidMeasurementC = null;
+    this.lastPhysicalObservationAtMs = null;
+    this.lastObservedPwm8 = 0;
+  }
+
   private async completeDemoValidation(targetC: number): Promise<void> {
     if (this.validation().status !== 'running') return;
     const initial = this.telemetry().average;
-    this.validationSamples = Array.from({ length: 241 }, (_, index) => {
-      const response = targetC - (targetC - initial) * Math.exp(-index / 28);
-      return {
-        atMs: index * 1_000,
-        t0C: response,
-        t1C: response + 0.7,
-        t2C: response - 0.7,
-        t3C: 38 + response * 0.06,
-        reportedTargetC: targetC,
-        output: Math.max(22, Math.min(255, (targetC - response) * 12 + 25)),
-      };
+    const result = simulate({
+      profile: this.ovenModelProfile(),
+      scenario: {
+        durationSeconds: 240,
+        targets: [{ atSeconds: 0, targetC }],
+        initialTemperatureC: initial,
+        sampleEverySeconds: 1,
+      },
+      controller: { ...DEFAULT_SIMULATION_CONTROLLER, mode: 'pid' },
+      timewarp: 'maximum',
     });
+    this.validationSamples = result.samples.map((sample) => ({
+      atMs: sample.timeSeconds * 1_000,
+      t0C: sample.temperatures.t0C,
+      t1C: sample.temperatures.t1C,
+      t2C: sample.temperatures.t2C,
+      t3C: sample.temperatures.t3C,
+      reportedTargetC: sample.requestedTargetC,
+      output: Math.round(sample.actuator.applied * 255),
+    }));
     this.validation.update((state) => ({ ...state, sampleCount: this.validationSamples.length }));
     await this.finishValidation('completed');
   }
@@ -1686,20 +1875,27 @@ export class WorkbenchStore implements OnDestroy {
 
   private seedTrend(): readonly TrendPoint[] {
     const now = this.demoState() === null ? Date.now() : DEMO_FIXTURE_TIME_MS;
-    return Array.from({ length: 90 }, (_, index) => {
-      const progress = index / 89;
-      const average = 24 + 161 * (1 - Math.exp(-progress * 3.2));
-      return {
-        time: now - (89 - index) * 5_000,
-        average,
-        t1: average + 1.5 + Math.sin(index / 8) * 0.4,
-        t2: average - 1.5 - Math.sin(index / 8) * 0.4,
-        t3: 24 + progress * 25,
-        target: 200,
-        modelTarget: 24 + progress * 169,
-        power: 255 - progress * 78,
-      };
+    const durationSeconds = 89 * 5;
+    const result = simulate({
+      profile: this.ovenModelProfile(),
+      scenario: {
+        durationSeconds,
+        targets: [{ atSeconds: 0, targetC: 200 }],
+        sampleEverySeconds: 5,
+      },
+      controller: { ...DEFAULT_SIMULATION_CONTROLLER, mode: 'pid' },
+      timewarp: 'maximum',
     });
+    return result.samples.map((sample) => ({
+      time: now - (durationSeconds - sample.timeSeconds) * 1_000,
+      average: sample.temperatures.t0C,
+      t1: sample.temperatures.t1C,
+      t2: sample.temperatures.t2C,
+      t3: sample.temperatures.t3C,
+      target: sample.requestedTargetC,
+      modelTarget: sample.firmwareTargetC,
+      power: Math.round(sample.actuator.applied * 255),
+    }));
   }
 
   private demoProfiles(): readonly StoredProfile[] {

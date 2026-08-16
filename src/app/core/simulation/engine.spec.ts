@@ -2,24 +2,37 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_OVEN_PROFILE, DEFAULT_SIMULATION_CONTROLLER } from './default-profile';
 import { simulate } from './engine';
-import type { SimulationRequest } from './types';
+import type { OvenModelProfile, SimulationRequest } from './types';
 
 function request(overrides: Partial<SimulationRequest> = {}): SimulationRequest {
   return {
     profile: DEFAULT_OVEN_PROFILE,
     controller: DEFAULT_SIMULATION_CONTROLLER,
     scenario: {
-      durationSeconds: 120,
+      durationSeconds: 30,
       targets: [{ atSeconds: 0, targetC: 180 }],
       sampleEverySeconds: 1,
     },
-    seed: 42,
     ...overrides,
   };
 }
 
-describe('dual-zone oven simulation', () => {
-  it('is deterministic for a seed and keeps T0 as the exact T1/T2 average', () => {
+function withBodyCapacity(
+  profile: OvenModelProfile,
+  body: keyof OvenModelProfile['bodies'],
+  heatCapacityJPerK: number,
+): OvenModelProfile {
+  return {
+    ...profile,
+    bodies: {
+      ...profile.bodies,
+      [body]: { heatCapacityJPerK },
+    },
+  };
+}
+
+describe('physical oven digital twin orchestration', () => {
+  it('is deterministic and keeps T0 as the exact firmware T1/T2 average', () => {
     const first = simulate(request());
     const second = simulate(request());
     expect(first).toEqual(second);
@@ -28,55 +41,55 @@ describe('dual-zone oven simulation', () => {
     }
   });
 
-  it('uses one actuator command for both independently powered heaters', () => {
+  it('uses one quantized actuator for two physically independent heaters', () => {
     const result = simulate(
       request({
         profile: {
           ...DEFAULT_OVEN_PROFILE,
-          sensors: { ...DEFAULT_OVEN_PROFILE.sensors, noiseStandardDeviationC: 0 },
-          topHeater: { ...DEFAULT_OVEN_PROFILE.topHeater, watts: 1_100 },
-          bottomHeater: { ...DEFAULT_OVEN_PROFILE.bottomHeater, watts: 700 },
+          heaters: {
+            top: { ...DEFAULT_OVEN_PROFILE.heaters.top, ratedPowerW: 1_100 },
+            bottom: { ...DEFAULT_OVEN_PROFILE.heaters.bottom, ratedPowerW: 700 },
+          },
         },
       }),
     );
     const final = result.samples.at(-1);
-    expect(final).toBeDefined();
     expect(final?.temperatures.topZoneC).toBeGreaterThan(final?.temperatures.bottomZoneC ?? 0);
-    expect(final?.actuator.commanded).toBeGreaterThanOrEqual(0);
-    expect(final?.actuator.commanded).toBeLessThanOrEqual(1);
-  });
-
-  it('makes element heat-release lag independently tunable', () => {
-    const laggedResponse = simulate(request());
-    const immediateResponse = simulate(
-      request({
-        profile: {
-          ...DEFAULT_OVEN_PROFILE,
-          topHeater: { ...DEFAULT_OVEN_PROFILE.topHeater, responseTimeSeconds: 0 },
-          bottomHeater: { ...DEFAULT_OVEN_PROFILE.bottomHeater, responseTimeSeconds: 0 },
-        },
-      }),
-    );
-
-    expect(immediateResponse.samples.at(-1)?.temperatures.t0C).toBeGreaterThan(
-      laggedResponse.samples.at(-1)?.temperatures.t0C ?? 0,
+    expect(final?.actuator.applied).toBeGreaterThanOrEqual(0);
+    expect(final?.actuator.applied).toBeLessThanOrEqual(1);
+    expect((final?.actuator.applied ?? 0) * 255).toBe(
+      Math.trunc((final?.actuator.applied ?? 0) * 255),
     );
   });
 
-  it('defaults heater response time for version-1 profiles saved before the field existed', () => {
+  it('derives heater coast and delay from stored thermal energy', () => {
+    const lighterElements = simulate(
+      request({ profile: withBodyCapacity(DEFAULT_OVEN_PROFILE, 'topHeater', 25) }),
+    );
+    const heavierElements = simulate(
+      request({ profile: withBodyCapacity(DEFAULT_OVEN_PROFILE, 'topHeater', 250) }),
+    );
+    expect(lighterElements.samples.at(-1)?.temperatures.topZoneC).not.toBeCloseTo(
+      heavierElements.samples.at(-1)?.temperatures.topZoneC ?? 0,
+      3,
+    );
+  });
+
+  it('migrates old profiles without carrying artificial lag parameters forward', () => {
     const legacyProfile = {
-      ...DEFAULT_OVEN_PROFILE,
-      topHeater: {
-        watts: DEFAULT_OVEN_PROFILE.topHeater.watts,
-        efficiency: DEFAULT_OVEN_PROFILE.topHeater.efficiency,
-      },
-      bottomHeater: {
-        watts: DEFAULT_OVEN_PROFILE.bottomHeater.watts,
-        efficiency: DEFAULT_OVEN_PROFILE.bottomHeater.efficiency,
-      },
-    } as unknown as SimulationRequest['profile'];
-
-    expect(simulate(request({ profile: legacyProfile }))).toEqual(simulate(request()));
+      version: 1,
+      kind: 'dual-zone-shared-actuator',
+      name: 'Legacy oven',
+      ambientTemperatureC: 24,
+      topHeater: { watts: 1_010, efficiency: 0.8, responseTimeSeconds: 91 },
+      bottomHeater: { watts: 870, efficiency: 0.8, responseTimeSeconds: 2 },
+      actuationDeadTimeSeconds: 12,
+    } as unknown as OvenModelProfile;
+    const result = simulate(request({ profile: legacyProfile }));
+    expect(result.samples[0]?.temperatures.t0C).toBe(24);
+    expect(result.samples.at(-1)?.temperatures.topZoneC).toBeGreaterThan(
+      result.samples.at(-1)?.temperatures.bottomZoneC ?? 0,
+    );
   });
 
   it('keeps fixed-step physics identical at every timewarp', () => {
@@ -88,59 +101,106 @@ describe('dual-zone oven simulation', () => {
     expect(maximum.execution.stepsPerBatch).toBeGreaterThan(normal.execution.stepsPerBatch);
   });
 
-  it('exposes requested, ramped, and predictive targets in model-assisted mode', () => {
+  it('derives model-assisted commands from the physical twin profile', () => {
+    const controller = {
+      ...DEFAULT_SIMULATION_CONTROLLER,
+      mode: 'model-assisted-pid' as const,
+      modelAssistance: {
+        ...DEFAULT_SIMULATION_CONTROLLER.modelAssistance,
+        predictionHorizonSeconds: 5,
+      },
+    };
+    const scenario = {
+      durationSeconds: 20,
+      targets: [{ atSeconds: 0, targetC: 150 }],
+      sampleEverySeconds: 1,
+    };
+    const nominalHeaters = simulate(request({ controller, scenario }));
+    const lowPowerHeaters = simulate(
+      request({
+        controller,
+        scenario,
+        profile: {
+          ...DEFAULT_OVEN_PROFILE,
+          heaters: {
+            top: { ...DEFAULT_OVEN_PROFILE.heaters.top, ratedPowerW: 250 },
+            bottom: { ...DEFAULT_OVEN_PROFILE.heaters.bottom, ratedPowerW: 250 },
+          },
+        },
+      }),
+    );
+    expect(nominalHeaters.samples.map((sample) => sample.firmwareTargetC)).not.toEqual(
+      lowPowerHeaters.samples.map((sample) => sample.firmwareTargetC),
+    );
+  });
+
+  it('leaves the requested heating-profile trajectory unchanged', () => {
     const result = simulate(
       request({
         controller: { ...DEFAULT_SIMULATION_CONTROLLER, mode: 'model-assisted-pid' },
-      }),
-    );
-    const initial = result.samples[0];
-    expect(initial?.requestedTargetC).toBe(180);
-    expect(initial?.trajectoryTargetC).toBeLessThan(180);
-    expect(initial?.firmwareTargetC).toBeGreaterThan(initial?.trajectoryTargetC ?? 0);
-  });
-
-  it('uses different deterministic noise sequences for different seeds', () => {
-    const first = simulate(request({ seed: 1 }));
-    const second = simulate(request({ seed: 2 }));
-    expect(first.samples[1]?.temperatures.t1C).not.toBe(second.samples[1]?.temperatures.t1C);
-  });
-
-  it('reproduces the sustained heater cycling seen around a held temperature', () => {
-    const targetC = 200;
-    const result = simulate(
-      request({
-        profile: {
-          ...DEFAULT_OVEN_PROFILE,
-          sensors: { ...DEFAULT_OVEN_PROFILE.sensors, noiseStandardDeviationC: 0 },
-        },
         scenario: {
-          durationSeconds: 2_100,
-          targets: [{ atSeconds: 0, targetC }],
+          durationSeconds: 12,
+          targets: [
+            { atSeconds: 0, targetC: 100 },
+            { atSeconds: 5, targetC: 150 },
+          ],
           sampleEverySeconds: 1,
         },
       }),
     );
-    const settledTrace = result.samples.filter((sample) => sample.timeSeconds >= 1_500);
-    const errors = settledTrace.map((sample) => sample.temperatures.t0C - targetC);
-    const crossingTimes = settledTrace
-      .slice(1)
-      .filter((sample, index) => {
-        const error = sample.temperatures.t0C - targetC;
-        const previousError = errors[index] ?? error;
-        return error * previousError < 0;
-      })
-      .map((sample) => sample.timeSeconds);
-    const fullPeriodsSeconds = crossingTimes
-      .slice(2)
-      .map((crossingTime, index) => crossingTime - crossingTimes[index]!);
-    const peakToPeakC = Math.max(...errors) - Math.min(...errors);
+    const withoutFutureStep = simulate(
+      request({
+        controller: { ...DEFAULT_SIMULATION_CONTROLLER, mode: 'model-assisted-pid' },
+        scenario: {
+          durationSeconds: 12,
+          targets: [{ atSeconds: 0, targetC: 100 }],
+          sampleEverySeconds: 1,
+        },
+      }),
+    );
 
-    expect(crossingTimes.length).toBeGreaterThanOrEqual(4);
-    expect(crossingTimes.length).toBeLessThanOrEqual(12);
-    expect(peakToPeakC).toBeGreaterThanOrEqual(5);
-    expect(peakToPeakC).toBeLessThanOrEqual(7);
-    expect(fullPeriodsSeconds.length).toBeGreaterThan(0);
-    expect(fullPeriodsSeconds.every((period) => period >= 120 && period <= 360)).toBe(true);
+    expect(
+      result.samples.every((sample) => sample.trajectoryTargetC === sample.requestedTargetC),
+    ).toBe(true);
+    expect(result.samples.filter((sample) => sample.timeSeconds < 5)).toEqual(
+      withoutFutureStep.samples.filter((sample) => sample.timeSeconds < 5),
+    );
+  });
+
+  it('does not synthesize a target oscillator at ambient equilibrium', () => {
+    const result = simulate(
+      request({
+        controller: { ...DEFAULT_SIMULATION_CONTROLLER, mode: 'model-assisted-pid' },
+        scenario: {
+          durationSeconds: 10,
+          targets: [{ atSeconds: 0, targetC: 22 }],
+          sampleEverySeconds: 1,
+        },
+      }),
+    );
+
+    expect(result.samples.map((sample) => sample.firmwareTargetC)).toEqual(
+      Array.from({ length: 11 }, () => 22),
+    );
+  });
+
+  it('is deterministic without stochastic simulation inputs', () => {
+    const first = simulate(request());
+    const second = simulate(request());
+    expect(first.samples).toEqual(second.samples);
+  });
+
+  it('uses whole-degree firmware targets and electrical input energy', () => {
+    const result = simulate(
+      request({
+        scenario: {
+          durationSeconds: 10,
+          targets: [{ atSeconds: 0, targetC: 180.9 }],
+          sampleEverySeconds: 1,
+        },
+      }),
+    );
+    expect(result.samples.every((sample) => Number.isInteger(sample.firmwareTargetC))).toBe(true);
+    expect(result.metrics.energyWh).toBeGreaterThan(0);
   });
 });

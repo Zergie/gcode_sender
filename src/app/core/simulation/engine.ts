@@ -1,17 +1,32 @@
 import {
   ControlDomainError,
-  createPidControllerState,
-  createTargetShaperState,
-  stepPidController,
-  stepTargetShaper,
+  advancePidGainTransition,
+  createFirmwareQuickPidState,
+  interpolatePidGains,
+  setFirmwareQuickPidTunings,
+  stepFirmwareQuickPid,
+  truncateFirmwareM104Setpoint,
   validatePidControllerConfiguration,
   validateTargetShaperConfiguration,
+  type FirmwareQuickPidState,
+  type PidGains,
 } from '../control';
 import { cloneOvenModelProfile } from './default-profile';
-import { SeededRandom } from './seeded-random';
+import {
+  createPhysicalForecastPlanner,
+  PHYSICAL_FORECAST_REPLAN_SECONDS,
+  type PhysicalForecastPlanner,
+} from './physical-feed-forward';
+import {
+  createThermalTwin,
+  validateThermalTwinProfile,
+  ThermalTwinValidationError,
+  type ThermalTwinSnapshot,
+} from './physical-twin';
 import { SimulationDomainError } from './simulation-error';
 import type {
   OvenModelProfile,
+  SimulationControllerConfiguration,
   SimulationMetrics,
   SimulationRequest,
   SimulationResult,
@@ -21,24 +36,14 @@ import type {
 } from './types';
 
 const MAXIMUM_SIMULATION_STEPS = 2_000_000;
-const DEFAULT_SEED = 0x5eed1234;
 const INTEGER_TOLERANCE = 1e-8;
+const DESKTOP_CONTROL_INTERVAL_SECONDS = 1;
+const FIRMWARE_CONTROL_INTERVAL_SECONDS = 0.1;
 
-interface PlantState {
-  readonly topZoneC: number;
-  readonly bottomZoneC: number;
-  readonly enclosureC: number;
-  readonly topHeaterFraction: number;
-  readonly bottomHeaterFraction: number;
-}
-
-interface SensorState {
-  readonly filteredT1C: number;
-  readonly filteredT2C: number;
-  readonly filteredT3C: number;
-  readonly t1C: number;
-  readonly t2C: number;
-  readonly t3C: number;
+interface ModelTargetPlan {
+  readonly trajectoryTargetC: number;
+  readonly firmwareTargetC: number;
+  readonly targetLeadC: number;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
@@ -66,95 +71,38 @@ function assertPositive(
   }
 }
 
-function assertNonNegative(value: number, path: string): void {
-  assertFinite(value, path, 'INVALID_MODEL_PROFILE');
-  if (value < 0) {
-    throw new SimulationDomainError('INVALID_MODEL_PROFILE', `${path} must be non-negative.`, path);
-  }
-}
-
 export function validateOvenModelProfile(profile: OvenModelProfile): void {
-  profile = cloneOvenModelProfile(profile);
-  if (profile.version !== 1 || profile.kind !== 'dual-zone-shared-actuator') {
+  const normalized = cloneOvenModelProfile(profile);
+  if (normalized.kind !== 'physical-thermal-rc') {
     throw new SimulationDomainError(
       'INVALID_MODEL_PROFILE',
-      'Only version 1 dual-zone shared-actuator oven profiles are supported.',
+      'Only the physical shared-actuator thermal RC twin is supported.',
       'profile.kind',
     );
   }
-  if (profile.name.trim().length === 0) {
-    throw new SimulationDomainError(
-      'INVALID_MODEL_PROFILE',
-      'The oven profile name must not be empty.',
-      'profile.name',
-    );
-  }
-
-  assertFinite(profile.ambientTemperatureC, 'profile.ambientTemperatureC', 'INVALID_MODEL_PROFILE');
-  assertPositive(profile.topHeater.watts, 'profile.topHeater.watts', 'INVALID_MODEL_PROFILE');
-  assertPositive(profile.bottomHeater.watts, 'profile.bottomHeater.watts', 'INVALID_MODEL_PROFILE');
-  assertNonNegative(profile.topHeater.responseTimeSeconds, 'profile.topHeater.responseTimeSeconds');
-  assertNonNegative(
-    profile.bottomHeater.responseTimeSeconds,
-    'profile.bottomHeater.responseTimeSeconds',
-  );
-  for (const [path, efficiency] of [
-    ['profile.topHeater.efficiency', profile.topHeater.efficiency],
-    ['profile.bottomHeater.efficiency', profile.bottomHeater.efficiency],
-  ] as const) {
-    assertPositive(efficiency, path, 'INVALID_MODEL_PROFILE');
-    if (efficiency > 1) {
+  try {
+    validateThermalTwinProfile(normalized);
+  } catch (error) {
+    if (error instanceof ThermalTwinValidationError) {
       throw new SimulationDomainError(
         'INVALID_MODEL_PROFILE',
-        `${path} must not exceed one.`,
-        path,
+        error.message,
+        `profile.${error.path}`,
       );
     }
+    throw error;
   }
-
-  const thermalMasses: ReadonlyArray<readonly [string, number]> = [
-    ['profile.thermal.topZoneThermalMassJPerC', profile.thermal.topZoneThermalMassJPerC],
-    ['profile.thermal.bottomZoneThermalMassJPerC', profile.thermal.bottomZoneThermalMassJPerC],
-    ['profile.thermal.enclosureThermalMassJPerC', profile.thermal.enclosureThermalMassJPerC],
-  ];
-  for (const [path, value] of thermalMasses) {
-    assertPositive(value, path, 'INVALID_MODEL_PROFILE');
-  }
-
-  const conductances: ReadonlyArray<readonly [string, number]> = [
-    ['profile.thermal.topZoneHeatLossWPerC', profile.thermal.topZoneHeatLossWPerC],
-    ['profile.thermal.bottomZoneHeatLossWPerC', profile.thermal.bottomZoneHeatLossWPerC],
-    ['profile.thermal.enclosureHeatLossWPerC', profile.thermal.enclosureHeatLossWPerC],
-    ['profile.thermal.zoneCouplingWPerC', profile.thermal.zoneCouplingWPerC],
-    ['profile.thermal.topToEnclosureCouplingWPerC', profile.thermal.topToEnclosureCouplingWPerC],
-    [
-      'profile.thermal.bottomToEnclosureCouplingWPerC',
-      profile.thermal.bottomToEnclosureCouplingWPerC,
-    ],
-  ];
-  for (const [path, value] of conductances) {
-    assertNonNegative(value, path);
-  }
-
-  assertNonNegative(profile.actuationDeadTimeSeconds, 'profile.actuationDeadTimeSeconds');
-  assertNonNegative(profile.sensors.t1LagSeconds, 'profile.sensors.t1LagSeconds');
-  assertNonNegative(profile.sensors.t2LagSeconds, 'profile.sensors.t2LagSeconds');
-  assertNonNegative(profile.sensors.t3LagSeconds, 'profile.sensors.t3LagSeconds');
-  assertNonNegative(
-    profile.sensors.noiseStandardDeviationC,
-    'profile.sensors.noiseStandardDeviationC',
+  assertFinite(
+    normalized.minimumTemperatureC,
+    'profile.minimumTemperatureC',
+    'INVALID_MODEL_PROFILE',
   );
-  assertPositive(profile.solverStepSeconds, 'profile.solverStepSeconds', 'INVALID_MODEL_PROFILE');
-  if (profile.solverStepSeconds > 5) {
-    throw new SimulationDomainError(
-      'INVALID_MODEL_PROFILE',
-      'solverStepSeconds must not exceed 5 seconds.',
-      'profile.solverStepSeconds',
-    );
-  }
-  assertFinite(profile.minimumTemperatureC, 'profile.minimumTemperatureC', 'INVALID_MODEL_PROFILE');
-  assertFinite(profile.maximumTemperatureC, 'profile.maximumTemperatureC', 'INVALID_MODEL_PROFILE');
-  if (profile.minimumTemperatureC >= profile.maximumTemperatureC) {
+  assertFinite(
+    normalized.maximumTemperatureC,
+    'profile.maximumTemperatureC',
+    'INVALID_MODEL_PROFILE',
+  );
+  if (normalized.minimumTemperatureC >= normalized.maximumTemperatureC) {
     throw new SimulationDomainError(
       'INVALID_MODEL_PROFILE',
       'minimumTemperatureC must be less than maximumTemperatureC.',
@@ -162,13 +110,27 @@ export function validateOvenModelProfile(profile: OvenModelProfile): void {
     );
   }
   if (
-    profile.ambientTemperatureC < profile.minimumTemperatureC ||
-    profile.ambientTemperatureC > profile.maximumTemperatureC
+    normalized.ambientTemperatureC < normalized.minimumTemperatureC ||
+    normalized.ambientTemperatureC > normalized.maximumTemperatureC
   ) {
     throw new SimulationDomainError(
       'INVALID_MODEL_PROFILE',
       'ambientTemperatureC must be within the model temperature limits.',
       'profile.ambientTemperatureC',
+    );
+  }
+  if (!isIntegerRatio(FIRMWARE_CONTROL_INTERVAL_SECONDS, normalized.solverStepSeconds)) {
+    throw new SimulationDomainError(
+      'INVALID_MODEL_PROFILE',
+      'solverStepSeconds must divide the firmware QuickPID 0.1 second sample interval exactly.',
+      'profile.solverStepSeconds',
+    );
+  }
+  if (!isIntegerRatio(DESKTOP_CONTROL_INTERVAL_SECONDS, normalized.solverStepSeconds)) {
+    throw new SimulationDomainError(
+      'INVALID_MODEL_PROFILE',
+      'solverStepSeconds must divide the desktop one-second command interval exactly.',
+      'profile.solverStepSeconds',
     );
   }
 }
@@ -283,16 +245,6 @@ export function validateSimulationRequest(request: SimulationRequest): void {
       'scenario.durationSeconds',
     );
   }
-  if (
-    request.seed !== undefined &&
-    (!Number.isInteger(request.seed) || !Number.isFinite(request.seed))
-  ) {
-    throw new SimulationDomainError(
-      'INVALID_SIMULATION_REQUEST',
-      'seed must be a finite integer.',
-      'seed',
-    );
-  }
   validateTimewarp(request.timewarp ?? 1);
 }
 
@@ -303,193 +255,84 @@ function targetAt(points: readonly TemperatureTargetPoint[], timeSeconds: number
   }
   for (let index = 1; index < points.length; index += 1) {
     const point = points[index];
-    if (point === undefined || point.atSeconds > timeSeconds + INTEGER_TOLERANCE) {
-      break;
-    }
+    if (point === undefined || point.atSeconds > timeSeconds + INTEGER_TOLERANCE) break;
     target = point.targetC;
   }
   return target;
-}
-
-function updatePlant(
-  profile: OvenModelProfile,
-  state: PlantState,
-  appliedActuator: number,
-): PlantState {
-  const { thermal, ambientTemperatureC: ambient, solverStepSeconds: dt } = profile;
-  const topHeaterFraction = lagged(
-    state.topHeaterFraction,
-    appliedActuator,
-    dt,
-    profile.topHeater.responseTimeSeconds,
-  );
-  const bottomHeaterFraction = lagged(
-    state.bottomHeaterFraction,
-    appliedActuator,
-    dt,
-    profile.bottomHeater.responseTimeSeconds,
-  );
-  const zoneTransfer = thermal.zoneCouplingWPerC * (state.bottomZoneC - state.topZoneC);
-  const topEnclosureTransfer =
-    thermal.topToEnclosureCouplingWPerC * (state.enclosureC - state.topZoneC);
-  const bottomEnclosureTransfer =
-    thermal.bottomToEnclosureCouplingWPerC * (state.enclosureC - state.bottomZoneC);
-  const topHeaterPower = topHeaterFraction * profile.topHeater.watts * profile.topHeater.efficiency;
-  const bottomHeaterPower =
-    bottomHeaterFraction * profile.bottomHeater.watts * profile.bottomHeater.efficiency;
-
-  const topPower =
-    topHeaterPower +
-    thermal.topZoneHeatLossWPerC * (ambient - state.topZoneC) +
-    zoneTransfer +
-    topEnclosureTransfer;
-  const bottomPower =
-    bottomHeaterPower +
-    thermal.bottomZoneHeatLossWPerC * (ambient - state.bottomZoneC) -
-    zoneTransfer +
-    bottomEnclosureTransfer;
-  const enclosurePower =
-    thermal.enclosureHeatLossWPerC * (ambient - state.enclosureC) -
-    topEnclosureTransfer -
-    bottomEnclosureTransfer;
-
-  return {
-    topZoneC: clamp(
-      state.topZoneC + (topPower / thermal.topZoneThermalMassJPerC) * dt,
-      profile.minimumTemperatureC,
-      profile.maximumTemperatureC,
-    ),
-    bottomZoneC: clamp(
-      state.bottomZoneC + (bottomPower / thermal.bottomZoneThermalMassJPerC) * dt,
-      profile.minimumTemperatureC,
-      profile.maximumTemperatureC,
-    ),
-    enclosureC: clamp(
-      state.enclosureC + (enclosurePower / thermal.enclosureThermalMassJPerC) * dt,
-      profile.minimumTemperatureC,
-      profile.maximumTemperatureC,
-    ),
-    topHeaterFraction,
-    bottomHeaterFraction,
-  };
-}
-
-function lagged(
-  previous: number,
-  physical: number,
-  stepSeconds: number,
-  lagSeconds: number,
-): number {
-  if (lagSeconds === 0) {
-    return physical;
-  }
-  const blend = 1 - Math.exp(-stepSeconds / lagSeconds);
-  return previous + blend * (physical - previous);
-}
-
-function updateSensors(
-  profile: OvenModelProfile,
-  state: SensorState,
-  plant: PlantState,
-  random: SeededRandom,
-): SensorState {
-  const { sensors, solverStepSeconds } = profile;
-  const filteredT1C = lagged(
-    state.filteredT1C,
-    plant.topZoneC,
-    solverStepSeconds,
-    sensors.t1LagSeconds,
-  );
-  const filteredT2C = lagged(
-    state.filteredT2C,
-    plant.bottomZoneC,
-    solverStepSeconds,
-    sensors.t2LagSeconds,
-  );
-  const filteredT3C = lagged(
-    state.filteredT3C,
-    plant.enclosureC,
-    solverStepSeconds,
-    sensors.t3LagSeconds,
-  );
-  const noise = sensors.noiseStandardDeviationC;
-  return {
-    filteredT1C,
-    filteredT2C,
-    filteredT3C,
-    t1C: clamp(
-      filteredT1C + random.gaussian() * noise,
-      profile.minimumTemperatureC,
-      profile.maximumTemperatureC,
-    ),
-    t2C: clamp(
-      filteredT2C + random.gaussian() * noise,
-      profile.minimumTemperatureC,
-      profile.maximumTemperatureC,
-    ),
-    t3C: clamp(
-      filteredT3C + random.gaussian() * noise,
-      profile.minimumTemperatureC,
-      profile.maximumTemperatureC,
-    ),
-  };
-}
-
-function delayedActuator(
-  history: readonly number[],
-  delaySeconds: number,
-  stepSeconds: number,
-): number {
-  const delaySteps = delaySeconds / stepSeconds;
-  const recentIndex = history.length - 1;
-  const wholeSteps = Math.floor(delaySteps);
-  const fraction = delaySteps - wholeSteps;
-  const newer = history[recentIndex - wholeSteps] ?? 0;
-  const older = history[recentIndex - wholeSteps - 1] ?? 0;
-  return newer * (1 - fraction) + older * fraction;
 }
 
 function batchSize(timewarp: SimulationTimewarp, totalSteps: number): number {
   return timewarp === 'maximum' ? Math.max(1, Math.min(totalSteps, 10_000)) : timewarp;
 }
 
+function controlTemperature(snapshot: ThermalTwinSnapshot): number {
+  return (snapshot.temperaturesC.t1 + snapshot.temperaturesC.t2) / 2;
+}
+
 function createSample(
   timeSeconds: number,
   requestedTargetC: number,
-  trajectoryTargetC: number,
-  firmwareTargetC: number,
-  targetLeadC: number,
-  plant: PlantState,
-  sensors: SensorState,
+  plan: ModelTargetPlan,
+  snapshot: ThermalTwinSnapshot,
   commanded: number,
   applied: number,
   pidOutput: number,
-  gains: SimulationSample['pid']['gains'],
-  terms: SimulationSample['pid']['terms'],
+  gains: PidGains,
+  pidState: FirmwareQuickPidState,
 ): SimulationSample {
+  const temperatures = snapshot.temperaturesC;
   return {
     timeSeconds,
     requestedTargetC,
-    trajectoryTargetC,
-    firmwareTargetC,
-    targetLeadC,
+    trajectoryTargetC: plan.trajectoryTargetC,
+    firmwareTargetC: plan.firmwareTargetC,
+    targetLeadC: plan.targetLeadC,
     temperatures: {
-      t0C: (sensors.t1C + sensors.t2C) / 2,
-      t1C: sensors.t1C,
-      t2C: sensors.t2C,
-      t3C: sensors.t3C,
-      topZoneC: plant.topZoneC,
-      bottomZoneC: plant.bottomZoneC,
-      enclosureC: plant.enclosureC,
+      t0C: (temperatures.t1 + temperatures.t2) / 2,
+      t1C: temperatures.t1,
+      t2C: temperatures.t2,
+      t3C: temperatures.t3,
+      topZoneC: temperatures.topAir,
+      bottomZoneC: temperatures.bottomAir,
+      enclosureC: temperatures.enclosure,
     },
     actuator: { commanded, applied, pidOutput },
-    pid: { gains, terms },
+    pid: {
+      gains,
+      terms: {
+        proportional: pidState.terms.proportional,
+        integral: pidState.outputSum,
+        derivative: pidState.terms.derivative,
+      },
+    },
+  };
+}
+
+function planTarget(
+  planner: PhysicalForecastPlanner,
+  twin: ReturnType<typeof createThermalTwin>,
+  pid: FirmwareQuickPidState,
+  controller: SimulationControllerConfiguration,
+  requestedTargetC: number,
+): ModelTargetPlan {
+  const derived = planner.plan({
+    mode: controller.mode,
+    source: twin,
+    firmwarePidState: pid,
+    requestedTargetC,
+    stepSeconds: DESKTOP_CONTROL_INTERVAL_SECONDS,
+  });
+  const firmwareTargetC = truncateFirmwareM104Setpoint(derived.firmwareTargetC);
+  return {
+    trajectoryTargetC: derived.trajectoryTargetC,
+    firmwareTargetC,
+    targetLeadC: firmwareTargetC - derived.trajectoryTargetC,
   };
 }
 
 /**
- * Runs a deterministic, fixed-step dual-zone oven simulation. Inputs are never
- * mutated; timewarp only determines internal batch size and result metadata.
+ * Runs the physical oven twin and exact firmware QuickPID on one deterministic
+ * clock. Timewarp changes batching metadata only.
  */
 export function simulate(request: SimulationRequest): SimulationResult {
   const normalizedRequest: SimulationRequest = {
@@ -502,61 +345,48 @@ export function simulate(request: SimulationRequest): SimulationResult {
   const dt = profile.solverStepSeconds;
   const totalSteps = Math.round(scenario.durationSeconds / dt);
   const sampleStepCount = Math.round(scenario.sampleEverySeconds / dt);
+  const hostStepCount = Math.round(DESKTOP_CONTROL_INTERVAL_SECONDS / dt);
+  const forecastStepCount = Math.round(PHYSICAL_FORECAST_REPLAN_SECONDS / dt);
   const timewarp = normalizedRequest.timewarp ?? 1;
   const stepsPerBatch = batchSize(timewarp, totalSteps);
-  const seed = (normalizedRequest.seed ?? DEFAULT_SEED) >>> 0;
-  const random = new SeededRandom(seed);
   const initialTemperatureC = scenario.initialTemperatureC ?? profile.ambientTemperatureC;
-
-  let plant: PlantState = {
-    topZoneC: initialTemperatureC,
-    bottomZoneC: initialTemperatureC,
-    enclosureC: initialTemperatureC,
-    topHeaterFraction: 0,
-    bottomHeaterFraction: 0,
-  };
-  let sensors: SensorState = {
-    filteredT1C: initialTemperatureC,
-    filteredT2C: initialTemperatureC,
-    filteredT3C: initialTemperatureC,
-    t1C: initialTemperatureC,
-    t2C: initialTemperatureC,
-    t3C: initialTemperatureC,
-  };
-  let targetShaperState = createTargetShaperState(initialTemperatureC);
+  const twin = createThermalTwin({ profile, initialTemperatureC });
+  let snapshot = twin.snapshot();
   const initialRequestedTarget = targetAt(scenario.targets, 0);
-  let pidState = createPidControllerState(
-    controller.pid,
-    initialRequestedTarget,
-    initialTemperatureC,
-  );
-  let lastTrajectoryTargetC = initialTemperatureC;
-  let lastFirmwareTargetC = initialTemperatureC;
-  let lastTargetLeadC = 0;
+  let activeGains = interpolatePidGains(controller.pid.schedule, initialRequestedTarget);
+  let pidState = createFirmwareQuickPidState({
+    measurementC: controlTemperature(snapshot),
+    tunings: activeGains,
+  });
+  const forecastPlanner = createPhysicalForecastPlanner({
+    configuration: controller.modelAssistance,
+    initialTargetC: initialTemperatureC,
+  });
+  let plan: ModelTargetPlan = {
+    trajectoryTargetC: initialTemperatureC,
+    firmwareTargetC: truncateFirmwareM104Setpoint(initialTemperatureC),
+    targetLeadC: 0,
+  };
   let lastCommandedActuator = 0;
   let lastAppliedActuator = 0;
   let lastPidOutput = 0;
-  let lastGains = pidState.activeGains;
-  let lastTerms = { proportional: 0, integral: 0, derivative: 0 };
-  const actuatorHistory: number[] = [];
   const samples: SimulationSample[] = [];
 
   let integralAbsoluteError = 0;
   let squaredError = 0;
   let maximumOvershoot = 0;
   let peakTemperature = initialTemperatureC;
-  let energyWh = 0;
   let saturatedSteps = 0;
   let maximumSensorSpread = 0;
 
-  const finalPoint = scenario.targets[scenario.targets.length - 1];
+  const finalPoint = scenario.targets.at(-1);
   if (finalPoint === undefined) {
     throw new SimulationDomainError('INVALID_SIMULATION_REQUEST', 'The target program is empty.');
   }
   const finalTargetC = finalPoint.targetC;
   const previousFinalTarget =
     scenario.targets.length > 1
-      ? (scenario.targets[scenario.targets.length - 2]?.targetC ?? initialTemperatureC)
+      ? (scenario.targets.at(-2)?.targetC ?? initialTemperatureC)
       : initialTemperatureC;
   const riseThreshold = previousFinalTarget + 0.9 * (finalTargetC - previousFinalTarget);
   let riseTimeSeconds: number | null = null;
@@ -569,83 +399,69 @@ export function simulate(request: SimulationRequest): SimulationResult {
     for (let step = batchStart; step < batchEnd; step += 1) {
       const timeSeconds = step * dt;
       const requestedTargetC = targetAt(scenario.targets, timeSeconds);
-      const targetStep = stepTargetShaper(
-        controller.mode,
-        controller.modelAssistance,
-        targetShaperState,
-        requestedTargetC,
-        dt,
-      );
-      targetShaperState = targetStep.state;
-      const measurementC = (sensors.t1C + sensors.t2C) / 2;
-      const pidStep = stepPidController(controller.pid, pidState, {
-        setpointC: targetStep.firmwareTargetC,
-        measurementC,
-        stepSeconds: dt,
+      if (step % hostStepCount === 0) {
+        const scheduledGains = interpolatePidGains(controller.pid.schedule, requestedTargetC);
+        activeGains =
+          step === 0
+            ? scheduledGains
+            : advancePidGainTransition(
+                activeGains,
+                scheduledGains,
+                DESKTOP_CONTROL_INTERVAL_SECONDS,
+                controller.pid.gainTransitionSeconds,
+              );
+        pidState = setFirmwareQuickPidTunings(pidState, activeGains);
+        if (
+          controller.mode === 'pid' ||
+          step % forecastStepCount === 0 ||
+          requestedTargetC !== plan.trajectoryTargetC
+        ) {
+          plan = planTarget(forecastPlanner, twin, pidState, controller, requestedTargetC);
+        }
+      }
+
+      const pidStep = stepFirmwareQuickPid(pidState, {
+        setpointC: plan.firmwareTargetC,
+        measurementC: controlTemperature(snapshot),
+        elapsedSeconds: step === 0 ? 0 : dt,
       });
       pidState = pidStep.state;
-      const outputSpan = controller.pid.outputMaximum - controller.pid.outputMinimum;
-      const commandedActuator = clamp(
-        (pidStep.output - controller.pid.outputMinimum) / outputSpan,
-        0,
-        1,
-      );
-      actuatorHistory.push(commandedActuator);
-      const appliedActuator = delayedActuator(
-        actuatorHistory,
-        profile.actuationDeadTimeSeconds,
-        dt,
-      );
-
-      lastTrajectoryTargetC = targetStep.trajectoryTargetC;
-      lastFirmwareTargetC = targetStep.firmwareTargetC;
-      lastTargetLeadC = targetStep.targetLeadC;
+      const commandedActuator = clamp(pidStep.output / 255, 0, 1);
+      const appliedActuator = pidStep.pwm8 / 255;
       lastCommandedActuator = commandedActuator;
       lastAppliedActuator = appliedActuator;
       lastPidOutput = pidStep.output;
-      lastGains = pidStep.gains;
-      lastTerms = pidStep.terms;
 
       if (step % sampleStepCount === 0) {
         samples.push(
           createSample(
             timeSeconds,
             requestedTargetC,
-            targetStep.trajectoryTargetC,
-            targetStep.firmwareTargetC,
-            targetStep.targetLeadC,
-            plant,
-            sensors,
+            plan,
+            snapshot,
             commandedActuator,
             appliedActuator,
             pidStep.output,
-            pidStep.gains,
-            pidStep.terms,
+            activeGains,
+            pidState,
           ),
         );
       }
 
-      plant = updatePlant(profile, plant, appliedActuator);
-      sensors = updateSensors(profile, sensors, plant, random);
-
+      snapshot = twin.advance({ durationSeconds: dt, duty: appliedActuator });
       const nextTimeSeconds = (step + 1) * dt;
       const nextRequestedTargetC = targetAt(scenario.targets, nextTimeSeconds);
-      const nextMeasurementC = (sensors.t1C + sensors.t2C) / 2;
+      const nextMeasurementC = controlTemperature(snapshot);
       const error = nextRequestedTargetC - nextMeasurementC;
       integralAbsoluteError += Math.abs(error) * dt;
       squaredError += error * error;
       maximumOvershoot = Math.max(maximumOvershoot, nextMeasurementC - nextRequestedTargetC);
       peakTemperature = Math.max(peakTemperature, nextMeasurementC);
-      maximumSensorSpread = Math.max(maximumSensorSpread, Math.abs(sensors.t1C - sensors.t2C));
-      energyWh +=
-        (appliedActuator *
-          (profile.topHeater.watts * profile.topHeater.efficiency +
-            profile.bottomHeater.watts * profile.bottomHeater.efficiency) *
-          dt) /
-        3_600;
-      if (commandedActuator >= 1 - 1e-9) {
-        saturatedSteps += 1;
-      }
+      maximumSensorSpread = Math.max(
+        maximumSensorSpread,
+        Math.abs(snapshot.temperaturesC.t1 - snapshot.temperaturesC.t2),
+      );
+      if (pidStep.pwm8 >= 255) saturatedSteps += 1;
 
       if (nextTimeSeconds + INTEGER_TOLERANCE >= finalPoint.atSeconds) {
         if (
@@ -657,9 +473,7 @@ export function simulate(request: SimulationRequest): SimulationResult {
         }
         finalPointInsideSettlingBand =
           Math.abs(finalTargetC - nextMeasurementC) <= settlingToleranceC;
-        if (!finalPointInsideSettlingBand) {
-          lastOutsideSettlingBand = nextTimeSeconds;
-        }
+        if (!finalPointInsideSettlingBand) lastOutsideSettlingBand = nextTimeSeconds;
       }
     }
   }
@@ -669,20 +483,17 @@ export function simulate(request: SimulationRequest): SimulationResult {
     createSample(
       scenario.durationSeconds,
       finalRequestedTarget,
-      lastTrajectoryTargetC,
-      lastFirmwareTargetC,
-      lastTargetLeadC,
-      plant,
-      sensors,
+      plan,
+      snapshot,
       lastCommandedActuator,
       lastAppliedActuator,
       lastPidOutput,
-      lastGains,
-      lastTerms,
+      activeGains,
+      pidState,
     ),
   );
 
-  const finalMeasurementC = (sensors.t1C + sensors.t2C) / 2;
+  const finalMeasurementC = controlTemperature(snapshot);
   const settlingTimeSeconds = finalPointInsideSettlingBand
     ? Math.max(0, (lastOutsideSettlingBand ?? finalPoint.atSeconds) - finalPoint.atSeconds)
     : null;
@@ -694,7 +505,7 @@ export function simulate(request: SimulationRequest): SimulationResult {
     finalErrorC: finalTargetC - finalMeasurementC,
     riseTimeSeconds,
     settlingTimeSeconds,
-    energyWh,
+    energyWh: snapshot.energy.electricalInputJ / 3_600,
     actuatorSaturationPercent: (saturatedSteps / totalSteps) * 100,
     maximumControlSensorSpreadC: maximumSensorSpread,
   };
@@ -705,7 +516,6 @@ export function simulate(request: SimulationRequest): SimulationResult {
     execution: {
       fixedStepSeconds: dt,
       totalSteps,
-      seed,
       timewarp,
       stepsPerBatch,
       simulatedSecondsPerBatch: stepsPerBatch * dt,

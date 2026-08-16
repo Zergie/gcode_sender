@@ -229,6 +229,7 @@ function contentSecurityPolicy(isPackaged: boolean): string {
   return [
     "default-src 'none'",
     "script-src 'self'",
+    "worker-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",
     "font-src 'self' data:",

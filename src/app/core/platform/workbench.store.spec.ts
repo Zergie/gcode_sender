@@ -1,4 +1,5 @@
 import { TestBed } from '@angular/core/testing';
+import { vi } from 'vitest';
 import { createJobStartRequest, WorkbenchStore } from './workbench.store';
 
 describe('WorkbenchStore control integration', () => {
@@ -9,7 +10,35 @@ describe('WorkbenchStore control integration', () => {
     store = TestBed.inject(WorkbenchStore);
   });
 
-  afterEach(() => store.ngOnDestroy());
+  afterEach(() => {
+    store.ngOnDestroy();
+    window.history.replaceState(null, '', '/');
+    vi.useRealTimers();
+  });
+
+  it('seeds explicit demo monitoring with a deterministic physical simulation trace', async () => {
+    window.history.replaceState(null, '', '?state=monitoring');
+
+    await store.initialize();
+
+    const points = store.trend();
+    expect(points).toHaveLength(90);
+    expect(points[0]).toMatchObject({
+      average: store.ovenModelProfile().ambientTemperatureC,
+      t1: store.ovenModelProfile().ambientTemperatureC,
+      t2: store.ovenModelProfile().ambientTemperatureC,
+      t3: store.ovenModelProfile().ambientTemperatureC,
+      target: 200,
+    });
+    expect(
+      points.every(
+        (point, index) =>
+          point.average === (point.t1 + point.t2) / 2 &&
+          Number.isInteger(point.power) &&
+          (index === 0 || point.time - points[index - 1]!.time === 5_000),
+      ),
+    ).toBe(true);
+  });
 
   it('starts at ambient with target control disarmed and no demo commands', async () => {
     await store.initialize();
@@ -21,6 +50,24 @@ describe('WorkbenchStore control integration', () => {
     expect(store.terminal()).toEqual([]);
     expect(store.profiles()).toEqual([]);
     expect(store.selectedJob()).toBeNull();
+  });
+
+  it('completes demo validation from a bounded physical PID simulation', async () => {
+    vi.useFakeTimers();
+    await store.initialize();
+    store.selectedPort.set('COM4');
+    await store.connect();
+
+    expect(await store.startBoundedValidation(150, store.pidSchedule())).toBe(true);
+    await vi.advanceTimersByTimeAsync(350);
+
+    expect(store.validation().status).toBe('completed');
+    expect(store.validation().sampleCount).toBe(241);
+    expect(store.validation().metrics?.durationMs).toBe(240_000);
+    expect(store.validation().metrics?.t3RangeC[0]).toBeCloseTo(
+      store.ovenModelProfile().ambientTemperatureC,
+      10,
+    );
   });
 
   it('deduplicates overlapping serial-port refreshes', async () => {
@@ -47,13 +94,54 @@ describe('WorkbenchStore control integration', () => {
     await Promise.resolve();
 
     expect(store.controlMode()).toBe('model-assisted');
-    expect(store.modelTarget()).toBeLessThan(store.requestedTarget());
+    // Before the first live M105 sample there is no observed twin state to
+    // forecast from, so model assistance stays transparently on the request.
+    expect(store.modelTarget()).toBe(store.requestedTarget());
     const commands = store
       .terminal()
       .filter((entry) => entry.direction === 'tx')
       .map((entry) => entry.line);
     expect(commands.some((command) => command.startsWith('M301 P'))).toBe(true);
     expect(commands.some((command) => command.startsWith('M104 S'))).toBe(true);
+  });
+
+  it('maintains an observed physical twin before model-assisted target forecasts', async () => {
+    await store.initialize();
+    store.selectedPort.set('COM4');
+    await store.connect();
+    store.setMode('model-assisted');
+
+    store['consumeTelemetry']({
+      timestamp: '2026-08-16T10:00:00.000Z',
+      average: 180,
+      target: 180,
+      power: 94,
+      thermistors: [181, 179, 56],
+      raw: 'T0:180 /180 @:94 T1:181 T2:179 T3:56',
+    });
+    store['consumeTelemetry']({
+      timestamp: '2026-08-16T10:00:01.017Z',
+      average: 180.4,
+      target: 180,
+      power: 91,
+      thermistors: [181.5, 179.3, 56.1],
+      raw: 'T0:180.4 /180 @:91 T1:181.5 T2:179.3 T3:56.1',
+    });
+    await store.setTarget(190);
+
+    expect(store['physicalTwinObserver']).not.toBeNull();
+    expect(store['physicalTwinObserver']?.snapshot().timeSeconds).toBeCloseTo(1, 10);
+    expect(store['physicalFirmwarePidState']?.output).toBe(91);
+    expect(store['physicalFirmwarePidState']?.lastInput).toBeCloseTo(180.4, 4);
+    expect(store['physicalPidRemainderSeconds']).toBeCloseTo(0.017, 10);
+    expect(store['physicalForecastPlanner']?.snapshot().planCount).toBe(1);
+    expect(Number.isInteger(store.modelTarget())).toBe(true);
+
+    await store['advanceControl'](false);
+    expect(store['physicalForecastPlanner']?.snapshot().planCount).toBe(1);
+    store['lastPhysicalForecastAtMs'] = performance.now() - 5_001;
+    await store['advanceControl'](false);
+    expect(store['physicalForecastPlanner']?.snapshot().planCount).toBe(2);
   });
 
   it('applies a validated PID schedule explicitly and never sends M500', async () => {

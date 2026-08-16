@@ -36,6 +36,24 @@ export default tseslint.config(
     },
   },
   {
+    files: ['src/**/*.ts', 'electron/**/*.ts', 'shared/**/*.ts'],
+    ignores: ['src/app/core/simulation/v1-reference/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['v1-reference', 'v1-reference/**', '**/v1-reference', '**/v1-reference/**'],
+              message:
+                'The v1 simulator is a test oracle only; production and unrelated tests must not import it.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['src/**/*.html'],
     extends: [
       ...angular.configs.templateRecommended,

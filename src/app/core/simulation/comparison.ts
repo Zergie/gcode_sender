@@ -23,7 +23,7 @@ function subtractMetrics(
   };
 }
 
-/** Runs every controller against identical physics, initial state, and noise. */
+/** Runs every controller against identical deterministic physics and initial state. */
 export function compareSimulations(
   request: SimulationComparisonRequest,
 ): SimulationComparisonResult {
@@ -59,7 +59,6 @@ export function compareSimulations(
       profile: request.profile,
       controller: variant.controller,
       scenario: request.scenario,
-      seed: request.seed,
       timewarp: request.timewarp,
     }),
   }));

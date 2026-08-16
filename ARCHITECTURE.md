@@ -28,15 +28,33 @@ the control thermistors, T0 is their firmware-provided average, and T3 is
 presented as the independent safety/enclosure sensor.
 
 The firmware remains responsible for PID, PWM, and all safety behavior.
-PID-only mode sends the requested target. Model-assisted mode uses the
-deterministic oven model to shape a bounded, wall-clock-paced M104 target and
-allows firmware PID to correct model error. PID gain schedules are interpolated
-by requested target and applied with paced M301 commands.
+PID-only mode sends the requested target. Model-assisted mode maintains a
+telemetry-corrected twin state, advances its hidden thermal bodies with the
+reported PWM, and forks that state to evaluate bounded whole-degree M104
+candidates with the firmware-faithful QuickPID model. The selected command
+minimizes predicted T1/T2 tracking error against the unmodified requested
+trajectory; firmware PID remains the correction loop. Sensor assimilation is
+an explicit observer operation and begins a new energy-ledger epoch rather than
+pretending the correction was physical heat flow. PID gain schedules are
+interpolated by requested target and applied with paced M301 commands.
+Live and offline model-assisted paths share a five-second forecast cadence and
+replan immediately when the requested target changes.
 
-Simulation uses a fixed virtual timestep. Time warp changes the number of
-virtual steps per wall-clock update, not controller units, telemetry frequency,
-or real-hardware command speed. Oven profiles are behind an internal interface
-so additional models can be added later; v2 ships one reference model.
+The physical twin contains explicit top and bottom heater bodies, top and
+bottom chamber air, the Standard load, enclosure, and all three thermistor
+bodies. Electrical input, pairwise conduction/convection, T^4 radiation, room
+air exchange, and enclosure loss are integrated conservatively. Heater and
+sensor response therefore emerge from heat capacity and transfer paths: the
+profile contains no delay, response-time, noise, or oscillation controls. An
+energy ledger exposes numerical conservation error.
+
+Simulation mirrors the supported firmware's QuickPID 3.1.9 configuration at
+100 ms, whole-degree M104 targets, and 8-bit PWM output. The thermal solver uses
+a fixed 50 ms RK4 step. Time warp changes result batching/playback only, never
+the physical equations, controller units, telemetry frequency, or real-hardware
+command speed. The deterministic v1 grid is retained only as an offline output
+reference; its non-conservative heater saturation and transfer formulas are not
+part of production simulation.
 
 ## Protocol adapter
 

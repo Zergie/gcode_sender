@@ -38,10 +38,13 @@ firmware cannot be treated as reliable.
   saved as ordinary `.gcode` files with a versioned comment header, render as
   an editable planned-temperature overlay, and run through the same streaming
   path as every other G-code file.
-- Deterministic dual-zone oven simulation with 1x, 5x, 20x, 100x, and maximum
-  time warp.
-- PID-only and model-assisted PID control modes. Model-assisted mode shapes the
-  firmware target; the firmware always owns the actuator loop.
+- Energy-conserving physical oven twin with explicit heater, air, Standard-load,
+  enclosure, and thermistor bodies; deterministic 1x, 5x, 20x, 100x, and
+  maximum time warp.
+- Firmware-faithful QuickPID cadence and quantized shared PWM. PID-only and
+  model-assisted PID modes both leave the actuator loop in firmware;
+  model-assisted control observes the live twin state and selects a bounded
+  whole-degree M104 target by forecasting physical T1/T2 tracking.
 - Target-temperature PID breakpoints with interpolation and paced M301
   updates.
 - Supervised live-heater tuning based on Klipper's relay-peak method, adapted to
@@ -82,7 +85,7 @@ Requirements:
 
 - Windows 10/11 for the verified development and packaging workflow;
 - Node.js 24.19 or newer;
-- npm 12 or newer.
+- npm 11 or newer.
 
 Install and start:
 

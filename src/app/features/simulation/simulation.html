@@ -1,7 +1,7 @@
 <div class="page simulation-page">
   <app-page-header
     title="Simulation"
-    description="Explore a deterministic dual-zone oven model before touching hardware."
+    description="Explore the deterministic physical digital twin before touching hardware."
   >
     <button class="button secondary" type="button" (click)="saveModelDraft()">Save draft</button>
     <button
@@ -10,31 +10,50 @@
       [disabled]="configurationError() !== null"
       (click)="useForControl()"
     >
-      Use for model-assisted control
+      Use twin for model-assisted control
     </button>
     <button
       class="button primary"
       type="button"
-      [disabled]="configurationError() !== null"
+      [disabled]="configurationError() !== null || simulationBusy()"
       (click)="run()"
     >
-      Run simulation
+      {{ simulationBusy() ? 'Calculating…' : 'Run simulation' }}
     </button>
   </app-page-header>
+
+  @if (simulationBusy()) {
+    <section class="simulation-run-status panel busy" role="status" aria-live="polite">
+      <span class="simulation-spinner" aria-hidden="true"></span>
+      <div>
+        <strong>Calculating the physical twin</strong>
+        <p>The deterministic solver is running outside the UI thread.</p>
+      </div>
+      <button class="button secondary" type="button" (click)="cancelRun()">
+        Cancel simulation
+      </button>
+    </section>
+  } @else if (simulationError(); as error) {
+    <section class="simulation-run-status panel error" role="alert">
+      <span aria-hidden="true">!</span>
+      <div>
+        <strong>Simulation could not finish</strong>
+        <p>{{ error }}</p>
+      </div>
+      <button class="button secondary" type="button" (click)="run()">Try again</button>
+    </section>
+  }
 
   <section class="simulation-layout">
     <aside class="simulation-controls panel">
       <div class="model-heading">
         <div>
-          <span class="panel-kicker">OVEN MODEL</span>
+          <span class="panel-kicker">PHYSICAL DIGITAL TWIN</span>
           <h2>{{ profile().name }}</h2>
         </div>
-        <span class="version-chip">MODEL v1</span>
+        <span class="version-chip">TWIN v{{ profile().version }}</span>
       </div>
-      <p class="model-summary">
-        Two 920 W elements, one shared actuator, three thermistors. T0 is always the mean of T1 and
-        T2.
-      </p>
+      <p class="model-summary">{{ modelSummary() }} T0 is the mean of T1 and T2.</p>
       <label class="field model-name"
         ><span>Model name</span
         ><input [ngModel]="profile().name" (ngModelChange)="updateProfile('name', $event)"
@@ -74,7 +93,7 @@
       </div>
 
       <div class="form-section">
-        <h3>Environment & power</h3>
+        <h3>Room & electrical input</h3>
         <label class="range-field"
           ><span
             ><b>Ambient</b><output>{{ profile().ambientTemperatureC }} °C</output></span
@@ -88,37 +107,27 @@
         /></label>
         <label class="range-field"
           ><span
-            ><b>Top element</b><output>{{ profile().topHeater.watts }} W</output></span
+            ><b>Top heater rating</b
+            ><output>{{ profile().heaters.top.ratedPowerW }} W</output></span
           ><input
             type="range"
             min="200"
             max="1600"
             step="10"
-            [ngModel]="profile().topHeater.watts"
-            (ngModelChange)="updateHeater('topHeater', $event)"
+            [ngModel]="profile().heaters.top.ratedPowerW"
+            (ngModelChange)="updateHeaterRatedPower('top', $event)"
         /></label>
         <label class="range-field"
           ><span
-            ><b>Bottom element</b><output>{{ profile().bottomHeater.watts }} W</output></span
+            ><b>Bottom heater rating</b
+            ><output>{{ profile().heaters.bottom.ratedPowerW }} W</output></span
           ><input
             type="range"
             min="200"
             max="1600"
             step="10"
-            [ngModel]="profile().bottomHeater.watts"
-            (ngModelChange)="updateHeater('bottomHeater', $event)"
-        /></label>
-        <label class="range-field"
-          ><span
-            ><b>Actuator dead time</b
-            ><output>{{ profile().actuationDeadTimeSeconds }} s</output></span
-          ><input
-            type="range"
-            min="0"
-            max="15"
-            step=".25"
-            [ngModel]="profile().actuationDeadTimeSeconds"
-            (ngModelChange)="updateProfile('actuationDeadTimeSeconds', $event)"
+            [ngModel]="profile().heaters.bottom.ratedPowerW"
+            (ngModelChange)="updateHeaterRatedPower('bottom', $event)"
         /></label>
       </div>
 
@@ -127,195 +136,299 @@
         <em>{{ advanced() ? 'Hide' : 'Show' }}</em>
       </button>
       @if (advanced()) {
-        <div class="form-section advanced-fields">
-          <label class="field"
-            ><span>Top thermal mass (J/°C)</span
-            ><input
-              type="number"
-              [ngModel]="profile().thermal.topZoneThermalMassJPerC"
-              (ngModelChange)="updateThermal('topZoneThermalMassJPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Bottom thermal mass (J/°C)</span
-            ><input
-              type="number"
-              [ngModel]="profile().thermal.bottomZoneThermalMassJPerC"
-              (ngModelChange)="updateThermal('bottomZoneThermalMassJPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Enclosure thermal mass (J/°C)</span
-            ><input
-              type="number"
-              min="1"
-              [ngModel]="profile().thermal.enclosureThermalMassJPerC"
-              (ngModelChange)="updateThermal('enclosureThermalMassJPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Top heat loss (W/°C)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().thermal.topZoneHeatLossWPerC"
-              (ngModelChange)="updateThermal('topZoneHeatLossWPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Bottom heat loss (W/°C)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().thermal.bottomZoneHeatLossWPerC"
-              (ngModelChange)="updateThermal('bottomZoneHeatLossWPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Enclosure heat loss (W/°C)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().thermal.enclosureHeatLossWPerC"
-              (ngModelChange)="updateThermal('enclosureHeatLossWPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Zone coupling (W/°C)</span
-            ><input
-              type="number"
-              step=".1"
-              [ngModel]="profile().thermal.zoneCouplingWPerC"
-              (ngModelChange)="updateThermal('zoneCouplingWPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Top/enclosure coupling (W/°C)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().thermal.topToEnclosureCouplingWPerC"
-              (ngModelChange)="updateThermal('topToEnclosureCouplingWPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Bottom/enclosure coupling (W/°C)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().thermal.bottomToEnclosureCouplingWPerC"
-              (ngModelChange)="updateThermal('bottomToEnclosureCouplingWPerC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Top efficiency (0–1)</span
-            ><input
-              type="number"
-              min="0.01"
-              max="1"
-              step=".01"
-              [ngModel]="profile().topHeater.efficiency"
-              (ngModelChange)="updateHeaterEfficiency('topHeater', $event)"
-          /></label>
-          <label class="field"
-            ><span>Bottom efficiency (0–1)</span
-            ><input
-              type="number"
-              min="0.01"
-              max="1"
-              step=".01"
-              [ngModel]="profile().bottomHeater.efficiency"
-              (ngModelChange)="updateHeaterEfficiency('bottomHeater', $event)"
-          /></label>
-          <label class="field"
-            ><span>Top heater response time (s)</span
-            ><input
-              type="number"
-              min="0"
-              step="1"
-              [ngModel]="profile().topHeater.responseTimeSeconds"
-              (ngModelChange)="updateHeaterResponseTime('topHeater', $event)"
-          /></label>
-          <label class="field"
-            ><span>Bottom heater response time (s)</span
-            ><input
-              type="number"
-              min="0"
-              step="1"
-              [ngModel]="profile().bottomHeater.responseTimeSeconds"
-              (ngModelChange)="updateHeaterResponseTime('bottomHeater', $event)"
-          /></label>
+        <div class="form-section advanced-fields physical-parameter-groups">
           <p class="field-help advanced-help">
-            Models the delay between GPIO power and heat entering each oven zone. Increase it for
-            elements that continue releasing heat after power switches off.
+            Every plant parameter below represents stored energy or a physical heat-transfer path.
+            Thermal inertia, sensor response and any oscillation emerge from these values and the
+            firmware controller; there are no synthetic lag or waveform controls.
           </p>
-          <label class="field"
-            ><span>T1 sensor lag (s)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().sensors.t1LagSeconds"
-              (ngModelChange)="updateSensor('t1LagSeconds', $event)"
-          /></label>
-          <label class="field"
-            ><span>T2 sensor lag (s)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().sensors.t2LagSeconds"
-              (ngModelChange)="updateSensor('t2LagSeconds', $event)"
-          /></label>
-          <label class="field"
-            ><span>T3 sensor lag (s)</span
-            ><input
-              type="number"
-              min="0"
-              step=".1"
-              [ngModel]="profile().sensors.t3LagSeconds"
-              (ngModelChange)="updateSensor('t3LagSeconds', $event)"
-          /></label>
-          <label class="field"
-            ><span>Sensor noise (σ °C)</span
-            ><input
-              type="number"
-              step=".01"
-              [ngModel]="profile().sensors.noiseStandardDeviationC"
-              (ngModelChange)="updateSensor('noiseStandardDeviationC', $event)"
-          /></label>
-          <label class="field"
-            ><span>Heating ramp (°C/min)</span
-            ><input
-              type="number"
-              min="0.1"
-              step="1"
-              [ngModel]="modelAssistance().heatingRampCPerMinute"
-              (ngModelChange)="updateAssistance('heatingRampCPerMinute', $event)"
-          /></label>
-          <label class="field"
-            ><span>Cooling ramp (°C/min)</span
-            ><input
-              type="number"
-              min="0.1"
-              step="1"
-              [ngModel]="modelAssistance().coolingRampCPerMinute"
-              (ngModelChange)="updateAssistance('coolingRampCPerMinute', $event)"
-          /></label>
-          <label class="field"
-            ><span>Prediction horizon (s)</span
-            ><input
-              type="number"
-              min="0"
-              step="1"
-              [ngModel]="modelAssistance().predictionHorizonSeconds"
-              (ngModelChange)="updateAssistance('predictionHorizonSeconds', $event)"
-          /></label>
-          <label class="field"
-            ><span>Maximum target lead (°C)</span
-            ><input
-              type="number"
-              min="0"
-              step="1"
-              [ngModel]="modelAssistance().maximumTargetLeadC"
-              (ngModelChange)="updateAssistance('maximumTargetLeadC', $event)"
-          /></label>
+
+          <details class="parameter-group" open>
+            <summary><span>Geometry & heat storage</span><em>Dimensions and J/K</em></summary>
+            <div class="parameter-grid">
+              <label class="field"
+                ><span>Width (mm)</span
+                ><input
+                  type="number"
+                  min="1"
+                  step="1"
+                  [ngModel]="profile().geometry.widthM * 1000"
+                  (ngModelChange)="updateGeometryMm('widthM', $event)"
+              /></label>
+              <label class="field"
+                ><span>Depth (mm)</span
+                ><input
+                  type="number"
+                  min="1"
+                  step="1"
+                  [ngModel]="profile().geometry.depthM * 1000"
+                  (ngModelChange)="updateGeometryMm('depthM', $event)"
+              /></label>
+              <label class="field"
+                ><span>Height (mm)</span
+                ><input
+                  type="number"
+                  min="1"
+                  step="1"
+                  [ngModel]="profile().geometry.heightM * 1000"
+                  (ngModelChange)="updateGeometryMm('heightM', $event)"
+              /></label>
+              <span class="derived-value"
+                >Air capacity / half<strong
+                  >{{ profile().bodies.topAir.heatCapacityJPerK | number: '1.2-3' }} J/K</strong
+                ></span
+              >
+              <label class="field"
+                ><span>Top heater body (J/K)</span
+                ><input
+                  type="number"
+                  min="0.001"
+                  step="1"
+                  [ngModel]="profile().bodies.topHeater.heatCapacityJPerK"
+                  (ngModelChange)="updateBodyHeatCapacity('topHeater', $event)"
+              /></label>
+              <label class="field"
+                ><span>Bottom heater body (J/K)</span
+                ><input
+                  type="number"
+                  min="0.001"
+                  step="1"
+                  [ngModel]="profile().bodies.bottomHeater.heatCapacityJPerK"
+                  (ngModelChange)="updateBodyHeatCapacity('bottomHeater', $event)"
+              /></label>
+              <label class="field"
+                ><span>Standard load (J/K)</span
+                ><input
+                  type="number"
+                  min="0.001"
+                  step="10"
+                  [ngModel]="profile().bodies.standardLoad.heatCapacityJPerK"
+                  (ngModelChange)="updateBodyHeatCapacity('standardLoad', $event)"
+              /></label>
+              <label class="field"
+                ><span>Enclosure (J/K)</span
+                ><input
+                  type="number"
+                  min="0.001"
+                  step="10"
+                  [ngModel]="profile().bodies.enclosure.heatCapacityJPerK"
+                  (ngModelChange)="updateBodyHeatCapacity('enclosure', $event)"
+              /></label>
+            </div>
+          </details>
+
+          <details class="parameter-group">
+            <summary><span>Conduction & convection</span><em>Physical links</em></summary>
+            <div class="link-list">
+              @for (item of heatTransferLinks(); track item.index) {
+                <label class="link-editor field">
+                  <span>
+                    <b>{{ bodyLabel(item.link.a) }} ↔ {{ bodyLabel(item.link.b) }}</b>
+                    <em class="mechanism-chip">{{ mechanismLabel(item.link.mechanism) }}</em>
+                  </span>
+                  <div class="unit-input">
+                    <input
+                      type="number"
+                      min="0"
+                      step=".001"
+                      [ngModel]="item.link.conductanceWPerK"
+                      (ngModelChange)="updateLinearConductance(item.index, $event)"
+                    /><em>W/K</em>
+                  </div>
+                </label>
+              }
+            </div>
+          </details>
+
+          <details class="parameter-group">
+            <summary><span>Radiation paths</span><em>Grey-body exchange</em></summary>
+            <div class="link-list">
+              @for (link of profile().radiationLinks; track $index; let index = $index) {
+                <fieldset class="radiation-editor">
+                  <legend>{{ bodyLabel(link.a) }} ↔ {{ bodyLabel(link.b) }}</legend>
+                  <div class="parameter-grid three">
+                    <label class="field"
+                      ><span>Area (cm²)</span
+                      ><input
+                        type="number"
+                        min="0"
+                        step="1"
+                        [ngModel]="link.areaM2 * 10000"
+                        (ngModelChange)="updateRadiationAreaCm2(index, $event)"
+                    /></label>
+                    <label class="field"
+                      ><span>Emissivity</span
+                      ><input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step=".01"
+                        [ngModel]="link.emissivity"
+                        (ngModelChange)="updateRadiation(index, 'emissivity', $event)"
+                    /></label>
+                    <label class="field"
+                      ><span>View factor</span
+                      ><input
+                        type="number"
+                        min="0"
+                        max="1"
+                        step=".01"
+                        [ngModel]="link.viewFactor"
+                        (ngModelChange)="updateRadiation(index, 'viewFactor', $event)"
+                    /></label>
+                  </div>
+                </fieldset>
+              }
+            </div>
+          </details>
+
+          <details class="parameter-group">
+            <summary><span>Ambient boundary</span><em>Heat leaving the oven</em></summary>
+            <div class="parameter-grid">
+              <label class="field"
+                ><span>Enclosure conductance (W/K)</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".01"
+                  [ngModel]="profile().ambient.enclosureConductanceWPerK"
+                  (ngModelChange)="updateAmbient('enclosureConductanceWPerK', $event)"
+              /></label>
+              <label class="field"
+                ><span>Radiating area (m²)</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".001"
+                  [ngModel]="profile().ambient.enclosureRadiatingAreaM2"
+                  (ngModelChange)="updateAmbient('enclosureRadiatingAreaM2', $event)"
+              /></label>
+              <label class="field"
+                ><span>Enclosure emissivity</span
+                ><input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step=".01"
+                  [ngModel]="profile().ambient.enclosureEmissivity"
+                  (ngModelChange)="updateAmbient('enclosureEmissivity', $event)"
+              /></label>
+              <label class="field"
+                ><span>Top air exchange (m³/s)</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".00001"
+                  [ngModel]="profile().ambient.topAirExchangeM3PerSecond"
+                  (ngModelChange)="updateAmbient('topAirExchangeM3PerSecond', $event)"
+              /></label>
+              <label class="field"
+                ><span>Bottom air exchange (m³/s)</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".00001"
+                  [ngModel]="profile().ambient.bottomAirExchangeM3PerSecond"
+                  (ngModelChange)="updateAmbient('bottomAirExchangeM3PerSecond', $event)"
+              /></label>
+              <label class="field"
+                ><span>T3-to-room conductance (W/K)</span
+                ><input
+                  type="number"
+                  min="0"
+                  step=".01"
+                  [ngModel]="profile().ambient.t3AmbientConductanceWPerK"
+                  (ngModelChange)="updateAmbient('t3AmbientConductanceWPerK', $event)"
+              /></label>
+            </div>
+            <p class="field-help">
+              T3 exchanges heat directly with room air through its exposed body and leads. This
+              conductance is the physical path that pulls the safety sensor toward ambient.
+            </p>
+          </details>
+
+          <details class="parameter-group">
+            <summary><span>Thermistors</span><em>Body and contact physics</em></summary>
+            <div class="parameter-grid three">
+              <label class="field"
+                ><span>T1 capacity (J/K)</span
+                ><input
+                  type="number"
+                  min="0.001"
+                  step=".01"
+                  [ngModel]="profile().bodies.t1.heatCapacityJPerK"
+                  (ngModelChange)="updateBodyHeatCapacity('t1', $event)"
+              /></label>
+              <label class="field"
+                ><span>T2 capacity (J/K)</span
+                ><input
+                  type="number"
+                  min="0.001"
+                  step=".01"
+                  [ngModel]="profile().bodies.t2.heatCapacityJPerK"
+                  (ngModelChange)="updateBodyHeatCapacity('t2', $event)"
+              /></label>
+              <label class="field"
+                ><span>T3 capacity (J/K)</span
+                ><input
+                  type="number"
+                  min="0.001"
+                  step=".01"
+                  [ngModel]="profile().bodies.t3.heatCapacityJPerK"
+                  (ngModelChange)="updateBodyHeatCapacity('t3', $event)"
+              /></label>
+            </div>
+            <div class="link-list sensor-links">
+              @for (item of sensorContactLinks(); track item.index) {
+                <label class="link-editor field">
+                  <span>
+                    <b>{{ bodyLabel(item.link.b) }} contact</b>
+                    <small>{{ bodyLabel(item.link.a) }}</small>
+                  </span>
+                  <div class="unit-input">
+                    <input
+                      type="number"
+                      min="0"
+                      step=".001"
+                      [ngModel]="item.link.conductanceWPerK"
+                      (ngModelChange)="updateLinearConductance(item.index, $event)"
+                    /><em>W/K</em>
+                  </div>
+                </label>
+              }
+            </div>
+          </details>
+
+          <details class="parameter-group forecast-planner-parameters">
+            <summary>
+              <span>Physical feed-forward target</span><em>Bounded twin forecast</em>
+            </summary>
+            <p class="field-help">
+              The requested trajectory comes directly from this simulation's scenario target. The
+              planner forks the physical twin across the horizon and searches bounded whole-degree
+              M104 commands. These limits constrain the search, never the plant physics.
+            </p>
+            <div class="parameter-grid">
+              <label class="field"
+                ><span>Physical forecast horizon (s)</span
+                ><input
+                  type="number"
+                  min="0"
+                  step="1"
+                  [ngModel]="modelAssistance().predictionHorizonSeconds"
+                  (ngModelChange)="updateAssistance('predictionHorizonSeconds', $event)"
+              /></label>
+              <label class="field"
+                ><span>Maximum M104 lead (°C)</span
+                ><input
+                  type="number"
+                  min="0"
+                  step="1"
+                  [ngModel]="modelAssistance().maximumTargetLeadC"
+                  (ngModelChange)="updateAssistance('maximumTargetLeadC', $event)"
+              /></label>
+            </div>
+          </details>
         </div>
       }
       <div class="fixed-step-note">
@@ -405,7 +518,7 @@
       <article class="panel simulation-chart">
         <header class="panel-header">
           <div>
-            <span class="panel-kicker">CONTROLLER COMPARISON</span>
+            <span class="panel-kicker">PHYSICAL-TWIN CONTROLLER COMPARISON</span>
             <h2>Predicted response</h2>
           </div>
           <div class="segmented compact controller-selector" role="group" aria-label="Controller">
@@ -428,7 +541,7 @@
                 cursor.set(activeEntry()?.result?.samples?.length ?? 0)
               "
             >
-              Model-assisted
+              Feed-forward + PID
             </button>
           </div>
         </header>
@@ -448,7 +561,7 @@
           <span class="sensor-t2">T2 bottom</span>
           <span class="sensor-t3">T3 safety</span>
           <span class="requested-target">Requested target</span>
-          <span class="firmware-target">Firmware target</span>
+          <span class="firmware-target">Physical feed-forward target</span>
         </div>
         <div class="chart-body">
           <app-trend-chart [points]="visibleTrend()" [comparisonPoints]="comparisonTrend()" />
@@ -512,7 +625,7 @@
             >
               <header>
                 <div>
-                  <span>{{ entry.id === 'pid' ? 'BASELINE' : 'MODEL-ASSISTED' }}</span
+                  <span>{{ entry.id === 'pid' ? 'BASELINE' : 'FEED-FORWARD + PID' }}</span
                   ><strong>{{ entry.label }}</strong>
                 </div>
                 @if (entry.id === preferredVariantId()) {

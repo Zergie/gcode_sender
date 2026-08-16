@@ -12,7 +12,6 @@ describe('simulation comparison', () => {
         targets: [{ atSeconds: 0, targetC: 150 }],
         sampleEverySeconds: 1,
       },
-      seed: 123,
       baselineId: 'pid',
       variants: [
         { id: 'pid', label: 'PID', controller: DEFAULT_SIMULATION_CONTROLLER },
@@ -32,9 +31,6 @@ describe('simulation comparison', () => {
       energyWh: 0,
       actuatorSaturationPercent: 0,
     });
-    expect(comparison.entries[1]?.result.execution.seed).toBe(
-      comparison.entries[0]?.result.execution.seed,
-    );
     expect(comparison.entries[1]?.result.samples).not.toEqual(
       comparison.entries[0]?.result.samples,
     );
@@ -43,7 +39,7 @@ describe('simulation comparison', () => {
     );
   });
 
-  it('produces meaningfully different plant responses for the default PID comparison', () => {
+  it('keeps twin-derived planning physically bounded through a long default comparison', () => {
     const pid = DEFAULT_SIMULATION_CONTROLLER.pid;
     const comparison = compareSimulations({
       profile: DEFAULT_OVEN_PROFILE,
@@ -52,7 +48,6 @@ describe('simulation comparison', () => {
         targets: [{ atSeconds: 0, targetC: 200 }],
         sampleEverySeconds: 5,
       },
-      seed: 20260815,
       baselineId: 'pid',
       variants: [
         {
@@ -73,16 +68,35 @@ describe('simulation comparison', () => {
       throw new Error('Expected both comparison results.');
     }
     expect(assisted.samples).toHaveLength(baseline.samples.length);
-    const maximumTemperatureDifferenceC = Math.max(
-      ...baseline.samples.map((sample, index) => {
-        const assistedSample = assisted.samples[index];
-        if (assistedSample === undefined) throw new Error('Comparison samples are misaligned.');
-        return Math.abs(sample.temperatures.t0C - assistedSample.temperatures.t0C);
-      }),
-    );
-    expect(maximumTemperatureDifferenceC).toBeGreaterThanOrEqual(0.5);
-    expect(Math.abs(baseline.metrics.energyWh - assisted.metrics.energyWh)).toBeGreaterThanOrEqual(
-      1,
-    );
-  });
+    expect(
+      assisted.samples.every(
+        (sample) =>
+          sample.trajectoryTargetC === sample.requestedTargetC &&
+          Number.isInteger(sample.firmwareTargetC) &&
+          Math.abs(sample.firmwareTargetC - sample.requestedTargetC) <=
+            DEFAULT_SIMULATION_CONTROLLER.modelAssistance.maximumTargetLeadC,
+      ),
+    ).toBe(true);
+    expect(
+      assisted.samples.some((sample) => sample.firmwareTargetC !== sample.requestedTargetC),
+    ).toBe(true);
+    expect(
+      assisted.samples.every(
+        (sample) =>
+          Number.isFinite(sample.temperatures.t0C) &&
+          Number.isFinite(sample.temperatures.t1C) &&
+          Number.isFinite(sample.temperatures.t2C) &&
+          Number.isFinite(sample.temperatures.t3C) &&
+          sample.temperatures.t3C < 80,
+      ),
+    ).toBe(true);
+    expect(
+      Object.values(assisted.metrics).every((metric) => metric === null || Number.isFinite(metric)),
+    ).toBe(true);
+    expect(
+      baseline.samples.every(
+        (sample, index) => sample.timeSeconds === assisted.samples[index]?.timeSeconds,
+      ),
+    ).toBe(true);
+  }, 30_000);
 });

@@ -18,3 +18,50 @@ results, and uses the firmware as the safety authority.
 
 The complete source of this application, including the adapted implementation,
 is distributed under GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+## QuickPID controller semantics
+
+The deterministic firmware-controller model is line-derived from QuickPID
+3.1.9 so simulation uses the same 100 ms cadence, gain scaling and conditional
+anti-windup as the supported STM32 firmware.
+
+- Project: QuickPID
+- Upstream source: https://github.com/Dlloydev/QuickPID
+- Copyright: Copyright 2023 David Lloyd <dlloydev@testcor.ca>
+- License: MIT
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## node-pid-controller v1 reference semantics
+
+The isolated v1 characterization harness reproduces the arithmetic of the
+dependency used by the original dummy MCU so its historic closed-loop output
+can be compared deterministically.
+
+- Package: node-pid-controller 1.0.1
+- Upstream source: https://github.com/Philmod/node-pid-controller
+- Author: Philmod <philippe.modard@gmail.com>
+- Integrity:
+  `sha512-36gdeRz2emhIsznLpXksJSqmR13NU3vR+rkRlfHWCGGlZu9fK+dcTPRpud0FiH6b2Nhwm0kbcVk7vXFlg8Sw1w==`
+- License declared by the published package: BSD (variant not specified)
+
+The published 1.0.1 tarball contains no license file, copyright statement, or
+source-file license header from which a more specific BSD variant or notice
+could be reproduced. This attribution therefore records the package's exact
+available declaration without inventing missing license terms.

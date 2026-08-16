@@ -3344,3 +3344,8 @@ kbd {
     grid-template-columns: 1fr;
   }
 }
+@media (max-width: 980px) {
+  .simulation-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

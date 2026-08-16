@@ -165,9 +165,12 @@
             @if (store.controlMode() === 'model-assisted') {
               <span class="model">Model target</span>
             }
+            @if (profile() !== null && range() === 'Profile') {
+              <span class="profile-plan">Heating profile</span>
+            }
           </div>
           <div class="segmented compact">
-            @for (item of ['5m', '30m', '2h', 'Job']; track item) {
+            @for (item of rangeOptions(); track item) {
               <button
                 type="button"
                 [class.active]="range() === item"
@@ -186,8 +189,123 @@
           [windowStart]="chartWindow().start"
           [windowEnd]="chartWindow().end"
           [showModelTarget]="store.controlMode() === 'model-assisted'"
+          [profile]="range() === 'Profile' ? profile() : null"
+          [profileAnchor]="profileAnchor()"
+          [profileEditable]="range() === 'Profile' && !profileEditingLocked()"
+          [selectedProfilePoint]="selectedProfilePointIndex()"
+          [profilePlayheadMs]="profilePlayheadMs()"
+          (profilePointSelected)="selectProfilePoint($event)"
+          (profilePointChanged)="updateProfilePoint($event)"
+          (profilePointDeleted)="removeProfilePoint($event)"
         />
       </div>
+      @if (profile(); as loadedProfile) {
+        <section class="profile-editor" [class.locked]="profileEditingLocked()">
+          <div class="profile-editor-heading">
+            <div>
+              <span class="panel-kicker">EDITABLE HEATING PROFILE</span>
+              <strong
+                >{{ loadedProfile.points.length }} stages ·
+                {{ formatDuration(profileDurationMs()) }}</strong
+              >
+            </div>
+            <span
+              class="state-chip"
+              [class.applied]="!store.heatingProfileDirty()"
+              [class.invalid]="!store.heatingProfileValidation().valid"
+              >{{ programStatus() }}</span
+            >
+          </div>
+          <label class="profile-name-field">
+            <span>Profile name</span>
+            <input
+              type="text"
+              maxlength="120"
+              [disabled]="profileEditingLocked()"
+              [ngModel]="loadedProfile.name"
+              (ngModelChange)="store.updateHeatingProfileName($event)"
+            />
+          </label>
+          @if (selectedProfilePoint(); as point) {
+            <div class="stage-editor">
+              <div class="stage-identity">
+                <span>Selected stage</span>
+                <strong
+                  >{{ selectedProfilePointIndex() + 1 }} / {{ loadedProfile.points.length }}</strong
+                >
+              </div>
+              <label>
+                <span>Time</span>
+                <span class="profile-unit-input"
+                  ><input
+                    type="number"
+                    min="0"
+                    max="86400"
+                    step="1"
+                    [disabled]="profileEditingLocked() || selectedProfilePointIndex() === 0"
+                    [ngModel]="point.timeMs / 1000"
+                    (ngModelChange)="updateSelectedTimeSeconds($event)"
+                  /><em>sec</em></span
+                >
+              </label>
+              <label>
+                <span>Target</span>
+                <span class="profile-unit-input"
+                  ><input
+                    type="number"
+                    min="0"
+                    max="250"
+                    step="1"
+                    [disabled]="profileEditingLocked()"
+                    [ngModel]="point.targetC"
+                    (ngModelChange)="updateSelectedTarget($event)"
+                  /><em>°C</em></span
+                >
+              </label>
+              <div class="stage-actions">
+                <button
+                  class="button secondary"
+                  type="button"
+                  [disabled]="profileEditingLocked() || loadedProfile.points.length >= 128"
+                  (click)="addProfilePoint()"
+                >
+                  + Add stage
+                </button>
+                <button
+                  class="button danger-ghost"
+                  type="button"
+                  [disabled]="
+                    profileEditingLocked() ||
+                    loadedProfile.points.length <= 2 ||
+                    selectedProfilePointIndex() === 0
+                  "
+                  (click)="removeProfilePoint()"
+                >
+                  Delete
+                </button>
+                <button
+                  class="button secondary save-profile"
+                  type="button"
+                  [disabled]="profileEditingLocked() || !store.heatingProfileValidation().valid"
+                  (click)="saveProfile()"
+                >
+                  Save as…
+                </button>
+              </div>
+            </div>
+          }
+          @if (!store.heatingProfileValidation().valid) {
+            <p class="profile-validation" role="alert">
+              {{ store.heatingProfileValidation().error }}
+            </p>
+          } @else {
+            <p class="profile-editor-help">
+              Drag a stage or use the precise fields. Arrow keys adjust a focused stage; hold Shift
+              for larger steps.
+            </p>
+          }
+        </section>
+      }
       <footer class="chart-status">
         <div>
           <span>Requested</span><strong>{{ store.requestedTarget().toFixed(1) }}°C</strong>
@@ -276,15 +394,69 @@
         }
       </article>
 
-      <article class="panel run-card">
+      <article class="panel run-card program-card">
         <div class="run-title">
-          <span class="job-icon">G</span>
+          <span class="job-icon">{{ profile() === null ? 'G' : 'P' }}</span>
           <div>
-            <span class="panel-kicker">CURRENT JOB</span
-            ><strong>{{ store.job().file?.name ?? 'No active job' }}</strong>
+            <span class="panel-kicker">HEATING PROGRAM</span><strong>{{ programName() }}</strong>
           </div>
-          <em>{{ store.job().status }}</em>
+          <em>{{ programStatus() }}</em>
         </div>
+        <div class="program-summary">
+          @if (profile(); as loadedProfile) {
+            <span
+              >Heating profile · {{ loadedProfile.points.length }} stages ·
+              {{ formatDuration(profileDurationMs()) }}</span
+            >
+          } @else if (store.selectedProgram(); as program) {
+            <span>Generic G-code · {{ program.file.extension.slice(1).toUpperCase() }}</span>
+            <p>No editable heating-profile metadata. This file will run unchanged.</p>
+          } @else {
+            <span>Create a profile or load any supported G-code file.</span>
+          }
+          @if (store.selectedProgram()?.metadataWarning; as warning) {
+            <p class="program-warning" role="status">
+              {{ warning }} It remains runnable as G-code.
+            </p>
+          }
+        </div>
+        <button
+          class="text-button new-profile-button"
+          type="button"
+          [disabled]="store.busy()"
+          (click)="newHeatingProfile()"
+        >
+          + New heating profile
+        </button>
+        <div class="program-actions">
+          <button
+            class="button secondary"
+            type="button"
+            [disabled]="store.busy()"
+            (click)="loadGcode()"
+          >
+            Load G-code
+          </button>
+          <button
+            class="button primary"
+            type="button"
+            [disabled]="runDisabledReason() !== null"
+            (click)="runProgram()"
+          >
+            {{ jobActive() ? 'Running…' : 'Run' }}
+          </button>
+        </div>
+        <p class="program-helper" role="status">
+          @if (runDisabledReason(); as reason) {
+            {{ reason }}
+          } @else if (profile() !== null && store.heatingProfileDirty()) {
+            Run will save changes first.
+          } @else if (profile() !== null) {
+            Ready to stream the saved heating profile.
+          } @else {
+            Ready to stream this G-code unchanged.
+          }
+        </p>
         @if (store.job().progress; as progress) {
           <div class="progress-line"><span [style.width.%]="progress.percent"></span></div>
           <div class="run-meta">

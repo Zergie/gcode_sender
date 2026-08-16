@@ -191,4 +191,101 @@ describe('DashboardComponent', () => {
     expect(store.serialPortDialogOpen()).toBe(true);
     expect(store.ports().map((port) => port.path)).toEqual(['COM4', 'COM7']);
   });
+
+  it('keeps Load G-code and Run adjacent and explains that dirty profiles save first', async () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const component = fixture.componentInstance;
+    const store = TestBed.inject(WorkbenchStore);
+    component.newHeatingProfile();
+    store.connection.update((connection) => ({ ...connection, status: 'connected' }));
+    fixture.detectChanges();
+
+    const actions = fixture.nativeElement.querySelector('.program-actions') as HTMLElement;
+    const buttons = [...actions.querySelectorAll<HTMLButtonElement>('button')];
+    expect(buttons.map((button) => button.textContent?.trim())).toEqual(['Load G-code', 'Run']);
+    expect(buttons[1]?.disabled).toBe(false);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(
+      'Run will save changes first.',
+    );
+  });
+
+  it('shows ordinary G-code as runnable without an editable profile overlay', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
+    const file = {
+      path: 'ordinary.gcode',
+      name: 'ordinary.gcode',
+      sizeBytes: 100,
+      modifiedAt: new Date().toISOString(),
+      extension: '.gcode' as const,
+    };
+    store.selectedJob.set(file);
+    store.selectedProgram.set({
+      file,
+      kind: 'gcode',
+      profile: null,
+      metadataWarning: null,
+    });
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('ordinary.gcode');
+    expect(element.textContent).toContain('No editable heating-profile metadata');
+    expect(element.querySelector('.profile-editor')).toBeNull();
+    expect(element.querySelector('.series.profile')).toBeNull();
+  });
+
+  it('renders editable and keyboard-focusable profile points', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.componentInstance.newHeatingProfile();
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const points = [...element.querySelectorAll<SVGCircleElement>('.profile-node-hit')];
+    expect(points.length).toBeGreaterThanOrEqual(2);
+    expect(points.every((point) => point.getAttribute('tabindex') === '0')).toBe(true);
+    expect(points[0]?.getAttribute('role')).toBe('slider');
+    expect(element.querySelector('.profile-editor')).not.toBeNull();
+  });
+
+  it('keeps a completed profile anchored to its original job start', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
+    fixture.componentInstance.newHeatingProfile();
+    const file = {
+      path: 'saved-profile.gcode',
+      name: 'saved-profile.gcode',
+      sizeBytes: 100,
+      modifiedAt: new Date().toISOString(),
+      extension: '.gcode' as const,
+    };
+    store.selectedProgram.set({
+      file,
+      kind: 'heating-profile',
+      profile: store.heatingProfileDraft(),
+      metadataWarning: null,
+    });
+    store.selectedJob.set(file);
+    const startedAt = Date.UTC(2026, 7, 16, 10, 0, 0);
+    store.job.update((job) => ({
+      ...job,
+      file,
+      status: 'completed',
+      startedAt: new Date(startedAt).toISOString(),
+    }));
+
+    expect(fixture.componentInstance.profileAnchor()).toBe(startedAt);
+  });
+
+  it('does not stack future profile points onto ordinary history ranges', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    fixture.componentInstance.newHeatingProfile();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelector('.series.profile')).not.toBeNull();
+
+    fixture.componentInstance.range.set('30m');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.series.profile')).toBeNull();
+  });
 });

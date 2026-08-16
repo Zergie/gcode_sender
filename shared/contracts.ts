@@ -99,6 +99,25 @@ export interface JobFileInfo {
   readonly extension: '.gcode' | '.gco' | '.gc' | '.txt';
 }
 
+export interface HeatingProfilePoint {
+  readonly timeMs: number;
+  readonly targetC: number;
+}
+
+export interface HeatingProfile {
+  readonly version: 1;
+  readonly name: string;
+  readonly interpolation: 'linear';
+  readonly points: readonly HeatingProfilePoint[];
+}
+
+export interface LoadedGcodeProgram {
+  readonly file: JobFileInfo;
+  readonly kind: 'heating-profile' | 'gcode';
+  readonly profile: HeatingProfile | null;
+  readonly metadataWarning: string | null;
+}
+
 export interface JobStartRequest {
   readonly path: string;
   readonly startLine?: number;
@@ -241,9 +260,10 @@ export interface GcodeApi {
     heaterOff(): Promise<ApiResult<void>>;
   };
   readonly jobs: {
-    pickFile(): Promise<ApiResult<JobFileInfo | null>>;
+    pickFile(): Promise<ApiResult<LoadedGcodeProgram | null>>;
     resolveDroppedFile(file: File): string;
-    inspectFile(path: string): Promise<ApiResult<JobFileInfo>>;
+    inspectFile(path: string): Promise<ApiResult<LoadedGcodeProgram>>;
+    saveHeatingProfile(profile: HeatingProfile): Promise<ApiResult<LoadedGcodeProgram | null>>;
     getState(): Promise<ApiResult<JobState>>;
     getLog(offset?: number, limit?: number): Promise<ApiResult<JobLogPage>>;
     start(request: JobStartRequest): Promise<ApiResult<JobState>>;

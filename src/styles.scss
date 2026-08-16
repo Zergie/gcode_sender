@@ -691,6 +691,11 @@ kbd {
   color: var(--yellow);
   border-color: color-mix(in srgb, var(--yellow) 35%, var(--line));
 }
+.state-chip.invalid {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, var(--line));
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+}
 .field {
   display: flex;
   flex-direction: column;
@@ -872,7 +877,7 @@ kbd {
 }
 .chart-panel {
   display: grid;
-  grid-template-rows: auto minmax(250px, 1fr) auto;
+  grid-template-rows: auto minmax(250px, 1fr) auto auto;
   min-height: 480px;
   padding: 16px 17px 0;
 }
@@ -906,9 +911,135 @@ kbd {
   height: 1px;
   background: repeating-linear-gradient(90deg, var(--blue) 0 3px, transparent 3px 5px);
 }
+.legend .profile-plan::before {
+  height: 3px;
+  border-radius: 4px;
+  background: #20c7c7;
+}
 .chart-body {
   min-height: 0;
   padding-top: 12px;
+}
+.profile-editor {
+  display: grid;
+  gap: 11px;
+  margin: 0 -17px;
+  padding: 14px 17px;
+  border-top: 1px solid var(--line-soft);
+  background: color-mix(in srgb, #20c7c7 3%, var(--surface));
+}
+.profile-editor.locked {
+  background: var(--surface);
+}
+.profile-editor-heading,
+.profile-editor-heading > div {
+  display: flex;
+  align-items: center;
+}
+.profile-editor-heading {
+  justify-content: space-between;
+  gap: 12px;
+}
+.profile-editor-heading > div {
+  min-width: 0;
+  gap: 10px;
+}
+.profile-editor-heading strong {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.profile-editor .state-chip {
+  min-height: 27px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.profile-name-field {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+.profile-name-field > span,
+.stage-editor label > span:first-child,
+.stage-identity span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.profile-name-field input,
+.profile-unit-input input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg-raised);
+  color: var(--text);
+}
+.profile-name-field input {
+  padding: 0 10px;
+}
+.stage-editor {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 0.7fr) minmax(110px, 0.6fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+.stage-identity,
+.stage-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.stage-identity {
+  min-width: 92px;
+  justify-content: center;
+  align-self: stretch;
+}
+.stage-identity strong {
+  font: 13px var(--font-mono);
+}
+.profile-unit-input {
+  position: relative;
+  display: block;
+}
+.profile-unit-input input {
+  padding: 0 43px 0 9px;
+  font: 13px var(--font-mono);
+}
+.profile-unit-input em {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  color: var(--text-faint);
+  font: 11px var(--font-mono);
+  font-style: normal;
+  transform: translateY(-50%);
+}
+.stage-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.stage-actions .button {
+  min-height: 36px;
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+.stage-actions .save-profile {
+  border-color: color-mix(in srgb, #20c7c7 50%, var(--line));
+}
+.profile-validation,
+.profile-editor-help {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.profile-validation {
+  color: var(--red);
+}
+.profile-editor-help {
+  color: var(--text-faint);
 }
 .chart-status {
   display: grid;
@@ -1137,6 +1268,54 @@ kbd {
   color: var(--text-faint);
   font: 8px var(--font-mono);
 }
+.program-card {
+  display: grid;
+  order: -1;
+  gap: 11px;
+  padding: 14px;
+}
+.program-card .run-title strong,
+.program-card .run-title em,
+.program-summary,
+.program-helper,
+.program-card .run-meta {
+  font-size: 12px;
+}
+.program-summary {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.program-summary p,
+.program-helper {
+  margin: 0;
+}
+.program-summary p,
+.program-helper {
+  color: var(--text-faint);
+}
+.program-summary .program-warning {
+  color: var(--yellow);
+}
+.new-profile-button {
+  width: max-content;
+  font-size: 12px;
+}
+.program-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.program-actions .button {
+  min-width: 0;
+  min-height: 40px;
+  padding-inline: 8px;
+}
+.program-helper {
+  min-height: 34px;
+  line-height: 1.4;
+}
 
 /* Terminal */
 .terminal-page {
@@ -1329,6 +1508,13 @@ kbd {
   }
   .page {
     padding-inline: 20px;
+  }
+  .stage-editor {
+    grid-template-columns: minmax(88px, 0.45fr) repeat(2, minmax(105px, 1fr));
+  }
+  .stage-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
   }
 }
 @media (max-width: 1020px) {

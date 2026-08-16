@@ -80,6 +80,20 @@ The current firmware's completion behavior drives pacing. Ambiguous timeouts
 pause the job and require Retry, Continue, or Stop. Reconnection never resumes a
 job automatically.
 
+Heating-profile documents form a portable layer above the same job streamer.
+A shared document module validates time/temperature points, serializes a
+versioned semicolon-comment header, and deterministically compiles the profile
+to `M104` and short `G4` commands followed by `M104 S0`. The Electron file
+adapter reads only a bounded prefix for ordinary files; a marked, size-bounded
+profile may be read fully to verify that its editable metadata and executable
+body agree. A missing or invalid profile header never turns into a semantic
+preflight of arbitrary G-code.
+
+The Dashboard owns only the editable draft and the loaded-file state. Running
+both generated profiles and unrelated G-code crosses the existing path-based
+JobService interface, preserving one source of truth for pacing, activity
+ownership, timeout decisions, logging, and cancellation.
+
 ## Persistence
 
 Settings, profiles, sessions, job logs, catalog cache, and tuning traces live

@@ -8,7 +8,9 @@ import type {
   ControlMode,
   ExclusiveActivityState,
   GcodeApi,
+  HeatingProfile,
   JobFileInfo,
+  JobStartRequest,
   JobState,
   JobTimeoutDecision,
   JobTimeoutEvent,
@@ -22,12 +24,14 @@ import type {
   ThemePreference,
   SystemInfo,
   JsonValue,
+  LoadedGcodeProgram,
   ProfileKind,
   ProfileState,
   StoredProfile,
 } from '../../../../shared/contracts';
 import type { LiveTuningState } from '../../../../shared/tuning-contracts';
 import { BUNDLED_COMMAND_CATALOG } from '../../../../shared/bundled-catalog';
+import { validateHeatingProfile } from '../../../../shared/heating-profile-document';
 import {
   advancePidGainTransition,
   createPidSchedule,
@@ -75,6 +79,11 @@ export interface ValidationRunState {
   readonly sampleCount: number;
   readonly maximumDurationMs: number;
   readonly metrics: ValidationMetrics | null;
+  readonly error: string | null;
+}
+
+export interface HeatingProfileValidation {
+  readonly valid: boolean;
   readonly error: string | null;
 }
 
@@ -154,6 +163,8 @@ const ACTIVE_JOB_STATUSES = new Set<JobState['status']>([
   'awaiting-decision',
   'stopping',
 ]);
+const MAX_HEATING_PROFILE_DURATION_MS = 24 * 60 * 60_000;
+const MAX_HEATING_PROFILE_POINTS = 128;
 
 @Injectable({ providedIn: 'root' })
 export class WorkbenchStore implements OnDestroy {
@@ -217,7 +228,10 @@ export class WorkbenchStore implements OnDestroy {
   readonly trend = signal<readonly TrendPoint[]>([]);
   readonly terminal = signal<readonly TerminalEntry[]>([]);
   readonly commandHistory = signal<readonly string[]>([]);
+  readonly selectedProgram = signal<LoadedGcodeProgram | null>(null);
   readonly selectedJob = signal<JobFileInfo | null>(null);
+  readonly heatingProfileDraft = signal<HeatingProfile | null>(null);
+  readonly heatingProfileDirty = signal(false);
   readonly job = signal<JobState>(DEFAULT_JOB);
   readonly jobTimeout = signal<JobTimeoutEvent | null>(null);
   readonly liveTuning = signal<LiveTuningState>(DEFAULT_TUNING);
@@ -243,6 +257,9 @@ export class WorkbenchStore implements OnDestroy {
   readonly terminalLocked = computed(() => this.busy());
   readonly resolvedTheme = signal<'dark' | 'light'>('dark');
   readonly averageDelta = computed(() => this.requestedTarget() - this.telemetry().average);
+  readonly heatingProfileValidation = computed<HeatingProfileValidation>(() =>
+    validateHeatingProfileDraft(this.heatingProfileDraft()),
+  );
 
   async initialize(): Promise<void> {
     if (this.initialized()) return;
@@ -649,16 +666,32 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async chooseJob(): Promise<void> {
+    if (this.busy()) {
+      this.notify('Wait for the active operation to finish before loading another file.');
+      return;
+    }
     if (this.api === undefined) {
-      this.notify('Demo job selected. Drop a local file to preview the workflow.');
+      const file: JobFileInfo = {
+        path: 'C:\\Jobs\\ordinary-demo.gcode',
+        name: 'ordinary-demo.gcode',
+        sizeBytes: 42_240,
+        modifiedAt: DEMO_FIXTURE_TIME_ISO,
+        extension: '.gcode',
+      };
+      this.selectProgram({ file, kind: 'gcode', profile: null, metadataWarning: null });
+      this.notify('Demo G-code selected. Native file picking is available in the desktop app.');
       return;
     }
     const result = await this.api.jobs.pickFile();
-    if (result.ok && result.value !== null) this.selectedJob.set(result.value);
+    if (result.ok && result.value !== null) this.selectProgram(result.value);
     else if (!result.ok) this.notify(result.error.message);
   }
 
   acceptDroppedFile(file: File): void {
+    if (this.busy()) {
+      this.notify('Wait for the active operation to finish before loading another file.');
+      return;
+    }
     if (this.api !== undefined) {
       const path = this.api.jobs.resolveDroppedFile(file);
       void this.inspectDroppedPath(path);
@@ -669,23 +702,222 @@ export class WorkbenchStore implements OnDestroy {
       this.notify('Use a .gcode, .gco, .gc, or .txt file.');
       return;
     }
-    this.selectedJob.set({
+    const info: JobFileInfo = {
       path: file.name,
       name: file.name,
       sizeBytes: file.size,
       modifiedAt: new Date(file.lastModified).toISOString(),
       extension,
-    });
+    };
+    this.selectProgram({ file: info, kind: 'gcode', profile: null, metadataWarning: null });
   }
 
-  async startJob(startLine = 1): Promise<void> {
-    const file = this.selectedJob();
-    if (file === null) return;
-    if (this.api !== undefined) {
-      const result = await this.api.jobs.start({ path: file.path, startLine });
-      if (result.ok) this.job.set(result.value);
-      else this.notify(result.error.message);
+  newHeatingProfile(): void {
+    if (this.busy()) {
+      this.notify('Wait for the active operation to finish before creating a profile.');
       return;
+    }
+    this.selectedProgram.set(null);
+    this.selectedJob.set(null);
+    this.heatingProfileDraft.set({
+      version: 1,
+      name: 'Untitled heating profile',
+      interpolation: 'linear',
+      points: [
+        { timeMs: 0, targetC: 25 },
+        { timeMs: 10 * 60_000, targetC: 180 },
+        { timeMs: 20 * 60_000, targetC: 0 },
+      ],
+    });
+    this.heatingProfileDirty.set(true);
+    this.notify('New heating profile ready to edit.');
+  }
+
+  updateHeatingProfileName(name: string): void {
+    if (this.busy()) return;
+    this.heatingProfileDraft.update((profile) =>
+      profile === null ? null : { ...profile, name: String(name) },
+    );
+    this.heatingProfileDirty.set(true);
+  }
+
+  updateHeatingProfilePoint(index: number, patch: Partial<HeatingProfile['points'][number]>): void {
+    if (this.busy()) return;
+    this.heatingProfileDraft.update((profile) => {
+      if (profile === null || index < 0 || index >= profile.points.length) return profile;
+      const points = profile.points.map((point, pointIndex) => {
+        if (pointIndex !== index) return point;
+        const previous = profile.points[index - 1];
+        const next = profile.points[index + 1];
+        const requestedTime = Number(patch.timeMs ?? point.timeMs);
+        const requestedTarget = Number(patch.targetC ?? point.targetC);
+        const minimumTime = index === 0 ? 0 : (previous?.timeMs ?? 0) + 1;
+        const maximumTime = Math.min(
+          MAX_HEATING_PROFILE_DURATION_MS,
+          next === undefined ? MAX_HEATING_PROFILE_DURATION_MS : next.timeMs - 1,
+        );
+        return {
+          timeMs:
+            index === 0
+              ? 0
+              : Math.round(
+                  Math.min(maximumTime, Math.max(minimumTime, requestedTime || minimumTime)),
+                ),
+          targetC: Math.round(Math.min(250, Math.max(0, requestedTarget || 0))),
+        };
+      });
+      return { ...profile, points };
+    });
+    this.heatingProfileDirty.set(true);
+  }
+
+  addHeatingProfilePoint(afterIndex: number): number {
+    if (this.busy()) return afterIndex;
+    let insertedIndex = afterIndex;
+    this.heatingProfileDraft.update((profile) => {
+      if (profile === null) return null;
+      if (profile.points.length >= MAX_HEATING_PROFILE_POINTS) {
+        this.notify(`Heating profiles support up to ${MAX_HEATING_PROFILE_POINTS} stages.`);
+        return profile;
+      }
+      const boundedIndex = Math.max(0, Math.min(profile.points.length - 1, afterIndex));
+      const current = profile.points[boundedIndex]!;
+      const next = profile.points[boundedIndex + 1];
+      if (next !== undefined && next.timeMs - current.timeMs < 2) {
+        this.notify('Move the neighboring stages apart before inserting another stage.');
+        return profile;
+      }
+      const point =
+        next === undefined
+          ? {
+              timeMs: Math.min(MAX_HEATING_PROFILE_DURATION_MS, current.timeMs + 5 * 60_000),
+              targetC: Math.round(current.targetC),
+            }
+          : {
+              timeMs: Math.round((current.timeMs + next.timeMs) / 2),
+              targetC: Math.round((current.targetC + next.targetC) / 2),
+            };
+      if (point.timeMs <= current.timeMs) {
+        this.notify('The profile already reaches the 24-hour duration limit.');
+        return profile;
+      }
+      insertedIndex = boundedIndex + 1;
+      return {
+        ...profile,
+        points: [
+          ...profile.points.slice(0, insertedIndex),
+          point,
+          ...profile.points.slice(insertedIndex),
+        ],
+      };
+    });
+    this.heatingProfileDirty.set(true);
+    return insertedIndex;
+  }
+
+  removeHeatingProfilePoint(index: number): void {
+    if (this.busy()) return;
+    this.heatingProfileDraft.update((profile) => {
+      if (profile === null || profile.points.length <= 2 || index <= 0) return profile;
+      return { ...profile, points: profile.points.filter((_, pointIndex) => pointIndex !== index) };
+    });
+    this.heatingProfileDirty.set(true);
+  }
+
+  async saveHeatingProfile(): Promise<LoadedGcodeProgram | null> {
+    if (this.busy()) {
+      this.notify('Wait for the active operation to finish before saving a profile.');
+      return null;
+    }
+    const profile = this.heatingProfileDraft();
+    const validation = this.heatingProfileValidation();
+    if (profile === null || !validation.valid) {
+      this.notify(validation.error ?? 'Create a valid heating profile before saving.');
+      return null;
+    }
+    if (this.api === undefined) {
+      const stem = profile.name
+        .trim()
+        .replace(/[^a-z0-9_-]+/gi, '-')
+        .replace(/^-|-$/g, '');
+      const file: JobFileInfo = {
+        path: `C:\\Jobs\\${stem || 'heating-profile'}.gcode`,
+        name: `${stem || 'heating-profile'}.gcode`,
+        sizeBytes: 512 + profile.points.length * 48,
+        modifiedAt: new Date().toISOString(),
+        extension: '.gcode',
+      };
+      const program: LoadedGcodeProgram = {
+        file,
+        kind: 'heating-profile',
+        profile: cloneHeatingProfile(profile),
+        metadataWarning: null,
+      };
+      this.selectProgram(program);
+      this.notify(`${profile.name} saved in the browser demo.`);
+      return program;
+    }
+    const result = await this.api.jobs.saveHeatingProfile(profile);
+    if (result.ok && result.value !== null) {
+      this.selectProgram(result.value);
+      this.notify(`${result.value.profile?.name ?? result.value.file.name} saved.`);
+      return result.value;
+    }
+    if (!result.ok) this.notify(result.error.message);
+    return null;
+  }
+
+  async runLoadedProgram(startLine = 1): Promise<boolean> {
+    if (!this.connected()) {
+      this.notify('Connect the controller before running a G-code file.');
+      return false;
+    }
+    if (this.busy()) {
+      this.notify('Wait for the active operation to finish before starting another file.');
+      return false;
+    }
+    if (this.heatingProfileDraft() !== null) {
+      if (!this.heatingProfileValidation().valid) {
+        this.notify(this.heatingProfileValidation().error ?? 'The heating profile is invalid.');
+        return false;
+      }
+      if (this.heatingProfileDirty() || this.selectedProgram() === null) {
+        const saved = await this.saveHeatingProfile();
+        if (saved === null) return false;
+      }
+    }
+    if (this.selectedProgram() === null) {
+      this.notify('Load a G-code file or create a heating profile first.');
+      return false;
+    }
+    return this.startJob(startLine);
+  }
+
+  async startJob(startLine = 1): Promise<boolean> {
+    const file = this.selectedJob();
+    if (file === null) return false;
+    if (!this.connected()) {
+      this.notify('Connect the controller before starting a job.');
+      return false;
+    }
+    if (this.busy()) {
+      this.notify('Another operation already owns the controller.');
+      return false;
+    }
+    this.disarmControl();
+    if (this.api !== undefined) {
+      const request = createJobStartRequest(
+        file,
+        startLine,
+        this.selectedProgram(),
+        this.settings().commandTimeoutMs,
+      );
+      const result = await this.api.jobs.start(request);
+      if (result.ok) {
+        this.job.set(result.value);
+        return true;
+      } else this.notify(result.error.message);
+      return false;
     }
     this.job.set({
       ...DEFAULT_JOB,
@@ -703,6 +935,7 @@ export class WorkbenchStore implements OnDestroy {
         etaMs: 720_000,
       },
     });
+    return true;
   }
 
   async pauseOrResumeJob(): Promise<void> {
@@ -1284,7 +1517,24 @@ export class WorkbenchStore implements OnDestroy {
       modifiedAt: new Date(DEMO_FIXTURE_TIME_MS - 86_400_000).toISOString(),
       extension: '.gcode',
     };
-    this.selectedJob.set(demoFile);
+    this.selectProgram({
+      file: demoFile,
+      kind: 'heating-profile',
+      profile: {
+        version: 1,
+        name: 'Standard load 200 °C',
+        interpolation: 'linear',
+        points: [
+          { timeMs: 0, targetC: 25 },
+          { timeMs: 4 * 60_000, targetC: 120 },
+          { timeMs: 10 * 60_000, targetC: 180 },
+          { timeMs: 18 * 60_000, targetC: 200 },
+          { timeMs: 28 * 60_000, targetC: 200 },
+          { timeMs: 36 * 60_000, targetC: 0 },
+        ],
+      },
+      metadataWarning: null,
+    });
     this.job.set({ ...DEFAULT_JOB, file: demoFile });
     this.profiles.set(this.demoProfiles());
   }
@@ -1529,7 +1779,55 @@ export class WorkbenchStore implements OnDestroy {
   private async inspectDroppedPath(path: string): Promise<void> {
     if (this.api === undefined) return;
     const result = await this.api.jobs.inspectFile(path);
-    if (result.ok) this.selectedJob.set(result.value);
+    if (result.ok) this.selectProgram(result.value);
     else this.notify(result.error.message);
   }
+
+  private selectProgram(program: LoadedGcodeProgram): void {
+    this.selectedProgram.set(program);
+    this.selectedJob.set(program.file);
+    this.heatingProfileDraft.set(
+      program.kind === 'heating-profile' && program.profile !== null
+        ? cloneHeatingProfile(program.profile)
+        : null,
+    );
+    this.heatingProfileDirty.set(false);
+  }
+}
+
+function cloneHeatingProfile(profile: HeatingProfile): HeatingProfile {
+  return {
+    version: 1,
+    name: profile.name,
+    interpolation: 'linear',
+    points: profile.points.map((point) => ({ ...point })),
+  };
+}
+
+function validateHeatingProfileDraft(profile: HeatingProfile | null): HeatingProfileValidation {
+  if (profile === null) return { valid: false, error: 'No heating profile is loaded.' };
+  try {
+    validateHeatingProfile(profile);
+    return { valid: true, error: null };
+  } catch (error) {
+    return {
+      valid: false,
+      error: error instanceof Error ? error.message : 'The heating profile is invalid.',
+    };
+  }
+}
+
+export function createJobStartRequest(
+  file: JobFileInfo,
+  startLine: number,
+  program: LoadedGcodeProgram | null,
+  configuredTimeoutMs: number,
+): JobStartRequest {
+  return program?.kind === 'heating-profile'
+    ? {
+        path: file.path,
+        startLine,
+        commandTimeoutMs: Math.max(configuredTimeoutMs, 8_000),
+      }
+    : { path: file.path, startLine };
 }

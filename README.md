@@ -34,6 +34,10 @@ firmware cannot be treated as reliable.
 - Streaming for .gcode, .gco, .gc, and .txt files, with completion-aware
   pacing, pause/resume, explicit retry/continue/stop decisions, restart-line
   logging, and no automatic resume after a disconnect.
+- Portable heating profiles created and edited on the Dashboard. Profiles are
+  saved as ordinary `.gcode` files with a versioned comment header, render as
+  an editable planned-temperature overlay, and run through the same streaming
+  path as every other G-code file.
 - Deterministic dual-zone oven simulation with 1x, 5x, 20x, 100x, and maximum
   time warp.
 - PID-only and model-assisted PID control modes. Model-assisted mode shapes the
@@ -56,6 +60,21 @@ Profiles, Settings, and About.
 The startup macro is optional and empty by default. A serial port is never
 opened automatically; choose a port and connect manually. Disconnect remains
 available at all times.
+
+### Heating-profile G-code
+
+Heating profiles remain portable files rather than entries in the application's
+JSON profile store. Their leading semicolon comments preserve the profile name
+and time/temperature points for round-trip editing. The executable body uses
+only `M104` target changes and bounded `G4` dwell commands supported by the
+current STM32 firmware, and ends with `M104 S0`.
+
+Loading an ordinary G-code file without this metadata still selects it as a
+runnable job; the application does not rewrite it or invent an editable graph.
+Malformed profile metadata is shown as a warning while the original file
+remains available to stream unchanged. Generated dwells are no longer than five
+seconds, which bounds—but cannot eliminate—the firmware's uninterruptible `G4`
+window.
 
 ## Development
 
@@ -105,6 +124,8 @@ and is not signed or notarized.
 - Unknown job-command timeouts require an explicit operator decision.
 - G-code files are streamed as provided after comment/blank-line normalization;
   they are not semantically preflighted.
+- Starting a file job disarms desktop target control so a previously armed
+  target cannot resume after a heating profile completes.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the module and protocol design.
 

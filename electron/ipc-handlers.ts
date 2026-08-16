@@ -5,6 +5,7 @@ import { dialog, ipcMain, shell } from 'electron';
 import type {
   JobStartRequest,
   JobTimeoutDecision,
+  HeatingProfile,
   SerialConnectRequest,
   SerialSendRequest,
   SessionMetadata,
@@ -12,9 +13,11 @@ import type {
   StoredProfile,
 } from '../shared/contracts';
 import type { LiveTuningRequest } from '../shared/tuning-contracts';
+import { validateHeatingProfile } from '../shared/heating-profile-document';
 import { failure, success, type ApiResult } from '../shared/errors';
 import { IPC, type IpcChannel } from '../shared/ipc';
 import type { Logger } from './logger';
+import { heatingProfileDefaultFileName, writeHeatingProfileFile } from './heating-profile-file';
 import type { ActivityService } from './services/activity-service';
 import type { CatalogService } from './services/catalog-service';
 import type { JobService } from './services/job-service';
@@ -101,6 +104,17 @@ export function registerIpcHandlers(dependencies: IpcDependencies): () => void {
       : dependencies.jobs.inspectFile(result.filePaths[0]!);
   });
   handle(IPC.jobsInspect, (filePath: string) => dependencies.jobs.inspectFile(filePath));
+  handle(IPC.jobsSaveHeatingProfile, async (candidate: HeatingProfile) => {
+    const profile = validateHeatingProfile(candidate);
+    const result = await dialog.showSaveDialog({
+      title: 'Save heating profile',
+      defaultPath: heatingProfileDefaultFileName(profile.name),
+      filters: [{ name: 'G-code profile', extensions: ['gcode'] }],
+    });
+    if (result.canceled || result.filePath === undefined) return null;
+    const filePath = await writeHeatingProfileFile(result.filePath, profile);
+    return dependencies.jobs.inspectFile(filePath);
+  });
   handle(IPC.jobsState, () => dependencies.jobs.getState());
   handle(IPC.jobsLog, (offset?: number, limit?: number) => dependencies.jobs.getLog(offset, limit));
   handle(IPC.jobsStart, (request: JobStartRequest) => dependencies.jobs.start(request));

@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { WorkbenchStore } from './workbench.store';
+import { createJobStartRequest, WorkbenchStore } from './workbench.store';
 
 describe('WorkbenchStore control integration', () => {
   let store: WorkbenchStore;
@@ -106,5 +106,107 @@ describe('WorkbenchStore control integration', () => {
       line: 'M104 S0',
     });
     expect(store.toast()).toBe('Heater-off confirmed with M104 S0.');
+  });
+
+  it('creates an editable heating profile and saves it before a demo run', async () => {
+    await store.initialize();
+    store.newHeatingProfile();
+
+    expect(store.heatingProfileDraft()?.name).toBe('Untitled heating profile');
+    expect(store.heatingProfileDirty()).toBe(true);
+    expect(store.heatingProfileValidation().valid).toBe(true);
+
+    store.selectedPort.set('COM4');
+    await store.connect();
+    const started = await store.runLoadedProgram();
+
+    expect(started).toBe(true);
+    expect(store.heatingProfileDirty()).toBe(false);
+    expect(store.selectedProgram()?.kind).toBe('heating-profile');
+    expect(store.job().status).toBe('streaming');
+  });
+
+  it('normalizes fractional edits and inserted stages to codec-safe integers', () => {
+    store.newHeatingProfile();
+    store.updateHeatingProfilePoint(1, { timeMs: 600_000.6, targetC: 179.6 });
+    const inserted = store.addHeatingProfilePoint(0);
+
+    expect(store.heatingProfileDraft()?.points[2]).toEqual({
+      timeMs: 600_001,
+      targetC: 180,
+    });
+    expect(store.heatingProfileDraft()?.points[inserted]).toEqual({
+      timeMs: 300_001,
+      targetC: 103,
+    });
+    expect(store.heatingProfileValidation().valid).toBe(true);
+  });
+
+  it('keeps the fixed first stage when deletion is requested', () => {
+    store.newHeatingProfile();
+    const before = store.heatingProfileDraft()?.points;
+
+    store.removeHeatingProfilePoint(0);
+
+    expect(store.heatingProfileDraft()?.points).toEqual(before);
+  });
+
+  it('gives generated heating commands enough time while leaving generic timeouts unchanged', () => {
+    const file = {
+      path: 'profile.gcode',
+      name: 'profile.gcode',
+      sizeBytes: 64,
+      modifiedAt: new Date().toISOString(),
+      extension: '.gcode' as const,
+    };
+    const profile = {
+      file,
+      kind: 'heating-profile' as const,
+      profile: {
+        version: 1 as const,
+        name: 'Profile',
+        interpolation: 'linear' as const,
+        points: [
+          { timeMs: 0, targetC: 20 },
+          { timeMs: 60_000, targetC: 180 },
+        ],
+      },
+      metadataWarning: null,
+    };
+
+    expect(createJobStartRequest(file, 1, profile, 1_000)).toEqual({
+      path: file.path,
+      startLine: 1,
+      commandTimeoutMs: 8_000,
+    });
+    expect(
+      createJobStartRequest(file, 7, { ...profile, kind: 'gcode', profile: null }, 1_000),
+    ).toEqual({ path: file.path, startLine: 7 });
+  });
+
+  it('disarms desktop target control before streaming any selected G-code file', async () => {
+    await store.initialize();
+    store.selectedPort.set('COM4');
+    await store.connect();
+    await store.setTarget(180);
+    const file = {
+      path: 'ordinary.gcode',
+      name: 'ordinary.gcode',
+      sizeBytes: 64,
+      modifiedAt: new Date().toISOString(),
+      extension: '.gcode' as const,
+    };
+    store.selectedProgram.set({
+      file,
+      kind: 'gcode',
+      profile: null,
+      metadataWarning: null,
+    });
+    store.selectedJob.set(file);
+
+    await store.startJob();
+
+    expect(store.controlArmed()).toBe(false);
+    expect(store.job().file).toEqual(file);
   });
 });

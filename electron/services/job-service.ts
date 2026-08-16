@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, stat } from 'node:fs/promises';
+import { appendFile, mkdir, open, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -7,6 +7,7 @@ import readline from 'node:readline';
 import type {
   JobExecutionLogEntry,
   JobFileInfo,
+  LoadedGcodeProgram,
   JobProgress,
   JobStartRequest,
   JobState,
@@ -17,6 +18,12 @@ import type {
 } from '../../shared/contracts';
 import { AppError, asAppError } from '../../shared/errors';
 import { INITIAL_GCODE_COMMENT_STATE, normalizeGcodeLine } from '../../shared/job-normalizer';
+import {
+  hasHeatingProfileMarker,
+  MAX_HEATING_PROFILE_FILE_BYTES,
+  MAX_HEATING_PROFILE_PREFIX_BYTES,
+  parseHeatingProfileDocument,
+} from '../../shared/heating-profile-document';
 import type { Logger } from '../logger';
 import type { ActivityService } from './activity-service';
 import type { PersistenceStore } from './persistence-store';
@@ -79,7 +86,11 @@ export class JobService {
     return structuredClone(this.state);
   }
 
-  async inspectFile(filePath: string): Promise<JobFileInfo> {
+  async inspectFile(filePath: string): Promise<LoadedGcodeProgram> {
+    return inspectProgramMetadata(await this.inspectJobFile(filePath));
+  }
+
+  private async inspectJobFile(filePath: string): Promise<JobFileInfo> {
     validatePath(filePath);
     const extension = path.extname(filePath).toLowerCase();
     if (!SUPPORTED_EXTENSIONS.has(extension)) {
@@ -98,13 +109,14 @@ export class JobService {
           recoverable: true,
         });
       }
-      return {
+      const file: JobFileInfo = {
         path: filePath,
         name: path.basename(filePath),
         sizeBytes: details.size,
         modifiedAt: details.mtime.toISOString(),
         extension: extension as JobFileInfo['extension'],
       };
+      return file;
     } catch (error) {
       if (error instanceof AppError) {
         throw error;
@@ -135,7 +147,9 @@ export class JobService {
         recoverable: true,
       });
     }
-    const file = await this.inspectFile(request.path);
+    // Starting a stream intentionally performs only path/stat checks. Metadata
+    // classification is an explicit load-time concern, never a command preflight.
+    const file = await this.inspectJobFile(request.path);
     const startLine = request.startLine ?? 1;
     if (!Number.isInteger(startLine) || startLine < 1) {
       throw new AppError({
@@ -670,5 +684,62 @@ function validatePath(filePath: string): void {
       message: 'File path is invalid',
       recoverable: true,
     });
+  }
+}
+
+async function inspectProgramMetadata(file: JobFileInfo): Promise<LoadedGcodeProgram> {
+  const generic = (metadataWarning: string | null = null): LoadedGcodeProgram => ({
+    file,
+    kind: 'gcode',
+    profile: null,
+    metadataWarning,
+  });
+  try {
+    const prefixSize = Math.min(file.sizeBytes, MAX_HEATING_PROFILE_PREFIX_BYTES);
+    const handle = await open(file.path, 'r');
+    let prefix: Uint8Array;
+    try {
+      const buffer = Buffer.alloc(prefixSize);
+      const { bytesRead } = await handle.read(buffer, 0, prefixSize, 0);
+      prefix = buffer.subarray(0, bytesRead);
+    } finally {
+      await handle.close();
+    }
+    if (!hasHeatingProfileMarker(prefix)) return generic();
+    if (file.sizeBytes > MAX_HEATING_PROFILE_FILE_BYTES) {
+      return generic('Heating-profile metadata was ignored because the file is too large.');
+    }
+    const contents = await readAtMost(file.path, MAX_HEATING_PROFILE_FILE_BYTES);
+    if (contents === null) {
+      return generic('Heating-profile metadata was ignored because the file is too large.');
+    }
+    let source: string;
+    try {
+      source = new TextDecoder('utf-8', { fatal: true }).decode(contents);
+    } catch {
+      return generic('Heating-profile metadata was ignored because the file is not valid UTF-8.');
+    }
+    const parsed = parseHeatingProfileDocument(source);
+    return parsed.ok
+      ? { file, kind: 'heating-profile', profile: parsed.profile, metadataWarning: null }
+      : generic(parsed.warning);
+  } catch {
+    return generic('Heating-profile metadata could not be inspected.');
+  }
+}
+
+async function readAtMost(filePath: string, maximumBytes: number): Promise<Uint8Array | null> {
+  const handle = await open(filePath, 'r');
+  try {
+    const buffer = Buffer.alloc(maximumBytes + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    return offset > maximumBytes ? null : buffer.subarray(0, offset);
+  } finally {
+    await handle.close();
   }
 }

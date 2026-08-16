@@ -10,6 +10,7 @@ export const IPC = {
   serialHeaterOff: 'serial:heater-off',
   jobsPick: 'jobs:pick',
   jobsInspect: 'jobs:inspect',
+  jobsSaveHeatingProfile: 'jobs:save-heating-profile',
   jobsState: 'jobs:state:get',
   jobsLog: 'jobs:log:get',
   jobsStart: 'jobs:start',

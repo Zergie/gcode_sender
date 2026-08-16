@@ -51,7 +51,7 @@ export class JobsComponent {
   }
 
   start(): void {
-    void this.store.startJob(Math.max(1, Math.round(this.restartLine())));
+    void this.store.runLoadedProgram(Math.max(1, Math.round(this.restartLine())));
   }
 
   formatBytes(value: number): string {

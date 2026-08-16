@@ -4,8 +4,12 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import type { JobExecutionLogEntry } from '../../shared/contracts';
+import type { HeatingProfile, JobExecutionLogEntry } from '../../shared/contracts';
 import { AppError } from '../../shared/errors';
+import {
+  HEATING_PROFILE_MARKER,
+  serializeHeatingProfileDocument,
+} from '../../shared/heating-profile-document';
 import type { Logger } from '../logger';
 import { ActivityService } from './activity-service';
 import { JobService, readJobLogPage } from './job-service';
@@ -42,6 +46,85 @@ describe('job log pagination', () => {
 
     expect(page.entries).toHaveLength(2);
     expect(page.nextOffset).toBeNull();
+  });
+});
+
+describe('G-code program inspection', () => {
+  it('classifies ordinary G-code without loading profile metadata', async () => {
+    const { directory, service } = await inspectionService();
+    const filePath = path.join(directory, 'ordinary.gcode');
+    await writeFile(filePath, 'M104 S180\nG4 P1000\n', 'utf8');
+
+    await expect(service.inspectFile(filePath)).resolves.toMatchObject({
+      kind: 'gcode',
+      profile: null,
+      metadataWarning: null,
+      file: { path: filePath, name: 'ordinary.gcode' },
+    });
+  });
+
+  it('returns a profile only when metadata and normalized executable body agree', async () => {
+    const { directory, service } = await inspectionService();
+    const filePath = path.join(directory, 'profile.gcode');
+    await writeFile(filePath, serializeHeatingProfileDocument(TEST_PROFILE), 'utf8');
+
+    await expect(service.inspectFile(filePath)).resolves.toMatchObject({
+      kind: 'heating-profile',
+      profile: TEST_PROFILE,
+      metadataWarning: null,
+    });
+  });
+
+  it('keeps malformed marked files runnable as generic G-code with a warning', async () => {
+    const directory = await temporaryDirectory('gcode-sender-inspect-');
+    const filePath = path.join(directory, 'malformed.gcode');
+    await writeFile(
+      filePath,
+      `${HEATING_PROFILE_MARKER}\n; GCODE_SENDER_HEATING_PROFILE_HEADER nope\nM105\n`,
+      'utf8',
+    );
+    const sendAndWait = vi.fn(async () => ({ raw: 'ok', parsed: { kind: 'ok' } }));
+    const service = createJobService(directory, sendAndWait);
+
+    await expect(service.inspectFile(filePath)).resolves.toMatchObject({
+      kind: 'gcode',
+      profile: null,
+      metadataWarning: expect.any(String),
+    });
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('completed'));
+    expect(sendAndWait).toHaveBeenCalledWith('M105', 8_000, expect.any(AbortSignal), 'job');
+  });
+
+  it('starts through stat-only inspection without invoking metadata classification', async () => {
+    const directory = await temporaryDirectory('gcode-sender-start-');
+    const filePath = path.join(directory, 'marked.gcode');
+    await writeFile(filePath, `${HEATING_PROFILE_MARKER}\nM105\n`, 'utf8');
+    const sendAndWait = vi.fn(async () => ({ raw: 'ok', parsed: { kind: 'ok' } }));
+    const service = createJobService(directory, sendAndWait);
+    const inspect = vi.spyOn(service, 'inspectFile').mockRejectedValue(new Error('must not run'));
+
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('completed'));
+
+    expect(inspect).not.toHaveBeenCalled();
+    expect(sendAndWait).toHaveBeenCalledWith('M105', 8_000, expect.any(AbortSignal), 'job');
+  });
+
+  it('downgrades a modified generated body to generic G-code', async () => {
+    const { directory, service } = await inspectionService();
+    const filePath = path.join(directory, 'modified.gcode');
+    await writeFile(
+      filePath,
+      serializeHeatingProfileDocument(TEST_PROFILE).replace('M104 S21', 'M104 S99'),
+      'utf8',
+    );
+
+    await expect(service.inspectFile(filePath)).resolves.toMatchObject({
+      kind: 'gcode',
+      profile: null,
+      metadataWarning: expect.stringMatching(/does not match/),
+    });
   });
 });
 
@@ -160,4 +243,43 @@ function silentLogger(): Logger {
     warn: vi.fn(),
     error: vi.fn(),
   };
+}
+
+const TEST_PROFILE: HeatingProfile = {
+  version: 1,
+  name: 'Inspection profile',
+  interpolation: 'linear',
+  points: [
+    { timeMs: 0, targetC: 20 },
+    { timeMs: 1_000, targetC: 21 },
+  ],
+};
+
+async function temporaryDirectory(prefix: string): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), prefix));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+async function inspectionService(): Promise<{ directory: string; service: JobService }> {
+  const directory = await temporaryDirectory('gcode-sender-inspect-');
+  return { directory, service: createJobService(directory, vi.fn()) };
+}
+
+function createJobService(directory: string, sendAndWait: ReturnType<typeof vi.fn>): JobService {
+  return new JobService(
+    path.join(directory, 'sessions'),
+    {
+      getState: () => ({ status: 'connected' }),
+      subscribe: () => () => undefined,
+      sendAndWait,
+      bestEffortHeaterOff: vi.fn(async () => undefined),
+    } as unknown as SerialService,
+    new ActivityService(),
+    {
+      getSettings: () => ({ commandTimeoutMs: 8_000 }),
+      saveSession: vi.fn(async () => undefined),
+    } as unknown as PersistenceStore,
+    silentLogger(),
+  );
 }

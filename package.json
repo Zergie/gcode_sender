@@ -19,9 +19,12 @@
     "build:renderer": "npm run clean:renderer && ng build && node scripts/check-style-contract.mjs",
     "build:electron": "npm run clean:electron && tsc --project tsconfig.electron.json",
     "test": "npm run test:renderer && npm run test:backend",
+    "test:desktop": "npm run test:backend",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "typecheck:renderer": "tsc --project tsconfig.app.json --noEmit",
+    "typecheck:desktop": "tsc --project tsconfig.electron.json --noEmit",
     "package": "npm run build && electron-forge package",
     "make": "npm run build && electron-forge make",
     "prepackage": "npm run clean:package",
@@ -49,8 +52,10 @@
     "url": "https://github.com/Zergie/gcode_sender/issues"
   },
   "engines": {
-    "node": ">=24.19.0"
+    "node": ">=24.19.0 <25",
+    "npm": ">=11 <12"
   },
+  "packageManager": "npm@11.17.0",
   "dependencies": {
     "@angular/common": "22.1.2",
     "@angular/compiler": "22.1.2",

@@ -103,8 +103,8 @@ window.
 Requirements:
 
 - Windows 10/11 for the verified development and packaging workflow;
-- Node.js 24.19 or newer;
-- npm 11 or newer.
+- Node.js 24.19.x;
+- npm 11.x (the repository pins npm 11.17.0 through `packageManager`).
 
 The archive-security gate is reproducible locally with `npm run verify:archive-security`.
 It inspects the complete locked dependency graph, evaluates `npm audit` high and critical
@@ -127,10 +127,24 @@ run the physical twin; there is no built-in controller fallback.
 
 Install and start:
 
-    npm install
+    npm ci
     npm start
 
-Useful commands:
+Windows fast verification:
+
+    npm ci
+    npm run test:renderer
+    npm run test:desktop
+    npm run lint
+    npm run format:check
+    npm run typecheck:renderer
+    npm run typecheck:desktop
+
+`npm ci` is intentional: it installs from `package-lock.json` and fails if the
+lockfile and manifest drift. The named fast-verification commands are also the
+entrypoints used by Windows automation; they do not rewrite source files.
+
+Other useful commands:
 
     npm run build
     npm test

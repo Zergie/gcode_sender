@@ -27,9 +27,40 @@ describe('DashboardComponent', () => {
     expect(content).toContain('T2');
     expect(content).toContain('T3');
     expect(TestBed.inject(WorkbenchStore).telemetry().thermistors).toHaveLength(3);
-    expect(content).toContain('MCU SENSOR');
+    expect(content).toContain('T3 enclosure sensor');
     expect(content).not.toContain('TOP HEATER');
     expect(content).not.toContain('BOTTOM HEATER');
+  });
+
+  it('uses the canonical T3 semantics for visible, live, and unknown operator text', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const metric = [...element.querySelectorAll<HTMLElement>('.metric-card')].at(-1)!;
+    const value = metric.querySelector<HTMLElement>('.metric-value')!;
+    expect(metric.textContent).toContain('T3 enclosure sensor');
+    expect(metric.textContent).toContain(
+      'Temperature measured by the externally exposed enclosure thermistor; informational only.',
+    );
+    expect(value.getAttribute('aria-label')).toContain('T3 enclosure sensor: Temperature unknown.');
+
+    store.connection.update((connection) => ({ ...connection, status: 'connected' }));
+    store.telemetry.update((telemetry) => ({
+      ...telemetry,
+      thermistors: [74.1, 72.3, 38.6],
+      raw: 'T0:73.2 /90 @:64 T1:74.1 T2:72.3 T3:38.6',
+    }));
+    store.hasTelemetry.set(true);
+    fixture.detectChanges();
+
+    expect(value.textContent?.replace(/\s+/g, ' ').trim()).toBe('38.6°C');
+    expect(value.getAttribute('aria-label')).toContain(
+      'T3 enclosure sensor: 38.6 °C. Temperature measured by the externally exposed enclosure thermistor; informational only.',
+    );
+    expect(metric.textContent).toContain('Informational reading');
+    expect(metric.textContent).not.toContain('SAFETY');
   });
 
   it('does not present ambient placeholders as live telemetry while disconnected', () => {

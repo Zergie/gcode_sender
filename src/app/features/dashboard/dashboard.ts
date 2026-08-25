@@ -9,6 +9,7 @@ import {
 import { FormsModule } from '@angular/forms';
 import type { HeatingProfilePoint } from '../../../../shared/contracts';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { T3_TELEMETRY_SEMANTICS } from '../../core/telemetry/t3-semantics';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
 import { TrendChartComponent, type ProfilePointEdit } from '../../shared/trend-chart';
@@ -32,6 +33,7 @@ const ACTIVE_JOB_STATUSES = new Set([
 })
 export class DashboardComponent {
   readonly store = inject(WorkbenchStore);
+  readonly t3Semantics = T3_TELEMETRY_SEMANTICS;
   readonly targetDraft = signal(200);
   readonly range = signal<DashboardRange>('30m');
   readonly selectedProfilePointIndex = signal(0);

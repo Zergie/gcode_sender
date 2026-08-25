@@ -132,12 +132,22 @@
     </article>
     <article class="metric-card">
       <div class="metric-top">
-        <span class="sensor-dot t3"></span><span>MCU SENSOR</span><em>T3</em>
+        <span class="sensor-dot t3"></span><span>{{ t3Semantics.label }}</span
+        ><em>{{ t3Semantics.channel }}</em>
       </div>
       <div
         class="metric-value"
         [class.unknown]="!store.telemetryLive()"
-        [attr.aria-label]="store.telemetryLive() ? null : 'MCU temperature unknown'"
+        [attr.aria-label]="
+          store.telemetryLive()
+            ? t3Semantics.label +
+              ': ' +
+              store.telemetry().thermistors[2].toFixed(1) +
+              ' °C. ' +
+              t3Semantics.description
+            : t3Semantics.label + ': ' + t3Semantics.unknown + '. ' + t3Semantics.description
+        "
+        [attr.title]="t3Semantics.description"
       >
         @if (store.telemetryLive()) {
           {{ store.telemetry().thermistors[2].toFixed(1) }}<small>°C</small>
@@ -147,10 +157,11 @@
       </div>
       <div class="metric-footer">
         <span [class.safe]="store.telemetryLive()">{{
-          store.telemetryLive() ? 'Within expected range' : 'Awaiting telemetry'
+          store.telemetryLive() ? t3Semantics.range : t3Semantics.unknown
         }}</span
-        ><span>SAFETY</span>
+        ><span>{{ t3Semantics.channel }}</span>
       </div>
+      <p class="fine-print">{{ t3Semantics.description }}</p>
     </article>
   </section>
 

@@ -3,6 +3,7 @@ import readline from 'node:readline';
 
 import type { JsonValue, SessionMetadata } from '../../shared/contracts';
 import { AppError } from '../../shared/errors';
+import { T3_TELEMETRY_SEMANTICS } from '../../shared/t3-semantics';
 
 export interface ExportedSession extends SessionMetadata {
   readonly data: JsonValue;
@@ -27,7 +28,7 @@ export async function assembleSessionExports(
 
 async function assembleSessionExport(session: SessionMetadata): Promise<ExportedSession> {
   if (session.kind !== 'job' && session.kind !== 'tuning') {
-    return session;
+    return canonicalizeT3Metadata(session);
   }
   const data = asRecord(session.data);
   const artifact = asRecord(data['artifact']) as ArtifactMetadata;
@@ -36,13 +37,33 @@ async function assembleSessionExport(session: SessionMetadata): Promise<Exported
     throw artifactReadError(session, 'The retained diagnostic artifact path is missing');
   }
   const records = await readArtifactRecords(artifactPath, session);
-  return {
+  return canonicalizeT3Metadata({
     ...session,
     data: {
       ...data,
       artifact: {
         ...artifact,
         records,
+      },
+    } as unknown as JsonValue,
+  } as ExportedSession);
+}
+
+function canonicalizeT3Metadata(session: SessionMetadata): ExportedSession {
+  const data = asRecord(session.data);
+  const applicable = session.kind === 'tuning' || data['type'] === 'bounded-validation';
+  if (!applicable) return session as ExportedSession;
+  return {
+    ...session,
+    data: {
+      ...data,
+      t3Semantics: {
+        ...T3_TELEMETRY_SEMANTICS,
+        // Legacy labels remain readable, but never become new export output.
+        channel: T3_TELEMETRY_SEMANTICS.channel,
+        label: T3_TELEMETRY_SEMANTICS.label,
+        description: T3_TELEMETRY_SEMANTICS.description,
+        scope: T3_TELEMETRY_SEMANTICS.scope,
       },
     } as unknown as JsonValue,
   } as ExportedSession;
@@ -103,10 +124,15 @@ export function sessionsToCsvWithArtifacts(sessions: readonly ExportedSession[])
       'artifactOmittedBytes',
       'artifactOmittedRecords',
       'artifactRecords',
+      't3Channel',
+      't3Label',
+      't3Description',
       'data',
     ],
     ...sessions.map((session) => {
       const artifact = asRecord(asRecord(session.data)['artifact']);
+      const t3Applicable =
+        session.kind === 'tuning' || asRecord(session.data)['type'] === 'bounded-validation';
       return [
         session.id,
         session.kind,
@@ -121,6 +147,9 @@ export function sessionsToCsvWithArtifacts(sessions: readonly ExportedSession[])
         String(artifact['omittedBytes'] ?? ''),
         String(artifact['omittedRecords'] ?? ''),
         JSON.stringify(artifact['records'] ?? []),
+        t3Applicable ? T3_TELEMETRY_SEMANTICS.channel : '',
+        t3Applicable ? T3_TELEMETRY_SEMANTICS.label : '',
+        t3Applicable ? T3_TELEMETRY_SEMANTICS.description : '',
         JSON.stringify(session.data),
       ];
     }),

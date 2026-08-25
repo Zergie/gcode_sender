@@ -4,6 +4,7 @@ import type { GcodeApi, TemperatureTelemetry } from '../../../../shared/contract
 import type { LiveTuningRequest, LiveTuningState } from '../../../../shared/tuning-contracts';
 import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics } from '../tuning';
 import type { PidSchedule } from '../control';
+import { T3_TELEMETRY_SEMANTICS } from '../telemetry/t3-semantics';
 import { NotificationStore } from './notification.store';
 
 export interface ValidationRunState {
@@ -338,6 +339,7 @@ export class TuningValidationStore implements OnDestroy {
       {
         type: 'bounded-validation',
         condition: 'Standard load',
+        t3Semantics: T3_TELEMETRY_SEMANTICS,
         status,
         targetC: current.targetC,
         pidSchedule: this.validationSchedule,

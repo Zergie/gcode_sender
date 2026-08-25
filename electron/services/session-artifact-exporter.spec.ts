@@ -46,6 +46,28 @@ describe('session artifact export', () => {
     expect(csv).toContain('artifactComplete');
     expect(csv).toContain('"false"');
     expect(csv).toContain('"[{""sample"":1}]"');
+    expect(csv).toContain('"T3 enclosure sensor"');
+  });
+
+  it('rewrites legacy T3 labels to canonical informational export metadata', async () => {
+    const exported = await assembleSessionExports([
+      {
+        ...session('legacy', 'tuning', 'unused.jsonl', true, 0, 0),
+        data: { t3Semantics: { channel: 'T3', label: 'T3 safety' } },
+      },
+    ]).catch((error) => error);
+    // The artifact path is intentionally missing in this legacy-shaped fixture; use a
+    // validation session to exercise metadata canonicalization without an artifact.
+    expect(exported).toBeInstanceOf(Error);
+    const validation = await assembleSessionExports([
+      {
+        ...session('legacy-validation', 'simulation', 'unused.jsonl', true, 0, 0),
+        data: { type: 'bounded-validation', t3Semantics: { label: 'T3 safety' } },
+      },
+    ]);
+    expect((validation[0]!.data as { t3Semantics: { label: string } }).t3Semantics.label).toBe(
+      'T3 enclosure sensor',
+    );
   });
 
   it('reports missing artifacts as recoverable storage failures', async () => {

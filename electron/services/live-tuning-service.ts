@@ -26,6 +26,7 @@ import type {
   TuningPeak,
 } from '../../shared/tuning-contracts';
 import type { ParsedFirmwareLine } from '../../shared/protocol';
+import { T3_EXPERIMENT_BOUNDS_C, T3_TELEMETRY_SEMANTICS } from '../../shared/t3-semantics';
 import type { Logger } from '../logger';
 import type { ActivityService } from './activity-service';
 import type { PersistenceStore } from './persistence-store';
@@ -417,6 +418,7 @@ export class LiveTuningService {
     }
     const data: JsonValue = {
       condition: 'Standard load',
+      t3Semantics: T3_TELEMETRY_SEMANTICS,
       status: this.state.status,
       tracePath: this.tracePath,
       rollbackGains: this.state.rollbackGains,
@@ -548,10 +550,10 @@ function validateRequest(value: LiveTuningRequest): ValidatedRequest {
   };
 }
 
-function validateTelemetry(
+export function validateTelemetry(
   telemetry: TemperatureTelemetry,
   target: number,
-  request: ValidatedRequest,
+  request: Pick<ValidatedRequest, 'maximumTarget' | 'maximumSensorDifference'>,
 ): void {
   const [first, second] = telemetry.thermistors;
   if (Math.abs(first - second) > request.maximumSensorDifference) {
@@ -565,6 +567,16 @@ function validateTelemetry(
     throw new AppError({
       code: 'INVALID_STATE',
       message: 'Tuning overshoot limit was exceeded',
+      recoverable: true,
+    });
+  }
+  if (
+    telemetry.thermistors[2] < T3_EXPERIMENT_BOUNDS_C.minimum ||
+    telemetry.thermistors[2] > T3_EXPERIMENT_BOUNDS_C.maximum
+  ) {
+    throw new AppError({
+      code: 'INVALID_STATE',
+      message: `${T3_TELEMETRY_SEMANTICS.label} left its host-side experiment-integrity bounds (${T3_EXPERIMENT_BOUNDS_C.minimum} to ${T3_EXPERIMENT_BOUNDS_C.maximum} °C); this is not firmware safety enforcement`,
       recoverable: true,
     });
   }

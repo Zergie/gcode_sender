@@ -1,11 +1,10 @@
-/** The approved human-facing meaning of the stable firmware T3 channel. */
-export const T3_TELEMETRY_SEMANTICS = Object.freeze({
-  channel: 'T3',
-  label: 'T3 enclosure sensor',
-  description:
-    'Temperature measured by the externally exposed enclosure thermistor; informational only.',
+export {
+  T3_TELEMETRY_SEMANTICS,
+  T3_EXPERIMENT_BOUNDS_C,
+  type T3TelemetrySemantics,
+} from '../../../../shared/t3-semantics';
+
+export const T3_TELEMETRY_DISPLAY = Object.freeze({
   unknown: 'Temperature unknown',
   range: 'Informational reading',
 });
-
-export type T3TelemetrySemantics = typeof T3_TELEMETRY_SEMANTICS;

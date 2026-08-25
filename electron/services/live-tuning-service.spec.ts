@@ -4,7 +4,7 @@ import type { ParsedFirmwareLine } from '../../shared/protocol';
 import type { TuningPeak } from '../../shared/tuning-contracts';
 import type { Logger } from '../logger';
 import { ActivityService } from './activity-service';
-import { calculateCandidates, LiveTuningService } from './live-tuning-service';
+import { calculateCandidates, LiveTuningService, validateTelemetry } from './live-tuning-service';
 import type { PersistenceStore } from './persistence-store';
 import type { SerialService } from './serial-service';
 
@@ -35,6 +35,28 @@ describe('Klipper-style PID candidate calculation', () => {
 });
 
 describe('live tuning cancellation', () => {
+  it('reports an informational canonical T3 experiment-integrity bound violation', () => {
+    expect(() =>
+      validateTelemetry(
+        {
+          timestamp: '2026-08-25T00:00:00.000Z',
+          average: 95,
+          target: 100,
+          power: 255,
+          thermistors: [95, 95, 101],
+          raw: 'T0:95 /100 @:255 T1:95 T2:95 T3:101',
+        },
+        100,
+        {
+          maximumTarget: 250,
+          maximumSensorDifference: 25,
+        },
+      ),
+    ).toThrow(
+      'T3 enclosure sensor left its host-side experiment-integrity bounds (-20 to 100 °C); this is not firmware safety enforcement',
+    );
+  });
+
   it('does not resolve until heater-off and PID rollback are acknowledged', async () => {
     const heaterOff = deferred<FirmwareResponse>();
     const rollback = deferred<FirmwareResponse>();

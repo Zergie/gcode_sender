@@ -57,8 +57,11 @@ import type {
   SimulationWorkerRequest,
   SimulationWorkerResponse,
 } from './simulation-worker.protocol';
+import {
+  prepareSimulationChartSeries,
+  type PreparedSimulationChartSeries,
+} from './simulation-chart-series';
 
-const SIMULATION_TREND_ORIGIN_MS = Date.UTC(2026, 7, 15, 12, 0, 0);
 const DISPLAYED_METRIC_TOLERANCE_C = 0.005;
 const MAX_FIRMWARE_OUTPUT_LINES = 300;
 const SIMULATION_WORKER_DEADLINE_MS = 5 * 60 * 1_000;
@@ -225,6 +228,10 @@ export class SimulationComponent implements OnDestroy {
   readonly paused = signal(true);
   readonly cursor = signal(0);
   readonly comparison = signal<SimulationComparisonResult | null>(null);
+  readonly preparedChartSeries = computed<PreparedSimulationChartSeries | null>(() => {
+    const comparison = this.comparison();
+    return comparison === null ? null : prepareSimulationChartSeries(comparison);
+  });
   readonly simulationBusy = signal(false);
   readonly simulationError = signal<string | null>(null);
   readonly selectedVariant = signal('assisted');
@@ -296,12 +303,19 @@ export class SimulationComponent implements OnDestroy {
     return this.comparison()?.entries.find((entry) => entry.id !== activeId) ?? null;
   });
   readonly visibleTrend = computed<readonly TrendPoint[]>(() => {
-    const samples = this.activeEntry()?.result.samples.slice(0, this.cursor()) ?? [];
-    return this.toTrendPoints(samples);
+    const activeId = this.activeEntry()?.id;
+    const points = this.preparedChartSeries()?.entries.find(
+      (entry) => entry.id === activeId,
+    )?.points;
+    return points?.slice(0, this.cursor()) ?? [];
   });
-  readonly comparisonTrend = computed<readonly TrendPoint[]>(() =>
-    this.toTrendPoints(this.comparisonEntry()?.result.samples.slice(0, this.cursor()) ?? []),
-  );
+  readonly comparisonTrend = computed<readonly TrendPoint[]>(() => {
+    const comparisonId = this.comparisonEntry()?.id;
+    const points = this.preparedChartSeries()?.entries.find(
+      (entry) => entry.id === comparisonId,
+    )?.points;
+    return points?.slice(0, this.cursor()) ?? [];
+  });
   readonly modelSummary = computed(() => {
     const profile = this.profile();
     const geometry = profile.geometry;
@@ -1456,18 +1470,5 @@ export class SimulationComponent implements OnDestroy {
     }
     this.playbackWallStartMs = 0;
     this.playbackSimulationStartSeconds = 0;
-  }
-
-  private toTrendPoints(samples: readonly SimulationSample[]): readonly TrendPoint[] {
-    return samples.map((sample) => ({
-      time: SIMULATION_TREND_ORIGIN_MS + sample.timeSeconds * 1000,
-      average: sample.temperatures.t0C,
-      t1: sample.temperatures.t1C,
-      t2: sample.temperatures.t2C,
-      t3: sample.temperatures.t3C,
-      target: sample.requestedTargetC,
-      modelTarget: sample.firmwareTargetC,
-      power: sample.actuator.pidOutput,
-    }));
   }
 }

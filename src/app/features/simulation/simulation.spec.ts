@@ -142,6 +142,7 @@ function preparedFirmwareFixture(
       sourceTransforms: ['arduino-preprocess-v1'],
     },
     cacheHit,
+    toolchainCacheHit: cacheHit,
     fidelity: 'source-level firmware logic with semantic peripheral emulation',
   };
 }
@@ -171,6 +172,33 @@ describe('SimulationComponent', () => {
           entry.result.execution.fixedStepSeconds === component.profile().solverStepSeconds,
       ),
     ).toBe(true);
+    fixture.destroy();
+  });
+
+  it('prepares immutable chart series once and invalidates the preparation with results', () => {
+    const fixture = TestBed.createComponent(SimulationComponent);
+    const component = fixture.componentInstance;
+    runShortSynchronousComparison(component);
+    const comparison = component.comparison()!;
+    const firstSample = comparison.entries[0]!.result.samples[0]!;
+    const prepared = component.preparedChartSeries();
+    const firstEntry = prepared!.entries[0]!;
+
+    expect(firstEntry.points).toHaveLength(comparison.entries[0]!.result.samples.length);
+    expect(Object.isFrozen(prepared)).toBe(true);
+    expect(Object.isFrozen(firstEntry.points)).toBe(true);
+    expect(Object.isFrozen(firstEntry.points[0])).toBe(true);
+    expect(firstEntry.points[0]!.average).toBe(firstSample.temperatures.t0C);
+
+    component.cursor.set(2);
+    component.paused.set(false);
+    component.selectVariant('pid');
+    expect(component.preparedChartSeries()).toBe(prepared);
+    expect(component.preparedChartSeries()!.entries[0]!.points).toBe(firstEntry.points);
+    expect(comparison.entries[0]!.result.samples[0]).toBe(firstSample);
+
+    component.comparison.set(null);
+    expect(component.preparedChartSeries()).toBeNull();
     fixture.destroy();
   });
 
@@ -686,6 +714,7 @@ describe('SimulationComponent', () => {
         sourceTransforms: ['arduino-preprocess-v1'],
       },
       cacheHit: true,
+      toolchainCacheHit: true,
       fidelity: 'source-level firmware logic with semantic peripheral emulation',
     };
     pickAndBuild.mockResolvedValue({

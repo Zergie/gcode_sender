@@ -1153,12 +1153,13 @@ export class SimulationComponent implements OnDestroy {
   }
 
   updateProfile<K extends keyof OvenModelProfile>(key: K, value: OvenModelProfile[K]): void {
-    this.mutateSimulationConfiguration(() =>
-      this.configuration.updatePhysicalModel((profile) => ({
-        ...profile,
-        [key]: typeof value === 'number' ? Number(value) : value,
-      })),
-    );
+    if (key === 'ambientTemperatureC') {
+      this.applyPhysicalModelEdit(() =>
+        this.configuration.updateAirProperty('ambientTemperatureC', Number(value)),
+      );
+    } else if (key === 'name') {
+      this.configuration.updatePhysicalModel((profile) => ({ ...profile, name: String(value) }));
+    }
   }
 
   updateAssistance<K extends keyof ModelAssistedTargetConfiguration>(
@@ -1203,43 +1204,7 @@ export class SimulationComponent implements OnDestroy {
   }
 
   updateGeometryMm(key: keyof ThermalTwinGeometry, millimeters: number): void {
-    this.mutateSimulationConfiguration(() =>
-      this.configuration.updatePhysicalModel((profile) => {
-        const geometry = { ...profile.geometry, [key]: Number(millimeters) / 1_000 };
-        const enclosureRadiatingAreaM2 =
-          2 *
-          (geometry.widthM * geometry.depthM +
-            geometry.widthM * geometry.heightM +
-            geometry.depthM * geometry.heightM);
-        const standardLoadRadiatingAreaM2 = 2 * geometry.widthM * geometry.depthM;
-        const halfAirCapacityJPerK =
-          (geometry.widthM *
-            geometry.depthM *
-            geometry.heightM *
-            profile.ambient.airDensityKgPerM3 *
-            profile.ambient.airSpecificHeatJPerKgK) /
-          2;
-        return {
-          ...profile,
-          geometry,
-          ambient: {
-            ...profile.ambient,
-            enclosureRadiatingAreaM2,
-          },
-          bodies: {
-            ...profile.bodies,
-            topAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-            bottomAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-          },
-          radiationLinks: profile.radiationLinks.map((link) =>
-            (link.a === 'standardLoad' && link.b === 'enclosure') ||
-            (link.a === 'enclosure' && link.b === 'standardLoad')
-              ? { ...link, areaM2: standardLoadRadiatingAreaM2 }
-              : link,
-          ),
-        };
-      }),
-    );
+    this.applyPhysicalModelEdit(() => this.configuration.updateGeometry(key, millimeters));
   }
 
   updateHeaterRatedPower(which: HeaterPosition, watts: number): void {
@@ -1296,30 +1261,33 @@ export class SimulationComponent implements OnDestroy {
     key: K,
     value: AmbientBoundaryConfiguration[K],
   ): void {
-    this.mutateSimulationConfiguration(() =>
-      this.configuration.updatePhysicalModel((profile) => {
-        const ambient = { ...profile.ambient, [key]: Number(value) };
-        if (key !== 'airDensityKgPerM3' && key !== 'airSpecificHeatJPerKgK') {
-          return { ...profile, ambient };
-        }
-        const halfAirCapacityJPerK =
-          (profile.geometry.widthM *
-            profile.geometry.depthM *
-            profile.geometry.heightM *
-            ambient.airDensityKgPerM3 *
-            ambient.airSpecificHeatJPerKgK) /
-          2;
-        return {
+    if (key === 'airDensityKgPerM3' || key === 'airSpecificHeatJPerKgK') {
+      this.applyPhysicalModelEdit(() => this.configuration.updateAirProperty(key, Number(value)));
+    } else {
+      this.mutateSimulationConfiguration(() =>
+        this.configuration.updatePhysicalModel((profile) => ({
           ...profile,
-          ambient,
-          bodies: {
-            ...profile.bodies,
-            topAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-            bottomAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-          },
-        };
-      }),
-    );
+          ambient: { ...profile.ambient, [key]: Number(value) },
+        })),
+      );
+    }
+  }
+
+  private applyPhysicalModelEdit(
+    edit: () => {
+      readonly ok: boolean;
+      readonly errors?: readonly { readonly path: string; readonly message: string }[];
+    },
+  ): void {
+    const result = edit();
+    if (result.ok) {
+      this.invalidateSimulationResults();
+    } else {
+      this.store.notify(
+        result.errors?.map((error) => `${error.path}: ${error.message}`).join('; ') ??
+          'The physical twin edit is invalid.',
+      );
+    }
   }
 
   private mutateSimulationConfiguration(mutation: () => void): void {

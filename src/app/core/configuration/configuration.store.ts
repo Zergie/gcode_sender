@@ -11,6 +11,13 @@ import type { PreparedFirmware } from '../../../../shared/firmware-contracts';
 import { DEFAULT_OVEN_PROFILE, cloneOvenModelProfile, type OvenModelProfile } from '../simulation';
 import { createDefaultVirtualHardware } from '../simulation/simulation-configuration.store';
 import type { VirtualHardwareConfiguration } from '../../../../shared/firmware-contracts';
+import {
+  derivePhysicalModel,
+  validateAndDerivePhysicalModel,
+  type PhysicalAirPropertyKey,
+  type PhysicalGeometryKey,
+  type PhysicalModelEditResult,
+} from './physical-model';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   version: 2,
@@ -63,11 +70,34 @@ export class ConfigurationStore {
   }
 
   setPhysicalModel(profile: OvenModelProfile): void {
-    this.physicalModelState.set(cloneOvenModelProfile(profile));
+    this.physicalModelState.set(derivePhysicalModel(profile));
   }
 
   updatePhysicalModel(update: (profile: OvenModelProfile) => OvenModelProfile): void {
-    this.physicalModelState.update((profile) => cloneOvenModelProfile(update(profile)));
+    this.physicalModelState.update((profile) => derivePhysicalModel(update(profile)));
+  }
+
+  updateGeometry(key: PhysicalGeometryKey, millimeters: number): PhysicalModelEditResult {
+    return this.applyPhysicalModelEdit((profile) => ({
+      ...profile,
+      geometry: { ...profile.geometry, [key]: Number(millimeters) / 1_000 },
+    }));
+  }
+
+  updateAirProperty(key: PhysicalAirPropertyKey, value: number): PhysicalModelEditResult {
+    return this.applyPhysicalModelEdit((profile) =>
+      key === 'ambientTemperatureC'
+        ? { ...profile, ambientTemperatureC: Number(value) }
+        : { ...profile, ambient: { ...profile.ambient, [key]: Number(value) } },
+    );
+  }
+
+  private applyPhysicalModelEdit(
+    update: (profile: OvenModelProfile) => OvenModelProfile,
+  ): PhysicalModelEditResult {
+    const result = validateAndDerivePhysicalModel(update(this.physicalModelState()));
+    if (result.ok) this.physicalModelState.set(cloneOvenModelProfile(result.profile));
+    return result;
   }
 
   setVirtualHardware(hardware: VirtualHardwareConfiguration): void {

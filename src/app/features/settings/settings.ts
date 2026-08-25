@@ -114,10 +114,9 @@ export class SettingsComponent {
   }
 
   updateAmbientTemperature(temperatureC: number): void {
-    this.configuration.updatePhysicalModel((profile) => ({
-      ...profile,
-      ambientTemperatureC: temperatureC,
-    }));
+    this.showPhysicalEditResult(
+      this.configuration.updateAirProperty('ambientTemperatureC', temperatureC),
+    );
   }
 
   updateFirmwarePin(index: number, pin: string): void {
@@ -288,10 +287,7 @@ export class SettingsComponent {
   }
 
   updateGeometry(key: keyof ThermalTwinGeometry, millimeters: number): void {
-    this.configuration.updatePhysicalModel((profile) => ({
-      ...profile,
-      geometry: { ...profile.geometry, [key]: Number(millimeters) / 1_000 },
-    }));
+    this.showPhysicalEditResult(this.configuration.updateGeometry(key, millimeters));
   }
 
   updateBodyCapacity(body: ThermalBodyId, heatCapacityJPerK: number): void {
@@ -327,10 +323,26 @@ export class SettingsComponent {
   }
 
   updateAmbient(key: keyof AmbientBoundaryConfiguration, value: number): void {
-    this.configuration.updatePhysicalModel((profile) => ({
-      ...profile,
-      ambient: { ...profile.ambient, [key]: Number(value) },
-    }));
+    if (key === 'airDensityKgPerM3' || key === 'airSpecificHeatJPerKgK') {
+      this.showPhysicalEditResult(this.configuration.updateAirProperty(key, value));
+    } else {
+      this.configuration.updatePhysicalModel((profile) => ({
+        ...profile,
+        ambient: { ...profile.ambient, [key]: Number(value) },
+      }));
+    }
+  }
+
+  private showPhysicalEditResult(result: {
+    readonly ok: boolean;
+    readonly errors?: readonly { readonly path: string; readonly message: string }[];
+  }): void {
+    if (!result.ok) {
+      this.store.notify(
+        result.errors?.map((error) => `${error.path}: ${error.message}`).join('; ') ??
+          'The physical model is invalid.',
+      );
+    }
   }
 
   firmwareRoleLabel(kind: string): string {

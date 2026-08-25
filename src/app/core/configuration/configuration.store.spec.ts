@@ -30,6 +30,33 @@ describe('ConfigurationStore', () => {
     expect('set' in store.firmwareInLoopHardware()).toBe(false);
   });
 
+  it('derives identical geometry and air capacities for domain edits', () => {
+    const settings = new ConfigurationStore();
+    const simulation = new ConfigurationStore();
+
+    expect(settings.updateGeometry('widthM', 160).ok).toBe(true);
+    expect(simulation.updateGeometry('widthM', 160).ok).toBe(true);
+    expect(settings.updateAirProperty('airDensityKgPerM3', 1.3).ok).toBe(true);
+    expect(simulation.updateAirProperty('airDensityKgPerM3', 1.3).ok).toBe(true);
+
+    expect(settings.ovenModelProfile()).toEqual(simulation.ovenModelProfile());
+    expect(settings.ovenModelProfile().ambient.enclosureRadiatingAreaM2).toBeGreaterThan(0);
+    expect(settings.ovenModelProfile().bodies.topAir.heatCapacityJPerK).toBe(
+      settings.ovenModelProfile().bodies.bottomAir.heatCapacityJPerK,
+    );
+  });
+
+  it('rejects invalid physical edits atomically with a field detail', () => {
+    const store = new ConfigurationStore();
+    const original = store.ovenModelProfile();
+
+    const result = store.updateGeometry('widthM', 0);
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors[0]?.path).toContain('geometry.widthM');
+    expect(store.ovenModelProfile()).toEqual(original);
+  });
+
   it('keeps profile revisions newest-first and supports replacement and removal', () => {
     const store = new ConfigurationStore();
     const first = store.createProfile('First', 'simulation', 'validated', { value: 1 });

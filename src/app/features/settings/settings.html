@@ -501,6 +501,61 @@
 
       <article class="panel settings-card">
         <header>
+          <div class="settings-icon">▤</div>
+          <div>
+            <span class="panel-kicker">EXECUTION SAFETY</span>
+            <h2>Job and diagnostic limits</h2>
+            <p>
+              These ceilings bound one physical line and retained diagnostics; they do not limit
+              total job size.
+            </p>
+          </div>
+        </header>
+        <div class="settings-fields">
+          <label class="field"
+            ><span>Physical line</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                max="1048576"
+                [ngModel]="physicalLineLimitBytes()"
+                (ngModelChange)="physicalLineLimitBytes.set(+$event)"
+              /><em>bytes</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Artifact size</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                max="67108864"
+                [ngModel]="artifactLimitBytes()"
+                (ngModelChange)="artifactLimitBytes.set(+$event)"
+              /><em>bytes</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Artifact records</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                max="100000"
+                [ngModel]="artifactLimitRecords()"
+                (ngModelChange)="artifactLimitRecords.set(+$event)"
+              /><em>records</em>
+            </div></label
+          >
+        </div>
+        <div class="settings-inline-note">
+          <small>Overrides are bounded and saved with the other application settings.</small>
+        </div>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
           <div class="settings-icon">&gt;_</div>
           <div>
             <span class="panel-kicker">SESSION START</span>

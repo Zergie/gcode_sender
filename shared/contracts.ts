@@ -8,12 +8,21 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: 
 export type ThemePreference = 'dark' | 'light' | 'system';
 export type ControlMode = 'pid' | 'model-assisted';
 
+export const EXECUTION_LIMITS = Object.freeze({
+  physicalLineBytes: Object.freeze({ default: 64 * 1024, max: 1024 * 1024 }),
+  artifactBytes: Object.freeze({ default: 4 * 1024 * 1024, max: 64 * 1024 * 1024 }),
+  artifactRecords: Object.freeze({ default: 10_000, max: 100_000 }),
+});
+
 export interface AppSettings {
   readonly version: 2;
   readonly theme: ThemePreference;
   readonly lastSerialPort: string | null;
   readonly startupMacro: string;
   readonly commandTimeoutMs: number;
+  readonly physicalLineLimitBytes: number;
+  readonly artifactLimitBytes: number;
+  readonly artifactLimitRecords: number;
   readonly approvedCatalogHosts: readonly string[];
   /** Last Arduino sketch selected for firmware-in-the-loop simulation. */
   readonly firmwareInoPath: string | null;

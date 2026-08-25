@@ -20,6 +20,7 @@ describe('SettingsComponent simulation configuration', () => {
       'ROOM & ELECTRICAL INPUT',
       'VIRTUAL GPIO MAPPING',
       'ADDITIONAL MODEL PARAMETERS',
+      'EXECUTION SAFETY',
       'SESSION START',
       'STREAMING',
     ]);
@@ -37,5 +38,21 @@ describe('SettingsComponent simulation configuration', () => {
     expect(store.ovenModelProfile().heaters.top.ratedPowerW).toBe(1_100);
     expect(store.firmwareInLoopHardware().pins[0]?.pin).toBe('PB1');
     expect(store.ovenModelProfile().geometry.widthM).toBeCloseTo(0.095, 10);
+  });
+
+  it('presents and saves the three bounded execution limits separately', async () => {
+    const fixture = TestBed.createComponent(SettingsComponent);
+    const component = fixture.componentInstance;
+    component.physicalLineLimitBytes.set(128_000);
+    component.artifactLimitBytes.set(8_000_000);
+    component.artifactLimitRecords.set(25_000);
+    await component.saveRuntimeSettings();
+
+    expect(TestBed.inject(WorkbenchStore).settings()).toMatchObject({
+      physicalLineLimitBytes: 128_000,
+      artifactLimitBytes: 8_000_000,
+      artifactLimitRecords: 25_000,
+    });
+    expect(fixture.nativeElement.textContent).toContain('do not limit total job size');
   });
 });

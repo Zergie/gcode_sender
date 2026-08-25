@@ -58,11 +58,17 @@ export class SettingsComponent {
   readonly store = inject(WorkbenchStore);
   readonly startupMacro = signal('');
   readonly timeoutSeconds = signal(8);
+  readonly physicalLineLimitBytes = signal(64 * 1024);
+  readonly artifactLimitBytes = signal(4 * 1024 * 1024);
+  readonly artifactLimitRecords = signal(10_000);
   readonly osNotifications = signal(true);
 
   constructor() {
     this.startupMacro.set(this.store.settings().startupMacro);
     this.timeoutSeconds.set(this.store.settings().commandTimeoutMs / 1000);
+    this.physicalLineLimitBytes.set(this.store.settings().physicalLineLimitBytes);
+    this.artifactLimitBytes.set(this.store.settings().artifactLimitBytes);
+    this.artifactLimitRecords.set(this.store.settings().artifactLimitRecords);
   }
 
   changeTheme(theme: ThemePreference): void {
@@ -79,6 +85,9 @@ export class SettingsComponent {
       startupMacro: this.startupMacro(),
       commandTimeoutMs: Math.max(1, this.timeoutSeconds()) * 1000,
       lastSerialPort: this.store.selectedPort() || null,
+      physicalLineLimitBytes: this.physicalLineLimitBytes(),
+      artifactLimitBytes: this.artifactLimitBytes(),
+      artifactLimitRecords: this.artifactLimitRecords(),
     });
   }
 

@@ -53,6 +53,66 @@ describe('session retention', () => {
     });
   });
 
+  it('adds bounded execution defaults to legacy settings and persists valid overrides', async () => {
+    const directory = await temporaryDirectory();
+    const store = new PersistenceStore(directory, logger);
+    await writeFile(
+      path.join(directory, 'state.v2.json'),
+      JSON.stringify({
+        version: 2,
+        settings: {
+          version: 2,
+          theme: 'system',
+          lastSerialPort: null,
+          startupMacro: '',
+          commandTimeoutMs: 8_000,
+          approvedCatalogHosts: [],
+        },
+        profiles: [],
+        sessions: [],
+      }),
+      'utf8',
+    );
+    await store.initialize();
+    expect(store.getSettings()).toMatchObject({
+      physicalLineLimitBytes: 65_536,
+      artifactLimitBytes: 4_194_304,
+      artifactLimitRecords: 10_000,
+    });
+
+    await store.updateSettings({
+      physicalLineLimitBytes: 128_000,
+      artifactLimitBytes: 8_000_000,
+      artifactLimitRecords: 25_000,
+    });
+    const reloaded = new PersistenceStore(directory, logger);
+    await reloaded.initialize();
+    expect(reloaded.getSettings()).toMatchObject({
+      physicalLineLimitBytes: 128_000,
+      artifactLimitBytes: 8_000_000,
+      artifactLimitRecords: 25_000,
+    });
+  });
+
+  it.each([
+    ['physicalLineLimitBytes', 0],
+    ['artifactLimitBytes', -1],
+    ['artifactLimitRecords', 1.5],
+    ['physicalLineLimitBytes', 1_048_577],
+    ['artifactLimitBytes', 67_108_865],
+    ['artifactLimitRecords', 100_001],
+  ])('rejects invalid %s without changing active settings', async (key, value) => {
+    const directory = await temporaryDirectory();
+    const store = new PersistenceStore(directory, logger);
+    await store.initialize();
+    const before = store.getSettings();
+    await expect(store.updateSettings({ [key]: value } as never)).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+      recoverable: true,
+    });
+    expect(store.getSettings()).toEqual(before);
+  });
+
   it('keeps pinned sessions while applying both age and count limits to the rest', () => {
     const now = Date.parse('2026-08-15T12:00:00.000Z');
     const recent = Array.from({ length: 105 }, (_, index) =>

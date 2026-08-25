@@ -28,6 +28,7 @@ import type {
   ProfileState,
   StoredProfile,
 } from '../../../../shared/contracts';
+import { EXECUTION_LIMITS } from '../../../../shared/contracts';
 import type { PreparedFirmware } from '../../../../shared/firmware-contracts';
 import type { LiveTuningState } from '../../../../shared/tuning-contracts';
 import { BUNDLED_COMMAND_CATALOG } from '../../../../shared/bundled-catalog';
@@ -127,6 +128,9 @@ const DEFAULT_SETTINGS: AppSettings = {
   lastSerialPort: null,
   startupMacro: '',
   commandTimeoutMs: 8_000,
+  physicalLineLimitBytes: EXECUTION_LIMITS.physicalLineBytes.default,
+  artifactLimitBytes: EXECUTION_LIMITS.artifactBytes.default,
+  artifactLimitRecords: EXECUTION_LIMITS.artifactRecords.default,
   approvedCatalogHosts: [],
   firmwareInoPath: null,
 };
@@ -1066,15 +1070,17 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async updateSettings(patch: SettingsPatch): Promise<void> {
-    this.settings.update((current) => ({ ...current, ...patch }));
-    if (patch.theme !== undefined) this.applyTheme(patch.theme);
     if (this.api === undefined) {
+      this.settings.update((current) => ({ ...current, ...patch }));
+      if (patch.theme !== undefined) this.applyTheme(patch.theme);
       this.notify('Settings saved for this demo session.');
       return;
     }
     const result = await this.api.settings.update(patch);
-    if (result.ok) this.settings.set(result.value);
-    else this.notify(result.error.message);
+    if (result.ok) {
+      this.settings.set(result.value);
+      if (patch.theme !== undefined) this.applyTheme(result.value.theme);
+    } else this.notify(result.error.message);
   }
 
   async refreshCatalog(): Promise<void> {

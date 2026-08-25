@@ -9,6 +9,7 @@ import type {
   StoredProfile,
   ThemePreference,
 } from '../../shared/contracts';
+import { EXECUTION_LIMITS } from '../../shared/contracts';
 import { AppError } from '../../shared/errors';
 import type { Logger } from '../logger';
 
@@ -25,6 +26,9 @@ const DEFAULT_SETTINGS: AppSettings = Object.freeze({
   lastSerialPort: null,
   startupMacro: '',
   commandTimeoutMs: 8_000,
+  physicalLineLimitBytes: EXECUTION_LIMITS.physicalLineBytes.default,
+  artifactLimitBytes: EXECUTION_LIMITS.artifactBytes.default,
+  artifactLimitRecords: EXECUTION_LIMITS.artifactRecords.default,
   approvedCatalogHosts: [],
   firmwareInoPath: null,
 });
@@ -345,6 +349,18 @@ function validateSettings(value: unknown): AppSettings {
   const lastSerialPort = value['lastSerialPort'];
   const startupMacro = value['startupMacro'];
   const commandTimeoutMs = value['commandTimeoutMs'];
+  const physicalLineLimitBytes =
+    value['physicalLineLimitBytes'] === undefined
+      ? EXECUTION_LIMITS.physicalLineBytes.default
+      : value['physicalLineLimitBytes'];
+  const artifactLimitBytes =
+    value['artifactLimitBytes'] === undefined
+      ? EXECUTION_LIMITS.artifactBytes.default
+      : value['artifactLimitBytes'];
+  const artifactLimitRecords =
+    value['artifactLimitRecords'] === undefined
+      ? EXECUTION_LIMITS.artifactRecords.default
+      : value['artifactLimitRecords'];
   const approvedCatalogHosts = value['approvedCatalogHosts'];
   const firmwareInoPath = value['firmwareInoPath'] ?? null;
   if (!isTheme(theme) || !(lastSerialPort === null || isBoundedString(lastSerialPort, 1, 1_024))) {
@@ -360,6 +376,13 @@ function validateSettings(value: unknown): AppSettings {
   ) {
     throw invalid('Command timeout must be between 250 ms and 10 minutes');
   }
+  validateLimit(
+    'Physical line bytes',
+    physicalLineLimitBytes,
+    EXECUTION_LIMITS.physicalLineBytes.max,
+  );
+  validateLimit('Artifact bytes', artifactLimitBytes, EXECUTION_LIMITS.artifactBytes.max);
+  validateLimit('Artifact records', artifactLimitRecords, EXECUTION_LIMITS.artifactRecords.max);
   if (
     !Array.isArray(approvedCatalogHosts) ||
     !approvedCatalogHosts.every((host) => isBoundedString(host, 1, 253))
@@ -375,9 +398,18 @@ function validateSettings(value: unknown): AppSettings {
     lastSerialPort,
     startupMacro,
     commandTimeoutMs: commandTimeoutMs as number,
+    physicalLineLimitBytes: physicalLineLimitBytes as number,
+    artifactLimitBytes: artifactLimitBytes as number,
+    artifactLimitRecords: artifactLimitRecords as number,
     approvedCatalogHosts: [...new Set(approvedCatalogHosts as string[])],
     firmwareInoPath,
   };
+}
+
+function validateLimit(name: string, value: unknown, maximum: number): asserts value is number {
+  if (!Number.isInteger(value) || (value as number) <= 0 || (value as number) > maximum) {
+    throw invalid(`${name} limit must be a positive integer no greater than ${maximum}`);
+  }
 }
 
 function validateProfile(value: unknown): StoredProfile {

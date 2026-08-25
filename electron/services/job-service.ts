@@ -147,27 +147,39 @@ export class JobService {
         recoverable: true,
       });
     }
-    // Starting a stream intentionally performs only path/stat checks. Metadata
-    // classification is an explicit load-time concern, never a command preflight.
-    const file = await this.inspectJobFile(request.path);
-    const startLine = request.startLine ?? 1;
-    if (!Number.isInteger(startLine) || startLine < 1) {
-      throw new AppError({
-        code: 'INVALID_ARGUMENT',
-        message: 'Start line must be a positive integer',
-        recoverable: true,
-      });
-    }
-    const timeoutMs = request.commandTimeoutMs ?? this.store.getSettings().commandTimeoutMs;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 600_000) {
-      throw new AppError({
-        code: 'INVALID_ARGUMENT',
-        message: 'Command timeout is invalid',
-        recoverable: true,
-      });
-    }
-
     this.activity.acquire('job');
+
+    try {
+      // Reserve the lane before any asynchronous preparation so overlapping
+      // starts cannot both inspect and later compete for the same job run.
+      // Starting a stream intentionally performs only path/stat checks. Metadata
+      // classification is an explicit load-time concern, never a command preflight.
+      const file = await this.inspectJobFile(request.path);
+      const startLine = request.startLine ?? 1;
+      if (!Number.isInteger(startLine) || startLine < 1) {
+        throw new AppError({
+          code: 'INVALID_ARGUMENT',
+          message: 'Start line must be a positive integer',
+          recoverable: true,
+        });
+      }
+      const timeoutMs = request.commandTimeoutMs ?? this.store.getSettings().commandTimeoutMs;
+      if (!Number.isInteger(timeoutMs) || timeoutMs < 250 || timeoutMs > 600_000) {
+        throw new AppError({
+          code: 'INVALID_ARGUMENT',
+          message: 'Command timeout is invalid',
+          recoverable: true,
+        });
+      }
+
+      return this.beginRun(file, startLine, timeoutMs);
+    } catch (error) {
+      this.activity.release('job');
+      throw error;
+    }
+  }
+
+  private beginRun(file: JobFileInfo, startLine: number, timeoutMs: number): JobState {
     const id = randomUUID();
     this.logPath = path.join(this.sessionsDirectory, `${id}.job.jsonl`);
     this.logWriteQueue = Promise.resolve();

@@ -209,8 +209,10 @@ describe('job stop completion', () => {
 describe('exclusive job preparation', () => {
   it('allows only one overlapping start to acquire the job lane', async () => {
     const directory = await temporaryDirectory('gcode-sender-overlap-');
-    const filePath = path.join(directory, 'job.gcode');
-    await writeFile(filePath, 'M105\n', 'utf8');
+    const firstFilePath = path.join(directory, 'first.gcode');
+    const secondFilePath = path.join(directory, 'second.gcode');
+    await writeFile(firstFilePath, 'M105\n', 'utf8');
+    await writeFile(secondFilePath, 'M114\n', 'utf8');
     const firstInspection = deferred<{
       path: string;
       name: string;
@@ -218,8 +220,6 @@ describe('exclusive job preparation', () => {
       modifiedAt: string;
       extension: '.gcode';
     }>();
-    const secondInspection =
-      deferred<typeof firstInspection extends Deferred<infer T> ? T : never>();
     const sendAndWait = vi.fn(
       (_command: string, _timeout: number, signal?: AbortSignal) =>
         new Promise<never>((_resolve, reject) => {
@@ -237,37 +237,38 @@ describe('exclusive job preparation', () => {
           );
         }),
     );
-    const service = createJobService(directory, sendAndWait);
+    const activity = new ActivityService();
+    const service = createJobService(directory, sendAndWait, activity);
     let inspectionCount = 0;
     replaceJobInspection(service, () => {
       inspectionCount += 1;
-      return inspectionCount === 1 ? firstInspection.promise : secondInspection.promise;
+      if (inspectionCount !== 1) {
+        throw new Error('unexpected second inspection');
+      }
+      return firstInspection.promise;
     });
 
-    const first = service.start({ path: filePath });
-    const second = service.start({ path: filePath });
+    const first = service.start({ path: firstFilePath });
+    const second = service.start({ path: secondFilePath });
+
+    expect(activity.getState()).toEqual({ active: 'job' });
+    await expect(second).rejects.toMatchObject({ code: 'BUSY', recoverable: true });
+    expect(inspectionCount).toBe(1);
 
     firstInspection.resolve({
-      path: filePath,
-      name: 'job.gcode',
+      path: firstFilePath,
+      name: 'first.gcode',
       sizeBytes: 5,
       modifiedAt: '2026-08-25T00:00:00.000Z',
       extension: '.gcode',
     });
 
     await expect(first).resolves.toMatchObject({ status: 'preparing' });
-    secondInspection.resolve({
-      path: filePath,
-      name: 'job.gcode',
-      sizeBytes: 5,
-      modifiedAt: '2026-08-25T00:00:00.000Z',
-      extension: '.gcode',
-    });
-    await expect(second).rejects.toMatchObject({ code: 'BUSY', recoverable: true });
     await vi.waitFor(() => {
       expect(service.getState().status).toBe('streaming');
       expect(sendAndWait).toHaveBeenCalledTimes(1);
     });
+    expect(sendAndWait).toHaveBeenCalledWith('M105', 8_000, expect.any(AbortSignal), 'job');
     await service.stop();
   });
 
@@ -275,7 +276,8 @@ describe('exclusive job preparation', () => {
     const directory = await temporaryDirectory('gcode-sender-preparation-error-');
     const filePath = path.join(directory, 'job.gcode');
     await writeFile(filePath, 'M105\n', 'utf8');
-    const service = createJobService(directory, vi.fn());
+    const activity = new ActivityService();
+    const service = createJobService(directory, vi.fn(), activity);
     replaceJobInspection(service, () => {
       throw new AppError({
         code: 'FILE_NOT_FOUND',
@@ -288,7 +290,32 @@ describe('exclusive job preparation', () => {
       code: 'FILE_NOT_FOUND',
     });
     expect(service.getState()).toMatchObject({ status: 'idle' });
+    expect(activity.getState()).toEqual({ active: null });
   });
+
+  it.each([
+    ['unsupported extension', 'job.bin', undefined, undefined, 'FILE_INVALID'],
+    ['missing file', 'missing.gcode', undefined, undefined, 'FILE_NOT_FOUND'],
+    ['invalid start line', 'job.gcode', 0, undefined, 'INVALID_ARGUMENT'],
+    ['invalid timeout', 'job.gcode', undefined, 249, 'INVALID_ARGUMENT'],
+  ] as const)(
+    '%s releases the reserved lane',
+    async (_name, fileName, startLine, timeout, code) => {
+      const directory = await temporaryDirectory('gcode-sender-preparation-validation-');
+      const filePath = path.join(directory, fileName);
+      if (fileName === 'job.gcode') {
+        await writeFile(filePath, 'M105\n', 'utf8');
+      }
+      const activity = new ActivityService();
+      const service = createJobService(directory, vi.fn(), activity);
+
+      await expect(
+        service.start({ path: filePath, startLine, commandTimeoutMs: timeout }),
+      ).rejects.toMatchObject({ code });
+      expect(service.getState()).toMatchObject({ status: 'idle' });
+      expect(activity.getState()).toEqual({ active: null });
+    },
+  );
 
   it('rejects repeated activity acquisition across job, tuning, and validation', () => {
     const activity = new ActivityService();
@@ -474,7 +501,11 @@ async function inspectionService(): Promise<{ directory: string; service: JobSer
   return { directory, service: createJobService(directory, vi.fn()) };
 }
 
-function createJobService(directory: string, sendAndWait: ReturnType<typeof vi.fn>): JobService {
+function createJobService(
+  directory: string,
+  sendAndWait: ReturnType<typeof vi.fn>,
+  activity = new ActivityService(),
+): JobService {
   return new JobService(
     path.join(directory, 'sessions'),
     {
@@ -483,7 +514,7 @@ function createJobService(directory: string, sendAndWait: ReturnType<typeof vi.f
       sendAndWait,
       bestEffortHeaterOff: vi.fn(async () => undefined),
     } as unknown as SerialService,
-    new ActivityService(),
+    activity,
     {
       getSettings: () => ({ commandTimeoutMs: 8_000 }),
       saveSession: vi.fn(async () => undefined),

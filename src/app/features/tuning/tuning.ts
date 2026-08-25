@@ -44,6 +44,7 @@ type TunePhase = 'setup' | 'running' | 'results';
   selector: 'app-tuning',
   imports: [DatePipe, FormsModule, IconComponent, PageHeaderComponent, SimulationComponent],
   templateUrl: './tuning.html',
+  styleUrl: './tuning.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TuningComponent implements OnDestroy {

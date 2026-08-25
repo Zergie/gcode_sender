@@ -379,6 +379,41 @@ describe('SerialService firmware handshake', () => {
     expect(serialPortMock.instances[0]!.writes).not.toContain('M104 S0\n');
   });
 
+  it.each([
+    [
+      'error',
+      (port: InstanceType<typeof serialPortMock.ControlledSerialPort>) => {
+        port.injectError(new Error('opening link lost'));
+      },
+    ],
+    [
+      'close',
+      (port: InstanceType<typeof serialPortMock.ControlledSerialPort>) => {
+        port.injectClose();
+      },
+    ],
+  ])('settles startup when the port emits %s before open completes', async (_event, failPort) => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const connection = service.connect({ path: 'COM3', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(1));
+    const firstPort = serialPortMock.instances[0]!;
+
+    failPort(firstPort);
+
+    await expect(connection).rejects.toMatchObject({ code: 'SERIAL_DISCONNECTED' });
+    expect(service.getState()).toMatchObject({
+      status: 'error',
+      error: { code: 'SERIAL_DISCONNECTED' },
+    });
+
+    const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+    const secondPort = serialPortMock.instances[1]!;
+    await completeHandshake(secondPort);
+    await expect(reconnect).resolves.toMatchObject({ status: 'connected', portPath: 'COM4' });
+  });
+
   it('rejects a firmware-declared startup failure without waiting for timeout', async () => {
     const { SerialService } = await import('./serial-service');
     const service = new SerialService(new ActivityService(), silentLogger());
@@ -425,6 +460,32 @@ describe('SerialService firmware handshake', () => {
 
     await expect(reconnect).resolves.toMatchObject({ status: 'connected', portPath: 'COM4' });
     expect(service.getState().error).toBeNull();
+  });
+
+  it('does not let stale data or lifecycle events affect a current transaction', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const firstPort = await connectService(service);
+    firstPort.injectError(new Error('first generation failed'));
+
+    const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+    const secondPort = serialPortMock.instances[1]!;
+    await completeHandshake(secondPort);
+    await expect(reconnect).resolves.toMatchObject({ status: 'connected', portPath: 'COM4' });
+
+    const pending = service.sendAndWait('M104 S220', 1_000);
+    await eventually(() => expect(secondPort.writes).toContain('M104 S220\n'));
+    firstPort.injectData('ok\n');
+    firstPort.injectError(new Error('late stale failure'));
+    firstPort.injectClose();
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(service.getState()).toMatchObject({ status: 'connected', portPath: 'COM4' });
+
+    secondPort.releaseWrite();
+    secondPort.releaseDrain();
+    secondPort.injectData('ok\n');
+    await expect(pending).resolves.toMatchObject({ parsed: { kind: 'ok' } });
   });
 
   it('ignores an error that arrives after an unexpected close', async () => {

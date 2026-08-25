@@ -55,6 +55,7 @@ export class SerialService {
   private nextWaiterId = 1;
   private transactionTail: Promise<void> = Promise.resolve();
   private closePromise: Promise<void> | null = null;
+  private readonly startupRejectors = new Map<number, (error: AppError) => void>();
   private readonly waiters = new Map<number, ResponseWaiter>();
   private readonly retiredPorts = new WeakSet<SerialPort>();
   private readonly listeners: { [K in SerialEventName]: Set<SerialListener<K>> } = {
@@ -139,7 +140,7 @@ export class SerialService {
     port.on('close', () => this.handlePortClose(port, attempt));
 
     try {
-      await openPort(port);
+      await this.openPortForAttempt(port, attempt);
       if (attempt !== this.connectionGeneration || this.port !== port) {
         if (!this.retiredPorts.has(port)) {
           await closeDetachedPort(port).catch(() => undefined);
@@ -400,12 +401,27 @@ export class SerialService {
       connectedAt: null,
       error: error.toInfo(),
     });
+    this.startupRejectors.get(attempt)?.(error);
+    this.startupRejectors.delete(attempt);
     if (port.isOpen) {
       void closePort(port).catch((closeError: unknown) => {
         this.logger.warn('Errored serial port could not be closed', {
           error: closeError instanceof Error ? closeError.message : String(closeError),
         });
       });
+    }
+  }
+
+  private async openPortForAttempt(port: SerialPort, attempt: number): Promise<void> {
+    let rejectRetirement!: (error: AppError) => void;
+    const retired = new Promise<never>((_, reject) => {
+      rejectRetirement = reject;
+    });
+    this.startupRejectors.set(attempt, rejectRetirement);
+    try {
+      await Promise.race([openPort(port), retired]);
+    } finally {
+      this.startupRejectors.delete(attempt);
     }
   }
 

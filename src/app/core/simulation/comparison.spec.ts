@@ -37,9 +37,7 @@ describe('simulation comparison', () => {
     expect(comparison.entries[1]?.result.samples).not.toEqual(
       comparison.entries[0]?.result.samples,
     );
-    expect(comparison.entries[1]?.result.metrics).toEqual(
-      comparison.entries[0]?.result.metrics,
-    );
+    expect(comparison.entries[1]?.result.metrics).toEqual(comparison.entries[0]?.result.metrics);
   });
 
   it('keeps twin-derived planning physically bounded through a long default comparison', () => {

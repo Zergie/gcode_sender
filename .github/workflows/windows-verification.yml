@@ -1,0 +1,55 @@
+name: Windows verification
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: windows-verification-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  fast-verification:
+    name: Windows fast verification
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Select pinned npm 11.17.0
+        run: npm install --global npm@11.17.0
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: renderer-test
+        run: npm run test:renderer
+
+      - name: backend/desktop-test
+        run: npm run test:desktop
+
+      - name: lint
+        run: npm run lint
+
+      - name: format
+        run: npm run format:check
+
+      - name: renderer-typecheck
+        run: npm run typecheck:renderer
+
+      - name: desktop-typecheck
+        run: npm run typecheck:desktop

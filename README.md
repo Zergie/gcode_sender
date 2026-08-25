@@ -143,6 +143,9 @@ Windows fast verification:
 `npm ci` is intentional: it installs from `package-lock.json` and fails if the
 lockfile and manifest drift. The named fast-verification commands are also the
 entrypoints used by Windows automation; they do not rewrite source files.
+The `Windows fast verification` check runs these commands on every pull request
+and on updates to `main`; it is the fast result recommended for branch protection.
+Portable firmware compilation and Windows packaging remain separate, slower checks.
 
 Other useful commands:
 

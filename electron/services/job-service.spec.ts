@@ -428,8 +428,8 @@ describe('exclusive job preparation', () => {
   });
 });
 
-describe('disconnection during an active job', () => {
-  it('settles a paused job, finalizes its session, and releases ownership', async () => {
+describe('serial retirement during an active job', () => {
+  it('settles a paused job after a serial error, finalizes its session, and releases ownership', async () => {
     const directory = await temporaryDirectory('gcode-sender-disconnect-paused-');
     const filePath = path.join(directory, 'job.gcode');
     await writeFile(filePath, 'M105\n', 'utf8');
@@ -449,7 +449,7 @@ describe('disconnection during an active job', () => {
     response.resolve({ raw: 'ok', parsed: { kind: 'ok' } });
     await vi.waitFor(() => expect(service.getState().status).toBe('paused'));
 
-    disconnect();
+    disconnect('error');
 
     await vi.waitFor(() => expect(service.getState().status).toBe('stopped'));
     expect(saveSession).toHaveBeenCalledOnce();
@@ -594,15 +594,15 @@ function createDisconnectableJobService(
   sendAndWait: ReturnType<typeof vi.fn>,
   saveSession: ReturnType<typeof vi.fn>,
   bestEffortHeaterOff: ReturnType<typeof vi.fn>,
-): { service: JobService; disconnect: () => void; activity: ActivityService } {
-  let disconnect!: () => void;
+): { service: JobService; disconnect: (status?: string) => void; activity: ActivityService } {
+  let disconnect!: (status: string) => void;
   const activity = new ActivityService();
   const service = new JobService(
     path.join(directory, 'sessions'),
     {
       getState: () => ({ status: 'connected' }),
       subscribe: (_event: 'state', listener: (state: { status: string }) => void) => {
-        disconnect = () => listener({ status: 'disconnected' });
+        disconnect = (status) => listener({ status });
         return () => undefined;
       },
       sendAndWait,
@@ -615,7 +615,7 @@ function createDisconnectableJobService(
     } as unknown as PersistenceStore,
     silentLogger(),
   );
-  return { service, disconnect: () => disconnect(), activity };
+  return { service, disconnect: (status = 'disconnected') => disconnect(status), activity };
 }
 
 function replaceJobInspection(

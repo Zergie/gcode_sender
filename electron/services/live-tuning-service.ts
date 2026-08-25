@@ -54,6 +54,7 @@ export class LiveTuningService {
   private readonly listeners = new Set<(state: LiveTuningState) => void>();
   private abortController: AbortController | null = null;
   private activeRun: Promise<void> | null = null;
+  private connectionFailure: AppError | null = null;
   private tracePath: string | null = null;
   private traceQueue: Promise<void> = Promise.resolve();
 
@@ -63,7 +64,21 @@ export class LiveTuningService {
     private readonly activity: ActivityService,
     private readonly store: PersistenceStore,
     private readonly logger: Logger,
-  ) {}
+  ) {
+    this.serial.subscribe('state', (connection) => {
+      if (connection.status !== 'error' || this.activeRun === null) {
+        return;
+      }
+      this.connectionFailure = new AppError(
+        connection.error ?? {
+          code: 'SERIAL_DISCONNECTED',
+          message: 'Serial connection failed during live tuning',
+          recoverable: true,
+        },
+      );
+      this.abortController?.abort();
+    });
+  }
 
   getState(): LiveTuningState {
     return structuredClone(this.state);
@@ -86,6 +101,7 @@ export class LiveTuningService {
     }
     const request = validateRequest(candidate);
     this.activity.acquire('tuning');
+    this.connectionFailure = null;
     const id = randomUUID();
     this.abortController = new AbortController();
     this.tracePath = path.join(this.sessionsDirectory, `${id}.tuning.jsonl`);
@@ -157,12 +173,13 @@ export class LiveTuningService {
       }
     } catch (error) {
       const appError = asAppError(error);
-      if (signal.aborted) {
+      if (signal.aborted && this.connectionFailure === null) {
         finalStatus = 'cancelled';
       } else {
         finalStatus = 'failed';
-        finalError = appError.toInfo();
-        this.logger.error('Live heater tuning failed', { error: appError.message });
+        const failure = this.connectionFailure ?? appError;
+        finalError = failure.toInfo();
+        this.logger.error('Live heater tuning failed', { error: failure.message });
       }
     } finally {
       this.state = { ...this.state, status: 'rolling-back' };
@@ -215,6 +232,7 @@ export class LiveTuningService {
         error: finalError,
       };
       this.abortController = null;
+      this.connectionFailure = null;
       this.activity.release('tuning');
       this.notify();
       await this.traceQueue.catch(() => undefined);

@@ -13,6 +13,7 @@ type FirmwareResponse = { readonly parsed: ParsedFirmwareLine; readonly raw: str
 interface Deferred<T> {
   readonly promise: Promise<T>;
   readonly resolve: (value: T) => void;
+  readonly reject: (error: unknown) => void;
 }
 
 const OK_RESPONSE: FirmwareResponse = { parsed: { kind: 'ok' }, raw: 'ok' };
@@ -119,7 +120,7 @@ describe('live tuning cancellation', () => {
     const sendAndWait = vi.fn();
     const service = new LiveTuningService(
       '.',
-      { sendAndWait } as unknown as SerialService,
+      { sendAndWait, subscribe: () => () => undefined } as unknown as SerialService,
       new ActivityService(),
       {} as PersistenceStore,
       silentLogger(),
@@ -127,6 +128,65 @@ describe('live tuning cancellation', () => {
 
     await expect(service.cancel()).resolves.toMatchObject({ status: 'idle' });
     expect(sendAndWait).not.toHaveBeenCalled();
+  });
+
+  it('fails and releases tuning ownership when the serial connection errors', async () => {
+    const snapshot = deferred<FirmwareResponse>();
+    let serialStatus = 'connected';
+    let stateListener: ((state: { status: string; error?: unknown }) => void) | null = null;
+    const serial = {
+      getState: () => ({ status: serialStatus }),
+      subscribe: (
+        event: string,
+        listener: (event: { status: string; error?: unknown }) => void,
+      ) => {
+        if (event === 'state') {
+          stateListener = listener;
+        }
+        return () => undefined;
+      },
+      sendAndWait: vi.fn((command: string): Promise<FirmwareResponse> => {
+        if (command === 'M503') {
+          return snapshot.promise;
+        }
+        return Promise.resolve(OK_RESPONSE);
+      }),
+      bestEffortHeaterOff: vi.fn(() => Promise.resolve()),
+    } as unknown as SerialService;
+    const activity = new ActivityService();
+    const saveSession = vi.fn((session: unknown) => Promise.resolve(session));
+    const service = new LiveTuningService(
+      '.',
+      serial,
+      activity,
+      { saveSession } as unknown as PersistenceStore,
+      silentLogger(),
+    );
+
+    service.start({ targets: [100], sampleIntervalMs: 250, stageTimeoutMs: 60_000 });
+    await vi.waitFor(() =>
+      expect(serial.sendAndWait).toHaveBeenCalledWith(
+        'M503',
+        8_000,
+        expect.any(AbortSignal),
+        'tuning',
+      ),
+    );
+    serialStatus = 'error';
+    stateListener?.({
+      status: 'error',
+      error: { code: 'SERIAL_DISCONNECTED', message: 'USB link lost', recoverable: true },
+    });
+    snapshot.reject(new Error('command waiter released'));
+
+    await vi.waitFor(() => expect(service.getState().status).toBe('failed'));
+    expect(service.getState()).toMatchObject({
+      status: 'failed',
+      error: { code: 'SERIAL_DISCONNECTED', message: 'USB link lost' },
+    });
+    expect(activity.getState()).toEqual({ active: null });
+    expect(saveSession).toHaveBeenCalledOnce();
+    expect(serial.bestEffortHeaterOff).toHaveBeenCalledOnce();
   });
 });
 
@@ -140,10 +200,12 @@ function emitSetting(
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function silentLogger(): Logger {

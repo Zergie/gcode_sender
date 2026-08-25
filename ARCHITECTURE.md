@@ -70,10 +70,15 @@ virtual TX buffer terminates the run explicitly.
 
 The supported oven has two heater elements sharing one output, so the
 application models one logical actuator and two thermal zones. T1 and T2 are
-the control thermistors, T0 is their firmware-provided average, and T3 is
-presented as the independent safety/enclosure sensor.
+the control thermistors, T0 is their firmware-provided average, and T3 is the
+independent thermistor exposed at the enclosure boundary. The canonical
+operator term is **T3 enclosure sensor**: temperature measured by the
+externally exposed enclosure thermistor; informational only. `T3` remains the
+stable firmware telemetry identity.
 
-The firmware remains responsible for PID, PWM, and all safety behavior.
+The desktop application is not a safety controller. The firmware remains
+responsible for PID, PWM, and all safety behavior; host-side T3
+experiment-integrity bounds are informational and do not provide an interlock.
 PID-only mode sends the requested target. Model-assisted mode maintains a
 telemetry-corrected twin state, advances its hidden thermal bodies with the
 reported PWM, and forks that state to evaluate bounded whole-degree M104

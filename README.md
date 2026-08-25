@@ -18,7 +18,7 @@ v2 intentionally supports one hardware configuration:
 
 - two physical heaters (top and bottom) sharing one GPIO / actuator;
 - three thermistors, where T0 is the T1/T2 average and T3 is the
-  enclosure/safety sensor;
+  T3 enclosure sensor;
 - the existing pid_temp_with_gcode_stm32 firmware at fixed 115200 baud;
 - Marlin-leaning, line-oriented G-code without assuming full Marlin flow
   control.
@@ -26,6 +26,19 @@ v2 intentionally supports one hardware configuration:
 The firmware is out of scope for this repository. There is no required v2
 firmware. The desktop never sends M500, because persistence in the current
 firmware cannot be treated as reliable.
+
+### T3 terminology
+
+T3 is the independent thermistor exposed at the enclosure boundary. The
+canonical operator term is **T3 enclosure sensor**: temperature measured by
+the externally exposed enclosure thermistor; informational only. `T3` remains
+the stable firmware telemetry channel and is not renamed or remapped.
+
+The desktop application is not a safety controller. T3 readings and
+host-side experiment-integrity alerts do not provide an interlock or other
+safety enforcement; the STM32 firmware and its watchdogs remain the safety
+authority. Existing telemetry, profiles, retained sessions, and exports keyed
+by `T3` remain readable, while new human-facing output uses the canonical term.
 
 ## Highlights
 

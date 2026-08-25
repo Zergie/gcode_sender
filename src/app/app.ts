@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, effect, inject, signal } from '@ang
 import type { OnInit } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import type { ThemePreference } from '../../shared/contracts';
+import { WorkbenchCoordinator } from './core/platform/workbench-coordinator';
 import { WorkbenchStore } from './core/platform/workbench.store';
 import { IconComponent } from './shared/icon';
 
@@ -14,6 +15,7 @@ import { IconComponent } from './shared/icon';
 })
 export class App implements OnInit {
   readonly store = inject(WorkbenchStore);
+  private readonly coordinator = inject(WorkbenchCoordinator);
   readonly collapsed = signal(typeof window !== 'undefined' && window.innerWidth <= 1020);
   readonly navigation = [
     { path: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
@@ -43,7 +45,7 @@ export class App implements OnInit {
 
   ngOnInit(): void {
     document.documentElement.dataset['sidebar'] = this.collapsed() ? 'collapsed' : 'expanded';
-    void this.store.initialize();
+    void this.coordinator.initialize();
   }
 
   collapseSidebar(): void {

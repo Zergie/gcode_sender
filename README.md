@@ -134,6 +134,9 @@ npm run test:browser runs the deterministic renderer-only responsive harness
 without Electron or serial hardware. It covers light and dark themes at the
 900×600 minimum viewport and a 1280×800 desktop viewport; failures retain
 geometry, DOM, and screenshot diagnostics in the Playwright report.
+The same command runs in the required `Responsive browser gate` pull-request
+workflow, which installs Chromium from the locked dependency set and uploads
+the Playwright report and failure diagnostics for seven days when a case fails.
 npm run package creates an unpacked Windows application; npm run make creates
 the configured Windows installer. `npm run verify:windows-package` runs both
 packaging commands, validates the unpacked app's Electron, native serial, and

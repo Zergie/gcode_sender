@@ -1093,6 +1093,17 @@ export class WorkbenchStore implements OnDestroy {
     else this.notify(result.error.message);
   }
 
+  async revokeCatalogHost(host: string): Promise<void> {
+    if (this.api === undefined) {
+      this.notify('Catalog host approval is unavailable in demo mode.');
+      return;
+    }
+    const result = await this.api.catalog.revokeHost(host);
+    if (result.ok) {
+      this.settings.update((current) => ({ ...current, approvedCatalogHosts: result.value }));
+    } else this.notify(result.error.message);
+  }
+
   async openExternal(url: string): Promise<void> {
     if (this.api === undefined) {
       window.open(url, '_blank', 'noopener,noreferrer');

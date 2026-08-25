@@ -101,6 +101,29 @@ export class PersistenceStore {
     return structuredClone(settings);
   }
 
+  async revokeCatalogHost(host: string): Promise<AppSettings> {
+    if (!isBoundedString(host, 1, 253)) {
+      throw invalid('Approved catalog host is invalid');
+    }
+    if (!this.state.settings.approvedCatalogHosts.includes(host)) {
+      throw new AppError({
+        code: 'NOT_FOUND',
+        message: 'Approved catalog host was not found',
+        recoverable: true,
+      });
+    }
+    const settings = validateSettings({
+      ...this.state.settings,
+      approvedCatalogHosts: this.state.settings.approvedCatalogHosts.filter(
+        (approvedHost) => approvedHost !== host,
+      ),
+      version: 2,
+    });
+    this.state = { ...this.state, settings };
+    await this.persist();
+    return structuredClone(settings);
+  }
+
   listProfiles(): readonly StoredProfile[] {
     return structuredClone(this.state.profiles);
   }

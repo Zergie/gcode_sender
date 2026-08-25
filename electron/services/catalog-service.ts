@@ -29,6 +29,7 @@ interface PendingApproval {
 }
 
 export type CatalogApprovalDialog = (request: CatalogApprovalRequest) => Promise<boolean>;
+export type CatalogRevocationDialog = (host: string) => Promise<boolean>;
 
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const FETCH_TIMEOUT_MS = 8_000;
@@ -46,10 +47,34 @@ export class CatalogService {
     private readonly store: PersistenceStore,
     private readonly logger: Logger,
     private approvalDialog: CatalogApprovalDialog = async () => false,
+    private revocationDialog: CatalogRevocationDialog = async () => false,
   ) {}
 
   setApprovalDialog(dialog: CatalogApprovalDialog): void {
     this.approvalDialog = dialog;
+  }
+
+  setRevocationDialog(dialog: CatalogRevocationDialog): void {
+    this.revocationDialog = dialog;
+  }
+
+  approvedHosts(): readonly string[] {
+    return [...this.store.getSettings().approvedCatalogHosts];
+  }
+
+  async revokeHost(host: string): Promise<readonly string[]> {
+    const approvedHosts = this.approvedHosts();
+    if (!approvedHosts.includes(host)) {
+      throw new AppError({
+        code: 'NOT_FOUND',
+        message: 'Approved catalog host was not found',
+        recoverable: true,
+      });
+    }
+    if (!(await this.revocationDialog(host))) {
+      return approvedHosts;
+    }
+    return (await this.store.revokeCatalogHost(host)).approvedCatalogHosts;
   }
 
   /** Invalidate consent when the renderer/window that requested it is gone. */

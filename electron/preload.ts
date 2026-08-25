@@ -34,6 +34,8 @@ const CHANNEL = {
   tuningCancel: 'tuning:cancel',
   catalogGet: 'catalog:get',
   catalogRefresh: 'catalog:refresh',
+  catalogApprovedHosts: 'catalog:approved-hosts',
+  catalogRevokeHost: 'catalog:revoke-host',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   profilesList: 'profiles:list',
@@ -124,6 +126,8 @@ const api: ExtendedGcodeApi = {
   catalog: {
     get: () => invoke(CHANNEL.catalogGet),
     refresh: () => invoke(CHANNEL.catalogRefresh),
+    approvedHosts: () => invoke(CHANNEL.catalogApprovedHosts),
+    revokeHost: (host) => invoke(CHANNEL.catalogRevokeHost, host),
   },
   settings: {
     get: () => invoke(CHANNEL.settingsGet),

@@ -21,6 +21,46 @@ afterEach(async () => {
 });
 
 describe('command catalog snapshot events', () => {
+  it('lists approved hosts and revokes only after trusted confirmation', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    const store = catalogStore(['keep.example.test', 'remove.example.test']);
+    const confirm = vi.fn(async () => true);
+    const service = new CatalogService(
+      directory,
+      store,
+      silentLogger(),
+      vi.fn(async () => false),
+      confirm,
+    );
+
+    expect(service.approvedHosts()).toEqual(['keep.example.test', 'remove.example.test']);
+    await expect(service.revokeHost('remove.example.test')).resolves.toEqual(['keep.example.test']);
+    expect(confirm).toHaveBeenCalledWith('remove.example.test');
+    expect(store.revokeCatalogHost).toHaveBeenCalledWith('remove.example.test');
+  });
+
+  it('keeps approved hosts unchanged when revocation is cancelled or unknown', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    const store = catalogStore(['catalog.example.test']);
+    const service = new CatalogService(
+      directory,
+      store,
+      silentLogger(),
+      vi.fn(async () => false),
+      vi.fn(async () => false),
+    );
+
+    await expect(service.revokeHost('catalog.example.test')).resolves.toEqual([
+      'catalog.example.test',
+    ]);
+    await expect(service.revokeHost('unknown.example.test')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(store.revokeCatalogHost).not.toHaveBeenCalled();
+  });
+
   it('emits automatic, remote, cache, and failed-refresh fallback snapshots', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
     temporaryDirectories.push(directory);
@@ -297,6 +337,9 @@ function catalogStore(approvedCatalogHosts: readonly string[]): PersistenceStore
     getSettings: () => settings,
     updateSettings: vi.fn(() => Promise.resolve(settings)),
     approveCatalogHost: vi.fn(() => Promise.resolve(settings)),
+    revokeCatalogHost: vi.fn(() =>
+      Promise.resolve({ ...settings, approvedCatalogHosts: approvedCatalogHosts.slice(0, 1) }),
+    ),
   } as unknown as PersistenceStore;
 }
 

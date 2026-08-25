@@ -288,6 +288,8 @@ export interface GcodeApi {
   readonly catalog: {
     get(): Promise<ApiResult<CommandCatalogSnapshot>>;
     refresh(): Promise<ApiResult<CommandCatalogSnapshot>>;
+    approvedHosts(): Promise<ApiResult<readonly string[]>>;
+    revokeHost(host: string): Promise<ApiResult<readonly string[]>>;
   };
   readonly settings: {
     get(): Promise<ApiResult<AppSettings>>;

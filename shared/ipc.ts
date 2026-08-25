@@ -25,6 +25,8 @@ export const IPC = {
   tuningCancel: 'tuning:cancel',
   catalogGet: 'catalog:get',
   catalogRefresh: 'catalog:refresh',
+  catalogApprovedHosts: 'catalog:approved-hosts',
+  catalogRevokeHost: 'catalog:revoke-host',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   profilesList: 'profiles:list',

@@ -99,6 +99,7 @@ async function initialize(): Promise<void> {
   configureSessionPermissions();
   await createWindow();
   catalog.setApprovalDialog((request) => showCatalogApproval(request));
+  catalog.setRevocationDialog((host) => showCatalogRevocation(host));
   logger.info('GCode Sender main process initialized', {
     platform: process.platform,
     arch: process.arch,
@@ -115,6 +116,21 @@ async function showCatalogApproval(request: CatalogApprovalRequest): Promise<boo
     message: `Allow this firmware to load its command catalog?`,
     detail: `Host: ${request.host}\nURL: ${request.url}\n\nThe host will be remembered after approval.`,
     buttons: ['Approve', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
+}
+
+async function showCatalogRevocation(host: string): Promise<boolean> {
+  if (mainWindow === null || mainWindow.isDestroyed()) return false;
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'question',
+    title: 'Revoke catalog host approval',
+    message: `Stop trusting ${host}?`,
+    detail: 'The host will require fresh approval before its catalog can be fetched again.',
+    buttons: ['Revoke', 'Cancel'],
     defaultId: 1,
     cancelId: 1,
     noLink: true,

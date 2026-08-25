@@ -586,9 +586,26 @@
           </div>
           <div>
             <dt>Remote hosts</dt>
-            <dd>Approve once</dd>
+            <dd>{{ store.settings().approvedCatalogHosts.length }} approved</dd>
           </div>
         </dl>
+        @if (store.settings().approvedCatalogHosts.length > 0) {
+          <div class="approved-catalog-hosts">
+            <strong>Approved hosts</strong>
+            @for (host of store.settings().approvedCatalogHosts; track host) {
+              <div class="switch-row">
+                <span>{{ host }}</span>
+                <button
+                  class="button secondary"
+                  type="button"
+                  (click)="store.revokeCatalogHost(host)"
+                >
+                  Revoke
+                </button>
+              </div>
+            }
+          </div>
+        }
         <button class="button secondary full" type="button" (click)="store.refreshCatalog()">
           Refresh catalog
         </button>

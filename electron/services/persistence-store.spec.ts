@@ -38,6 +38,21 @@ describe('session retention', () => {
     expect(store.getSettings().approvedCatalogHosts).toEqual([]);
   });
 
+  it('removes one approved catalog host through the trusted operation', async () => {
+    const directory = await temporaryDirectory();
+    const store = new PersistenceStore(directory, logger);
+    await store.initialize();
+    await store.approveCatalogHost('keep.example.test');
+    await store.approveCatalogHost('remove.example.test');
+
+    await expect(store.revokeCatalogHost('remove.example.test')).resolves.toMatchObject({
+      approvedCatalogHosts: ['keep.example.test'],
+    });
+    await expect(store.revokeCatalogHost('remove.example.test')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+  });
+
   it('keeps pinned sessions while applying both age and count limits to the rest', () => {
     const now = Date.parse('2026-08-15T12:00:00.000Z');
     const recent = Array.from({ length: 105 }, (_, index) =>

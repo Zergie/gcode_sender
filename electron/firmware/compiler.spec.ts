@@ -8,6 +8,7 @@ import { FIRMWARE_WASM_ABI, type FirmwareBuildProvenance } from '../../shared/fi
 import {
   createFirmwareBuildId,
   getFirmwareToolchainStatus,
+  prepareFirmwareToolchain,
   preprocessArduinoSketch,
   runCommand,
 } from './compiler';
@@ -104,6 +105,60 @@ void loop() {}
         : { exitCode: 1, stdout: '', stderr: '', error: null, timedOut: false },
     );
     expect(prerelease.adapters[0]?.available).toBe(false);
+  });
+
+  it('classifies unavailable prerequisites and failed pinned-image setup distinctly', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'firmware-toolchain-'));
+    temporaryDirectories.push(directory);
+    const unavailable = await prepareFirmwareToolchain(directory, async ({ command }) =>
+      command === 'em++'
+        ? { exitCode: null, stdout: '', stderr: '', error: 'spawn em++ ENOENT', timedOut: false }
+        : {
+            exitCode: null,
+            stdout: '',
+            stderr: 'Cannot connect to the Docker daemon',
+            error: null,
+            timedOut: false,
+          },
+    );
+    expect(unavailable.status).toBe('unavailable');
+    if (unavailable.status !== 'unavailable') throw new Error('expected unavailable setup');
+    expect(unavailable.diagnostics[0]?.code).toBe('TOOLCHAIN_UNAVAILABLE');
+
+    const failed = await prepareFirmwareToolchain(directory, async ({ command, args }) => {
+      if (command === 'em++')
+        return { exitCode: 1, stdout: '', stderr: '', error: null, timedOut: false };
+      if (args[0] === 'image')
+        return { exitCode: 1, stdout: '', stderr: 'No such image', error: null, timedOut: false };
+      return {
+        exitCode: 1,
+        stdout: '',
+        stderr: 'registry unavailable',
+        error: null,
+        timedOut: false,
+      };
+    });
+    expect(failed.status).toBe('setup-failed');
+    if (failed.status !== 'setup-failed') throw new Error('expected setup failure');
+    expect(failed.diagnostics[0]?.code).toBe('TOOLCHAIN_SETUP_FAILED');
+    expect(failed.diagnostics[0]?.message).toContain('docker pull');
+  });
+
+  it('records verified pinned-toolchain reuse without invoking acquisition again', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'firmware-toolchain-warm-'));
+    temporaryDirectories.push(directory);
+    const calls: string[] = [];
+    const runner = async ({ command, args }: { command: string; args: readonly string[] }) => {
+      calls.push(`${command} ${args.join(' ')}`);
+      return command === 'em++'
+        ? { exitCode: 1, stdout: '', stderr: '', error: null, timedOut: false }
+        : { exitCode: 0, stdout: 'sha256:pinned\n', stderr: '', error: null, timedOut: false };
+    };
+    const cold = await prepareFirmwareToolchain(directory, runner);
+    const warm = await prepareFirmwareToolchain(directory, runner);
+    expect(cold).toMatchObject({ status: 'ready', cacheHit: false });
+    expect(warm).toMatchObject({ status: 'ready', cacheHit: true });
+    expect(calls.filter((call) => call.startsWith('docker pull'))).toHaveLength(0);
   });
 
   it('terminates a timed-out compiler process tree', async () => {

@@ -48,6 +48,7 @@ export class FirmwareBuildService {
         diagnostics: compiled.diagnostics,
         provenance: compiled.provenance,
         cacheHit: compiled.cacheHit,
+        toolchainCacheHit: compiled.toolchainCacheHit,
         fidelity: 'source-level firmware logic with semantic peripheral emulation',
       },
     };

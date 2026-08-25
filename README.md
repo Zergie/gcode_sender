@@ -149,8 +149,11 @@ npm run test:firmware-integration runs the real portable firmware fixture throug
 the pinned Emscripten 4.0.20 adapter. It resolves the fixture from the checkout,
 uses a test-owned build root (including roots containing spaces), and validates
 the import-free `arduino-fil-wasm-v1` module contract. A ready result is a
-successful compile; an unavailable Docker/local compiler is a prerequisite
-outcome, while compiler or link diagnostics are failures.
+successful compile; a verified warm toolchain is reported as a reuse hit. A
+missing Docker daemon or unsupported local compiler is a prerequisite-unavailable
+outcome, while failure to pull or verify the pinned image is a toolchain-setup
+failure. Compiler and link diagnostics remain compile failures. The integration
+report includes these machine-testable outcomes and never silently skips setup.
 npm run build:renderer performs the production renderer build and enforces the
 global style contract. The contract keeps the global stylesheet within its
 19,000-byte source and 16,000-byte compiled baselines, rejects migrated route

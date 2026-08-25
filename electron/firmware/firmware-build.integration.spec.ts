@@ -37,6 +37,7 @@ describe.runIf(runIntegration)('firmware build integration', () => {
     }
     expect(cold.firmware.artifact.wasmBytes.byteLength).toBeGreaterThan(0);
     expect(cold.firmware.cacheHit).toBe(false);
+    expect(cold.firmware.toolchainCacheHit).toBe(false);
     expect(cold.firmware.provenance.compiler.identity).toContain('emscripten/emsdk:4.0.20');
     expect(cold.firmware.provenance.libraries).toMatchObject({
       GCodeParser: { version: '1.3.0' },
@@ -78,6 +79,7 @@ describe.runIf(runIntegration)('firmware build integration', () => {
     expect(warm.status).toBe('ready');
     if (warm.status === 'ready') {
       expect(warm.firmware.cacheHit).toBe(true);
+      expect(warm.firmware.toolchainCacheHit).toBe(true);
       expect(warm.firmware.diagnostics).toEqual(cold.firmware.diagnostics);
     }
     const cachePath = path.join(
@@ -102,6 +104,8 @@ describe.runIf(runIntegration)('firmware build integration', () => {
         exports: exportedNames,
         coldCacheHit: cold.firmware.cacheHit,
         warmCacheHit: warm.status === 'ready' && warm.firmware.cacheHit,
+        coldToolchainCacheHit: cold.status === 'ready' && cold.firmware.toolchainCacheHit,
+        warmToolchainCacheHit: warm.status === 'ready' && warm.firmware.toolchainCacheHit,
         corruptCacheRecovered: recovered.status === 'ready' && !recovered.firmware.cacheHit,
         diagnostics: cold.firmware.diagnostics,
         buildId: cold.firmware.artifact.buildId,

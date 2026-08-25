@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, open, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -124,12 +124,25 @@ export interface CompileContext {
   readonly runner?: CommandRunner;
 }
 
+export type FirmwareToolchainSetupResult =
+  | {
+      readonly status: 'ready';
+      readonly toolchain: FirmwareToolchainStatus;
+      readonly cacheHit: boolean;
+    }
+  | {
+      readonly status: 'unavailable' | 'setup-failed';
+      readonly toolchain: FirmwareToolchainStatus;
+      readonly diagnostics: readonly FirmwareDiagnostic[];
+    };
+
 export type FirmwareCompileResult =
   | {
       readonly status: 'ready';
       readonly buildId: string;
       readonly wasmBytes: Uint8Array;
       readonly cacheHit: boolean;
+      readonly toolchainCacheHit: boolean;
       readonly toolchain: FirmwareToolchainStatus;
       readonly provenance: FirmwareBuildProvenance;
       readonly diagnostics: readonly FirmwareDiagnostic[];
@@ -148,12 +161,121 @@ export async function getFirmwareToolchainStatus(
   return { available: selected !== null, selected, adapters: [local, docker] };
 }
 
+/** Verify or acquire the one supported toolchain without allowing arbitrary images or compilers. */
+export async function prepareFirmwareToolchain(
+  userDataPath: string,
+  runner: CommandRunner = runCommand,
+): Promise<FirmwareToolchainSetupResult> {
+  const initial = await getFirmwareToolchainStatus(runner);
+  const selected = initial.adapters.find(({ kind }) => kind === initial.selected);
+  if (selected?.available === true) {
+    const cachePath = containedPath(userDataPath, 'firmware-toolchain', 'v1', 'verified.json');
+    const cached = await readVerifiedToolchain(cachePath, selected);
+    if (!cached) {
+      await mkdir(path.dirname(cachePath), { recursive: true });
+      await writeFile(
+        cachePath,
+        JSON.stringify({
+          kind: selected.kind,
+          identity: selected.detail,
+          version: selected.version,
+        }),
+      );
+    }
+    return { status: 'ready', toolchain: initial, cacheHit: cached };
+  }
+
+  const docker = initial.adapters.find(({ kind }) => kind === 'docker-emscripten');
+  const dockerFailure = docker?.detail ?? '';
+  if (docker === undefined || /not found|cannot connect|daemon/i.test(dockerFailure)) {
+    return {
+      status: 'unavailable',
+      toolchain: initial,
+      diagnostics: [
+        diagnostic(
+          'error',
+          'toolchain',
+          'TOOLCHAIN_UNAVAILABLE',
+          `Pinned Emscripten prerequisites are unavailable. ${dockerFailure || 'Install Docker or Emscripten 4.0.20.'}`,
+        ),
+      ],
+    };
+  }
+
+  const pull = await runner({
+    command: 'docker',
+    args: ['pull', EMSCRIPTEN_DOCKER_IMAGE],
+    timeoutMs: COMMAND_TIMEOUT_MS,
+  });
+  if (pull.exitCode !== 0 || pull.timedOut) {
+    return {
+      status: 'setup-failed',
+      toolchain: initial,
+      diagnostics: [
+        diagnostic(
+          'error',
+          'toolchain',
+          'TOOLCHAIN_SETUP_FAILED',
+          `Unable to acquire pinned Emscripten image ${EMSCRIPTEN_DOCKER_IMAGE} with docker pull: ${commandFailureDetail(pull, 'command failed')}`,
+        ),
+      ],
+    };
+  }
+  const verified = await getFirmwareToolchainStatus(runner);
+  const verifiedDocker = verified.adapters.find(({ kind }) => kind === 'docker-emscripten');
+  if (verifiedDocker?.available !== true) {
+    return {
+      status: 'setup-failed',
+      toolchain: verified,
+      diagnostics: [
+        diagnostic(
+          'error',
+          'toolchain',
+          'TOOLCHAIN_SETUP_FAILED',
+          `Pinned Emscripten image acquisition completed but identity verification failed: ${verifiedDocker?.detail ?? 'adapter missing'}`,
+        ),
+      ],
+    };
+  }
+  const cachePath = containedPath(userDataPath, 'firmware-toolchain', 'v1', 'verified.json');
+  await mkdir(path.dirname(cachePath), { recursive: true });
+  await writeFile(
+    cachePath,
+    JSON.stringify({
+      kind: verifiedDocker.kind,
+      identity: verifiedDocker.detail,
+      version: verifiedDocker.version,
+    }),
+  );
+  return { status: 'ready', toolchain: verified, cacheHit: false };
+}
+
+async function readVerifiedToolchain(
+  cachePath: string,
+  adapter: FirmwareToolchainAdapterStatus,
+): Promise<boolean> {
+  try {
+    const cached = JSON.parse(await readFile(cachePath, 'utf8')) as Record<string, unknown>;
+    return (
+      cached['kind'] === adapter.kind &&
+      cached['identity'] === adapter.detail &&
+      cached['version'] === adapter.version
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function compileFirmware(
   snapshot: SketchSnapshot,
   context: CompileContext,
 ): Promise<FirmwareCompileResult> {
   const runner = context.runner ?? runCommand;
-  const status = await getFirmwareToolchainStatus(runner);
+  const setup = await prepareFirmwareToolchain(context.userDataPath, runner);
+  if (setup.status !== 'ready') {
+    return { status: 'failed', toolchain: setup.toolchain, diagnostics: setup.diagnostics };
+  }
+  const status = setup.toolchain;
   const adapterStatus = status.adapters.find(({ kind }) => kind === status.selected);
   if (adapterStatus === undefined || !adapterStatus.available || adapterStatus.version === null) {
     return {
@@ -228,6 +350,7 @@ export async function compileFirmware(
       buildId,
       wasmBytes: cached.bytes,
       cacheHit: true,
+      toolchainCacheHit: setup.cacheHit,
       toolchain: status,
       provenance,
       diagnostics: cached.diagnostics,
@@ -306,6 +429,7 @@ export async function compileFirmware(
       buildId,
       wasmBytes: bytes,
       cacheHit: false,
+      toolchainCacheHit: setup.cacheHit,
       toolchain: status,
       provenance,
       diagnostics: [...cacheDiagnostics, ...buildDiagnostics],

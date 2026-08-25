@@ -27,6 +27,7 @@ export type FirmwareDiagnosticCode =
   | 'SOURCE_COMPATIBILITY_REWRITE'
   | 'DEPENDENCY_UNAVAILABLE'
   | 'TOOLCHAIN_UNAVAILABLE'
+  | 'TOOLCHAIN_SETUP_FAILED'
   | 'COMPILE_FAILED'
   | 'COMPILER_WARNING'
   | 'LINK_FAILED'
@@ -180,6 +181,7 @@ export interface PreparedFirmware {
   readonly diagnostics: readonly FirmwareDiagnostic[];
   readonly provenance: FirmwareBuildProvenance;
   readonly cacheHit: boolean;
+  readonly toolchainCacheHit: boolean;
   readonly fidelity: 'source-level firmware logic with semantic peripheral emulation';
 }
 

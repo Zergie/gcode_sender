@@ -7,6 +7,7 @@ import { PageHeaderComponent } from '../../shared/page-header';
   selector: 'app-about',
   imports: [IconComponent, PageHeaderComponent],
   templateUrl: './about.html',
+  styleUrl: './about.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AboutComponent {

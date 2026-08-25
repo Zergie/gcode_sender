@@ -1,0 +1,268 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+.about-hero {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px 24px;
+  background: linear-gradient(100deg, var(--accent-soft), var(--surface) 40%);
+}
+
+.about-mark {
+  position: relative;
+  width: 50px;
+  height: 54px;
+  flex: 0 0 auto;
+  transform: skewY(-5deg);
+}
+
+.about-mark::before {
+  content: '';
+  position: absolute;
+  inset: 2px 0;
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+}
+
+.about-mark span {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  height: 4px;
+  background: var(--accent);
+  border-radius: 4px;
+  box-shadow: 0 0 10px rgb(255 116 72 / 35%);
+}
+
+.about-mark span:first-child {
+  top: 16px;
+}
+
+.about-mark span:last-child {
+  bottom: 16px;
+}
+
+.about-hero > div:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+}
+
+.about-hero h1 {
+  margin: 4px 0 5px;
+  font-size: 22px;
+}
+
+.about-hero p {
+  max-width: 650px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+
+.about-version {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.about-version span {
+  color: var(--text-faint);
+  font-size: var(--text-micro);
+}
+
+.about-version strong {
+  font: 18px var(--font-mono);
+}
+
+.about-version em {
+  color: var(--accent);
+  font-size: var(--text-caption);
+  font-style: normal;
+}
+
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 11px;
+  margin-top: 11px;
+}
+
+.about-card {
+  position: relative;
+  padding: 18px;
+}
+
+.about-card-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 16px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.about-card-icon.license {
+  color: var(--purple);
+  background: color-mix(in srgb, var(--purple) 10%, transparent);
+}
+
+.about-card-icon.safety {
+  color: var(--yellow);
+  background: color-mix(in srgb, var(--yellow) 10%, transparent);
+}
+
+.about-card h2 {
+  margin: 4px 0 7px;
+  font-size: 15px;
+}
+
+.about-card > p {
+  min-height: 56px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  line-height: 1.55;
+}
+
+.about-card dl {
+  margin: 13px 0;
+}
+
+.about-card dl div {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--text-caption);
+}
+
+.about-card dt {
+  color: var(--text-faint);
+}
+
+.about-card dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.scope-chip {
+  color: var(--yellow);
+  border-color: color-mix(in srgb, var(--yellow) 35%, var(--line));
+}
+
+.safety-rule {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 13px;
+  padding: 10px;
+  border-left: 2px solid var(--yellow);
+  background: var(--bg-raised);
+}
+
+.safety-rule strong {
+  font-size: var(--text-caption);
+}
+
+.safety-rule span {
+  color: var(--text-faint);
+  font-size: var(--text-caption);
+}
+
+.about-details {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 11px;
+  margin-top: 11px;
+}
+
+.about-details > .panel {
+  padding: 16px;
+}
+
+.runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 14px;
+}
+
+.runtime-grid div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-right: 10px;
+  border-right: 1px solid var(--line-soft);
+}
+
+.runtime-grid div:last-child {
+  border: 0;
+}
+
+.runtime-grid span {
+  color: var(--text-faint);
+  font-size: var(--text-caption);
+}
+
+.runtime-grid strong {
+  font: var(--text-caption) var(--font-mono);
+}
+
+.attribution h2 {
+  margin: 4px 0 5px;
+  font-size: 15px;
+}
+
+.attribution p {
+  margin: 0 0 10px;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+}
+
+.about-footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 18px;
+  color: var(--text-faint);
+  font-size: var(--text-caption);
+}
+
+.about-footer div {
+  display: flex;
+  gap: 14px;
+}
+
+.about-footer button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-caption);
+}
+
+@media (max-width: 1020px) {
+  .about-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .about-card {
+    padding: 14px;
+  }
+
+  .about-details {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media print {
+  .about-footer button {
+    color: inherit;
+  }
+}

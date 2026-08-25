@@ -60,7 +60,7 @@ import { JobsProgramsStore } from './jobs-programs.store';
 import { TuningValidationStore } from './tuning-validation.store';
 
 export type DemoState =
-  'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
+  'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'terminal' | 'error';
 
 export interface TrendPoint {
   readonly time: number;
@@ -1310,6 +1310,10 @@ export class WorkbenchStore implements OnDestroy {
       });
       return;
     }
+    if (state === 'terminal') {
+      this.seedTerminalFixture();
+      return;
+    }
     this.seedDemoFixtures();
     this.connectDemo();
     if (state === 'streaming') {
@@ -1354,6 +1358,7 @@ export class WorkbenchStore implements OnDestroy {
       value === 'streaming' ||
       value === 'simulation' ||
       value === 'tuning' ||
+      value === 'terminal' ||
       value === 'error'
       ? value
       : null;
@@ -1410,6 +1415,23 @@ export class WorkbenchStore implements OnDestroy {
     });
     this.job.set({ ...DEFAULT_JOB, file: demoFile });
     this.configuration.replaceProfiles(this.demoProfiles());
+  }
+
+  private seedTerminalFixture(): void {
+    const entries: TerminalEntry[] = [];
+    for (let index = 1; index <= 140; index += 1) {
+      entries.push(
+        this.entry(
+          'terminal',
+          index % 3 === 0 ? 'tx' : 'rx',
+          index % 3 === 0
+            ? `M105 ; deterministic terminal command ${index}`
+            : `T0:${180 + (index % 10) / 10} /200.0 @:${120 + (index % 40)}`,
+        ),
+      );
+    }
+    this.terminal.set(entries);
+    this.commandHistory.set(['M105', 'M115', 'M503']);
   }
 
   private consumeTelemetry(event: TemperatureTelemetry): void {

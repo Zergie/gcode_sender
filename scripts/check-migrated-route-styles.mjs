@@ -9,6 +9,19 @@ const routeSelectors = {
     '.about-details',
     '.about-footer',
   ],
+  dashboard: [
+    '.metric-grid',
+    '.metric-card',
+    '.dashboard-layout',
+    '.chart-panel',
+    '.chart-tools',
+    '.profile-editor',
+    '.chart-status',
+    '.dashboard-rail',
+    '.target-panel',
+    '.output-panel',
+    '.program-card',
+  ],
 };
 
 const route = process.argv[2];

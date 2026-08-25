@@ -29,6 +29,7 @@ const ACTIVE_JOB_STATUSES = new Set([
   selector: 'app-dashboard',
   imports: [FormsModule, PageHeaderComponent, TrendChartComponent, IconComponent],
   templateUrl: './dashboard.html',
+  styleUrl: './dashboard.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class DashboardComponent {

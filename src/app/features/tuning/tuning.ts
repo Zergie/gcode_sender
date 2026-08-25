@@ -4,6 +4,7 @@ import {
   computed,
   effect,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import { DatePipe } from '@angular/common';
@@ -26,6 +27,7 @@ import {
 } from '../../core/simulation';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
+import { SimulationComponent } from '../simulation/simulation';
 
 interface EditableBreakpoint {
   readonly id: number;
@@ -39,13 +41,14 @@ type TunePhase = 'setup' | 'running' | 'results';
 
 @Component({
   selector: 'app-tuning',
-  imports: [DatePipe, FormsModule, IconComponent, PageHeaderComponent],
+  imports: [DatePipe, FormsModule, IconComponent, PageHeaderComponent, SimulationComponent],
   templateUrl: './tuning.html',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TuningComponent implements OnDestroy {
+  readonly embedded = input(false);
   readonly store = inject(WorkbenchStore);
-  readonly section = signal<'schedule' | 'autotune' | 'profiles'>('schedule');
+  readonly section = signal<'simulation' | 'schedule' | 'autotune' | 'profiles'>('simulation');
   readonly breakpoints = signal<readonly EditableBreakpoint[]>(
     this.store.pidSchedule().map((row, index) => ({
       id: index + 1,

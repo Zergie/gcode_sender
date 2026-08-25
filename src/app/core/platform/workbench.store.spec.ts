@@ -89,6 +89,7 @@ describe('WorkbenchStore control integration', () => {
     expect(store.controlArmed()).toBe(false);
     expect(store.terminal().map((entry) => entry.line)).toEqual(['M155 S1']);
 
+    store.firmwareInLoop.set({} as never);
     store.setMode('model-assisted');
     await store.setTarget(230);
     await Promise.resolve();
@@ -109,6 +110,7 @@ describe('WorkbenchStore control integration', () => {
     await store.initialize();
     store.selectedPort.set('COM4');
     await store.connect();
+    store.firmwareInLoop.set({} as never);
     store.setMode('model-assisted');
 
     store['consumeTelemetry']({

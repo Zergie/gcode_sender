@@ -9,6 +9,12 @@ module.exports = {
     asar: {
       unpack: '**/*.node',
     },
+    extraResource: [
+      {
+        from: path.resolve(__dirname, 'firmware-wasm'),
+        to: 'firmware-wasm',
+      },
+    ],
     icon:
       process.platform === 'win32'
         ? imagePath('icon.ico')
@@ -21,6 +27,7 @@ module.exports = {
       /^\/\.github(?:\/|$)/,
       /^\/coverage(?:\/|$)/,
       /^\/electron(?:\/|$)/,
+      /^\/firmware-wasm(?:\/|$)/,
       /^\/images(?:\/|$)/,
       /^\/out(?:\/|$)/,
       /^\/public(?:\/|$)/,

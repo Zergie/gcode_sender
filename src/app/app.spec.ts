@@ -46,15 +46,7 @@ describe('App', () => {
     const labels = [...compiled.querySelectorAll('.nav-item .nav-label')].map((node) =>
       node.textContent?.trim(),
     );
-    expect(labels).toEqual([
-      'Dashboard',
-      'Terminal',
-      'Jobs',
-      'Simulation',
-      'Tuning & Profiles',
-      'Settings',
-      'About',
-    ]);
+    expect(labels).toEqual(['Dashboard', 'Terminal', 'Jobs', 'Simulation', 'Settings', 'About']);
   });
 
   it('can expand the sidebar again after it was collapsed', () => {

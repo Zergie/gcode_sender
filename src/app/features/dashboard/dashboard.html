@@ -16,6 +16,11 @@
         type="button"
         [class.active]="store.controlMode() === 'model-assisted'"
         [attr.aria-pressed]="store.controlMode() === 'model-assisted'"
+        [attr.title]="
+          store.firmwareInLoop() === null
+            ? 'Select and compile a FIRMWARE .ino file in Settings first.'
+            : null
+        "
         (click)="store.setMode('model-assisted')"
       >
         Model-assisted PID
@@ -99,8 +104,7 @@
           store.telemetryLive()
             ? (store.telemetry().thermistors[0] - store.telemetry().average).toFixed(1) + '° vs avg'
             : 'Awaiting telemetry'
-        }}</span
-        ><span>TOP HEATER</span>
+        }}</span>
       </div>
     </article>
     <article class="metric-card">
@@ -123,18 +127,17 @@
           store.telemetryLive()
             ? (store.telemetry().thermistors[1] - store.telemetry().average).toFixed(1) + '° vs avg'
             : 'Awaiting telemetry'
-        }}</span
-        ><span>BOTTOM HEATER</span>
+        }}</span>
       </div>
     </article>
     <article class="metric-card">
       <div class="metric-top">
-        <span class="sensor-dot t3"></span><span>ENCLOSURE</span><em>T3</em>
+        <span class="sensor-dot t3"></span><span>MCU SENSOR</span><em>T3</em>
       </div>
       <div
         class="metric-value"
         [class.unknown]="!store.telemetryLive()"
-        [attr.aria-label]="store.telemetryLive() ? null : 'Enclosure temperature unknown'"
+        [attr.aria-label]="store.telemetryLive() ? null : 'MCU temperature unknown'"
       >
         @if (store.telemetryLive()) {
           {{ store.telemetry().thermistors[2].toFixed(1) }}<small>°C</small>
@@ -308,7 +311,7 @@
       }
       <footer class="chart-status">
         <div>
-          <span>Requested</span><strong>{{ store.requestedTarget().toFixed(1) }}°C</strong>
+          <span>Target</span><strong>{{ targetStatus() }}</strong>
         </div>
         @if (store.controlMode() === 'model-assisted') {
           <div>
@@ -316,12 +319,6 @@
             ><strong class="blue">{{ store.modelTarget().toFixed(1) }}°C</strong>
           </div>
         }
-        <div>
-          <span>Firmware target</span
-          ><strong>{{
-            store.telemetryLive() ? store.telemetry().target.toFixed(1) + '°C' : '—'
-          }}</strong>
-        </div>
         <div>
           <span>Sample state</span><strong>{{ store.telemetryLive() ? 'Live' : '—' }}</strong>
         </div>
@@ -367,11 +364,6 @@
         <button class="button danger-ghost full" type="button" (click)="store.stopHeating()">
           <app-icon name="power" /> Stop heating
         </button>
-        <p class="fine-print">
-          Connecting only starts <code>M155 S1</code> monitoring. Target control remains disarmed
-          until you apply it here. Stop sends <code>M104 S0</code> and waits for firmware
-          acknowledgement, but remains best effort under link loss.
-        </p>
       </article>
 
       <article class="panel output-panel">
@@ -396,7 +388,6 @@
 
       <article class="panel run-card program-card">
         <div class="run-title">
-          <span class="job-icon">{{ profile() === null ? 'G' : 'P' }}</span>
           <div>
             <span class="panel-kicker">HEATING PROGRAM</span><strong>{{ programName() }}</strong>
           </div>
@@ -448,7 +439,9 @@
         </div>
         <p class="program-helper" role="status">
           @if (runDisabledReason(); as reason) {
-            {{ reason }}
+            @if (profile() !== null || store.selectedProgram() !== null) {
+              {{ reason }}
+            }
           } @else if (profile() !== null && store.heatingProfileDirty()) {
             Run will save changes first.
           } @else if (profile() !== null) {

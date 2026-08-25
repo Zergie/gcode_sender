@@ -13,6 +13,7 @@ import { JobService } from './services/job-service';
 import { LiveTuningService } from './services/live-tuning-service';
 import { PersistenceStore } from './services/persistence-store';
 import { SerialService } from './services/serial-service';
+import { FirmwareBuildService } from './firmware';
 
 interface Runtime {
   readonly logger: Logger;
@@ -24,6 +25,7 @@ interface Runtime {
   readonly tuning: LiveTuningService;
   readonly catalog: CatalogService;
   readonly unregisterIpc: () => void;
+  readonly firmware: FirmwareBuildService;
 }
 
 let mainWindow: BrowserWindow | null = null;
@@ -63,6 +65,12 @@ async function initialize(): Promise<void> {
   const jobs = new JobService(sessionsDirectory, serial, activity, store, logger);
   const tuning = new LiveTuningService(sessionsDirectory, serial, activity, store, logger);
   const catalog = new CatalogService(path.join(userDataPath, 'catalog'), store, logger);
+  const firmware = new FirmwareBuildService({
+    userDataPath,
+    assetsPath: app.isPackaged
+      ? path.join(process.resourcesPath, 'firmware-wasm')
+      : path.join(app.getAppPath(), 'firmware-wasm'),
+  });
   const unregisterIpc = registerIpcHandlers({
     getRenderer: () => mainWindow?.webContents ?? null,
     serial,
@@ -72,8 +80,20 @@ async function initialize(): Promise<void> {
     store,
     activity,
     logger,
+    firmware,
   });
-  runtime = { logger, events, store, activity, serial, jobs, tuning, catalog, unregisterIpc };
+  runtime = {
+    logger,
+    events,
+    store,
+    activity,
+    serial,
+    jobs,
+    tuning,
+    catalog,
+    firmware,
+    unregisterIpc,
+  };
   wireEvents(runtime);
   configureSessionPermissions();
   await createWindow();
@@ -228,7 +248,7 @@ function contentSecurityPolicy(isPackaged: boolean): string {
   const connectSource = isPackaged ? "'none'" : "'self' ws://127.0.0.1:4200 ws://localhost:4200";
   return [
     "default-src 'none'",
-    "script-src 'self'",
+    "script-src 'self' 'wasm-unsafe-eval'",
     "worker-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data:",

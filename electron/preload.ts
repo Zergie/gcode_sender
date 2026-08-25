@@ -10,6 +10,8 @@ import type { JobLogPage } from './services/job-service';
 const CHANNEL = {
   systemInfo: 'system:info',
   systemOpenExternal: 'system:open-external',
+  firmwareToolchainStatus: 'firmware:toolchain-status',
+  firmwarePickAndBuild: 'firmware:pick-and-build',
   serialList: 'serial:list',
   serialState: 'serial:state:get',
   serialConnect: 'serial:connect',
@@ -88,6 +90,10 @@ const api: ExtendedGcodeApi = {
   system: {
     getInfo: () => invoke(CHANNEL.systemInfo),
     openExternal: (url) => invoke(CHANNEL.systemOpenExternal, url),
+  },
+  firmware: {
+    getToolchainStatus: () => invoke(CHANNEL.firmwareToolchainStatus),
+    pickAndBuild: () => invoke(CHANNEL.firmwarePickAndBuild),
   },
   serial: {
     listPorts: () => invoke(CHANNEL.serialList),

@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_OVEN_PROFILE, DEFAULT_SIMULATION_CONTROLLER } from './default-profile';
 import { simulate } from './engine';
+import { TEST_FIRMWARE_RUNTIME } from './firmware-in-loop/firmware-in-loop.fixture';
 import type { OvenModelProfile, SimulationRequest } from './types';
 
 function request(overrides: Partial<SimulationRequest> = {}): SimulationRequest {
   return {
     profile: DEFAULT_OVEN_PROFILE,
     controller: DEFAULT_SIMULATION_CONTROLLER,
+    controllerRuntime: TEST_FIRMWARE_RUNTIME,
     scenario: {
       durationSeconds: 30,
       targets: [{ atSeconds: 0, targetC: 180 }],
@@ -41,7 +43,7 @@ describe('physical oven digital twin orchestration', () => {
     }
   });
 
-  it('uses one quantized actuator for two physically independent heaters', () => {
+  it('uses one firmware actuator for two physically independent heaters', () => {
     const result = simulate(
       request({
         profile: {
@@ -57,9 +59,6 @@ describe('physical oven digital twin orchestration', () => {
     expect(final?.temperatures.topZoneC).toBeGreaterThan(final?.temperatures.bottomZoneC ?? 0);
     expect(final?.actuator.applied).toBeGreaterThanOrEqual(0);
     expect(final?.actuator.applied).toBeLessThanOrEqual(1);
-    expect((final?.actuator.applied ?? 0) * 255).toBe(
-      Math.trunc((final?.actuator.applied ?? 0) * 255),
-    );
   });
 
   it('derives heater coast and delay from stored thermal energy', () => {
@@ -107,11 +106,13 @@ describe('physical oven digital twin orchestration', () => {
       mode: 'model-assisted-pid' as const,
       modelAssistance: {
         ...DEFAULT_SIMULATION_CONTROLLER.modelAssistance,
-        predictionHorizonSeconds: 5,
+        // Exercise profile sensitivity beyond the mounted probes' initial dead band.
+        predictionHorizonSeconds: 60,
       },
     };
     const scenario = {
       durationSeconds: 20,
+      initialTemperatureC: 140,
       targets: [{ atSeconds: 0, targetC: 150 }],
       sampleEverySeconds: 1,
     };

@@ -1,33 +1,38 @@
 <div class="page simulation-page">
-  <app-page-header
-    title="Simulation"
-    description="Explore the deterministic physical digital twin before touching hardware."
-  >
-    <button class="button secondary" type="button" (click)="saveModelDraft()">Save draft</button>
-    <button
-      class="button secondary"
-      type="button"
-      [disabled]="configurationError() !== null"
-      (click)="useForControl()"
+  @if (!embedded()) {
+    <app-page-header
+      title="Simulation"
+      description="Explore the deterministic physical digital twin before touching hardware."
     >
-      Use twin for model-assisted control
-    </button>
-    <button
-      class="button primary"
-      type="button"
-      [disabled]="configurationError() !== null || simulationBusy()"
-      (click)="run()"
-    >
-      {{ simulationBusy() ? 'Calculating…' : 'Run simulation' }}
-    </button>
-  </app-page-header>
+      <button class="button secondary" type="button" (click)="saveModelDraft()">Save draft</button>
+      <button
+        class="button secondary"
+        type="button"
+        [disabled]="configurationError() !== null"
+        (click)="useForControl()"
+      >
+        Use twin for model-assisted control
+      </button>
+      <button
+        class="button primary"
+        type="button"
+        [disabled]="configurationError() !== null || simulationBusy() || firmwareBuildBusy()"
+        (click)="run()"
+      >
+        {{ simulationBusy() ? 'Calculating…' : 'Run simulation' }}
+      </button>
+    </app-page-header>
+  }
 
   @if (simulationBusy()) {
     <section class="simulation-run-status panel busy" role="status" aria-live="polite">
       <span class="simulation-spinner" aria-hidden="true"></span>
       <div>
-        <strong>Calculating the physical twin</strong>
-        <p>The deterministic solver is running outside the UI thread.</p>
+        <strong>Running firmware against the physical twin</strong>
+        <p>
+          WebAssembly, virtual peripherals and thermal physics share one deterministic clock outside
+          the UI thread.
+        </p>
       </div>
       <button class="button secondary" type="button" (click)="cancelRun()">
         Cancel simulation
@@ -44,7 +49,7 @@
     </section>
   }
 
-  <section class="simulation-layout">
+  <section class="simulation-layout firmware-runtime">
     <aside class="simulation-controls panel">
       <div class="model-heading">
         <div>
@@ -92,7 +97,447 @@
         }
       </div>
 
-      <div class="form-section">
+      <div class="form-section firmware-controller-section">
+        <div class="firmware-section-heading">
+          <div>
+            <h3>Controller</h3>
+            <p>The selected Arduino sketch is the only controller that closes the loop.</p>
+          </div>
+          <span class="runtime-chip">WASM</span>
+        </div>
+
+        <section class="firmware-workbench" aria-labelledby="firmware-workbench-title">
+          <header class="firmware-source-header">
+            <div>
+              <span class="panel-kicker">FIRMWARE-IN-THE-LOOP</span>
+              <h4 id="firmware-workbench-title">
+                {{ preparedFirmware()?.source?.displayName ?? 'No Arduino sketch selected' }}
+              </h4>
+              <p>
+                The selected sketch snapshot and supported libraries are compiled. Firmware GPIO
+                drives the physical twin; timewarp never changes virtual MCU time.
+              </p>
+            </div>
+            <span class="firmware-source-location"
+              >Choose or replace the .ino file in Settings.</span
+            >
+          </header>
+
+          @if (firmwareBuildBusy()) {
+            <div class="firmware-build-state" role="status" aria-live="polite">
+              <span class="simulation-spinner" aria-hidden="true"></span>
+              <div>
+                <strong>Compiling firmware to WebAssembly</strong>
+                <span>Resolving the pinned Arduino compatibility toolchain…</span>
+              </div>
+            </div>
+          }
+
+          @if (preparedFirmware(); as firmware) {
+            <div class="firmware-artifact-summary">
+              <span>
+                <small>Source</small>
+                <strong>{{ firmware.source.displayName }}</strong>
+                <em
+                  >{{ firmware.source.files.length }} files ·
+                  {{ firmware.source.sha256.slice(0, 12) }}</em
+                >
+              </span>
+              <span>
+                <small>Build</small>
+                <strong>{{ firmware.cacheHit ? 'Cache hit' : 'Fresh compile' }}</strong>
+                <em
+                  >{{ firmware.provenance.compiler.identity }} · shim
+                  {{ firmware.provenance.shim.version }}</em
+                >
+              </span>
+              <span>
+                <small>Fidelity</small>
+                <strong>Source-level logic</strong>
+                <em>Semantic peripheral emulation</em>
+              </span>
+            </div>
+          }
+
+          @if (firmwareToolchain(); as toolchain) {
+            <details class="firmware-toolchain" [open]="!toolchain.available">
+              <summary>
+                <span>
+                  <b>Compiler toolchain</b>
+                  <small>{{
+                    toolchain.available ? 'Ready to build' : 'No compiler available'
+                  }}</small>
+                </span>
+                <em [class.ready]="toolchain.available">{{
+                  toolchain.available ? 'READY' : 'ACTION NEEDED'
+                }}</em>
+              </summary>
+              <div class="toolchain-adapters">
+                @for (adapter of toolchain.adapters; track adapter.kind) {
+                  <article
+                    [class.available]="adapter.available"
+                    [class.selected]="adapter.kind === toolchain.selected"
+                  >
+                    <span aria-hidden="true"></span>
+                    <div>
+                      <strong>{{ adapter.displayName }}</strong>
+                      <p>{{ adapter.detail }}</p>
+                    </div>
+                    <em>{{
+                      adapter.version ?? (adapter.available ? 'Detected' : 'Unavailable')
+                    }}</em>
+                  </article>
+                }
+              </div>
+              <button class="text-button" type="button" (click)="refreshFirmwareToolchain()">
+                Check again
+              </button>
+            </details>
+          }
+
+          @if (firmwareDiagnostics().length > 0) {
+            <div
+              class="firmware-diagnostics"
+              aria-live="polite"
+              aria-label="Firmware build diagnostics"
+            >
+              @for (diagnostic of firmwareDiagnostics(); track $index) {
+                <article [class]="diagnostic.severity">
+                  <span aria-hidden="true">{{
+                    diagnostic.severity === 'error'
+                      ? '!'
+                      : diagnostic.severity === 'warning'
+                        ? '△'
+                        : 'i'
+                  }}</span>
+                  <div>
+                    <strong>{{ diagnostic.phase }} · {{ diagnostic.code }}</strong>
+                    <p>{{ diagnostic.message }}</p>
+                    @if (diagnosticLocation(diagnostic); as location) {
+                      <code>{{ location }}</code>
+                    }
+                  </div>
+                </article>
+              }
+            </div>
+          }
+
+          <section class="firmware-pin-section" aria-labelledby="virtual-pins-title">
+            <header>
+              <div>
+                <h4 id="virtual-pins-title">Virtual GPIO mapping</h4>
+                <p>
+                  Inputs come from the twin; output transitions are integrated into physical heater
+                  duty. Firmware output drive is verified when the simulation starts.
+                </p>
+              </div>
+              <div>
+                <button class="text-button" type="button" (click)="resetKnownFirmwareMapping()">
+                  Restore known mapping
+                </button>
+                <button class="text-button" type="button" (click)="addGenericFirmwarePin()">
+                  + Add GPIO
+                </button>
+              </div>
+            </header>
+
+            <div class="firmware-pin-table-wrap">
+              <table class="firmware-pin-table" aria-label="Virtual MCU pin assignments">
+                <thead>
+                  <tr>
+                    <th scope="col">MCU pin</th>
+                    <th scope="col">Virtual role</th>
+                    <th scope="col">Connected signal</th>
+                    <th scope="col">Level / polarity</th>
+                    <th scope="col" aria-label="Actions"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (binding of firmwareHardware().pins; track $index; let index = $index) {
+                    <tr>
+                      <td data-label="MCU pin">
+                        <input
+                          class="pin-name-input"
+                          [id]="'firmware-pin-' + index"
+                          [attr.aria-label]="'MCU pin ' + (index + 1)"
+                          [ngModel]="binding.pin"
+                          (ngModelChange)="updateFirmwarePinName(index, $event)"
+                          autocomplete="off"
+                          spellcheck="false"
+                        />
+                      </td>
+                      <td data-label="Virtual role">
+                        <select
+                          [id]="'firmware-role-' + index"
+                          [attr.aria-label]="'Virtual role for ' + binding.pin"
+                          [ngModel]="firmwarePinRole(binding)"
+                          (ngModelChange)="updateFirmwarePinRole(index, $event)"
+                        >
+                          @for (role of firmwarePinRoles; track role.value) {
+                            <option [ngValue]="role.value">{{ role.label }}</option>
+                          }
+                        </select>
+                      </td>
+                      <td data-label="Connected signal">
+                        @if (binding.kind === 'analog-input') {
+                          <input
+                            [id]="'firmware-adc-' + index"
+                            [attr.aria-label]="'Raw ADC value for ' + binding.pin"
+                            type="number"
+                            min="0"
+                            [max]="firmwareAdcMaximum"
+                            step="1"
+                            [ngModel]="binding.rawValue"
+                            (ngModelChange)="updateFirmwareAnalogValue(index, $event)"
+                          />
+                        } @else {
+                          <span>{{ firmwareBindingDetail(binding) }}</span>
+                        }
+                      </td>
+                      <td data-label="Level / polarity">
+                        @if (firmwareBindingPolarity(binding); as polarity) {
+                          <select
+                            [id]="'firmware-polarity-' + index"
+                            [attr.aria-label]="'Active level for ' + binding.pin"
+                            [ngModel]="polarity"
+                            (ngModelChange)="updateFirmwarePinPolarity(index, $event)"
+                          >
+                            <option value="high">
+                              {{
+                                binding.kind === 'digital-input' ? 'Constant HIGH' : 'Active HIGH'
+                              }}
+                            </option>
+                            <option value="low">
+                              {{ binding.kind === 'digital-input' ? 'Constant LOW' : 'Active LOW' }}
+                            </option>
+                          </select>
+                        } @else {
+                          <span class="not-applicable">—</span>
+                        }
+                      </td>
+                      <td data-label="Action">
+                        <button
+                          class="icon-button remove-pin"
+                          type="button"
+                          [attr.aria-label]="'Remove ' + binding.pin + ' mapping'"
+                          (click)="removeFirmwarePin(index)"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            @if (firmwareConfigurationError(); as firmwareError) {
+              <p class="firmware-config-error" role="alert">{{ firmwareError }}</p>
+            } @else {
+              <p class="firmware-config-valid" role="status">
+                Virtual hardware mapping is complete.
+              </p>
+            }
+          </section>
+
+          <button
+            class="advanced-toggle firmware-advanced-toggle"
+            type="button"
+            [attr.aria-expanded]="firmwareAdvanced()"
+            aria-controls="firmware-electrical-settings"
+            (click)="firmwareAdvanced.update((value) => !value)"
+          >
+            <span>{{ firmwareAdvanced() ? '−' : '+' }}</span> Thermistor & memory details
+            <em>{{ firmwareAdvanced() ? 'Hide' : 'Show' }}</em>
+          </button>
+
+          @if (firmwareAdvanced()) {
+            <section id="firmware-electrical-settings" class="firmware-electrical-settings">
+              <header>
+                <h4>NTC divider</h4>
+                <p>Applied identically to T1, T2 and T3 before ADC quantization.</p>
+              </header>
+              <div class="parameter-grid three">
+                <label class="field"
+                  ><span>Reference resistor (Ω)</span
+                  ><input
+                    type="number"
+                    min="1"
+                    [ngModel]="firmwareNtc().referenceResistanceOhm"
+                    (ngModelChange)="updateFirmwareNtc('referenceResistanceOhm', $event)"
+                /></label>
+                <label class="field"
+                  ><span>Nominal resistance (Ω)</span
+                  ><input
+                    type="number"
+                    min="1"
+                    [ngModel]="firmwareNtc().nominalResistanceOhm"
+                    (ngModelChange)="updateFirmwareNtc('nominalResistanceOhm', $event)"
+                /></label>
+                <label class="field"
+                  ><span>Nominal temperature (°C)</span
+                  ><input
+                    type="number"
+                    [ngModel]="firmwareNtc().nominalTemperatureC"
+                    (ngModelChange)="updateFirmwareNtc('nominalTemperatureC', $event)"
+                /></label>
+                <label class="field"
+                  ><span>Beta (K)</span
+                  ><input
+                    type="number"
+                    min="1"
+                    [ngModel]="firmwareNtc().betaK"
+                    (ngModelChange)="updateFirmwareNtc('betaK', $event)"
+                /></label>
+                <span class="derived-value"
+                  >ADC output<strong
+                    >{{ firmwareAdcBits }}-bit fixed · 0–{{ firmwareAdcMaximum }}</strong
+                  ></span
+                >
+                <span class="derived-value"
+                  >Divider topology<strong>reference → VCC · NTC → GND</strong></span
+                >
+              </div>
+              <header class="eeprom-heading">
+                <h4>Virtual EEPROM</h4>
+                <p>Reset preserves this image inside one deterministic simulation run.</p>
+              </header>
+              <div class="field-grid two">
+                <label class="field"
+                  ><span
+                    >Size (bytes) · {{ firmwareEepromMinimum }}–{{ firmwareEepromMaximum }}</span
+                  ><input
+                    type="number"
+                    [min]="firmwareEepromMinimum"
+                    [max]="firmwareEepromMaximum"
+                    step="1"
+                    [ngModel]="firmwareHardware().eeprom.sizeBytes"
+                    (ngModelChange)="updateFirmwareEepromSize($event)"
+                /></label>
+                <label class="field"
+                  ><span>Initial fill</span
+                  ><select
+                    [ngModel]="firmwareHardware().eeprom.initialFill"
+                    (ngModelChange)="updateFirmwareEepromFill($event)"
+                  >
+                    <option [ngValue]="255">0xFF (erased)</option>
+                    <option [ngValue]="0">0x00</option>
+                  </select></label
+                >
+              </div>
+            </section>
+          }
+          <section class="firmware-output-panel" aria-labelledby="firmware-output-title">
+            <header>
+              <div>
+                <h4 id="firmware-output-title">Simulated controller terminal</h4>
+                <p>
+                  Queue one UART line for a deterministic virtual time, then run the scenario. The
+                  transcript is bounded to the latest 300 serial records, GPIO interval summaries,
+                  and runtime events.
+                  <span
+                    class="firmware-output-status"
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    @if (simulationBusy()) {
+                      Firmware simulation running.
+                    } @else if (firmwareOutput().length === 0) {
+                      No records ready.
+                    } @else if (simulationError() !== null) {
+                      {{ firmwareOutput().length }}
+                      {{ firmwareOutput().length === 1 ? 'record' : 'records' }} preserved from
+                      before the failed run.
+                    } @else {
+                      {{ firmwareOutput().length }}
+                      {{ firmwareOutput().length === 1 ? 'record' : 'records' }} ready.
+                    }
+                  </span>
+                </p>
+              </div>
+              <button
+                class="text-button"
+                type="button"
+                [disabled]="firmwareOutput().length === 0"
+                (click)="clearFirmwareOutput()"
+              >
+                Clear
+              </button>
+            </header>
+            <div class="firmware-terminal-composer">
+              <label class="field firmware-terminal-command">
+                <span>UART line</span>
+                <textarea
+                  rows="2"
+                  spellcheck="false"
+                  placeholder="M105"
+                  [ngModel]="firmwareTerminalInput()"
+                  (ngModelChange)="firmwareTerminalInput.set($event)"
+                  (keydown)="handleFirmwareTerminalKeydown($event)"
+                ></textarea>
+              </label>
+              <button
+                class="button primary terminal-queue-button"
+                type="button"
+                [disabled]="simulationBusy() || firmwareBuildBusy()"
+                (click)="sendFirmwareTerminalCommand()"
+              >
+                Send to controller
+              </button>
+            </div>
+            @if (firmwareTerminalCommands().length > 0) {
+              <div class="firmware-terminal-queue" aria-label="Queued firmware commands">
+                <header>
+                  <span>{{ firmwareTerminalCommands().length }} command(s) in this run</span>
+                  <button
+                    class="text-button"
+                    type="button"
+                    (click)="clearFirmwareTerminalCommands()"
+                  >
+                    Clear queue
+                  </button>
+                </header>
+                @for (command of firmwareTerminalCommands(); track command.id) {
+                  <div>
+                    <time>{{ command.atSeconds.toFixed(3) }} s</time>
+                    <code>{{ command.command }}</code>
+                    <button
+                      type="button"
+                      [attr.aria-label]="'Remove controller command ' + command.command"
+                      (click)="removeFirmwareTerminalCommand(command.id)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                }
+              </div>
+            }
+            <div class="firmware-output" role="log" aria-live="off" aria-relevant="additions">
+              @if (firmwareOutput().length === 0) {
+                <p>
+                  Firmware serial records and GPIO interval summaries will appear here after the
+                  simulation runs.
+                </p>
+              } @else {
+                @for (line of firmwareOutput(); track line.id) {
+                  <div [class]="line.direction">
+                    @if (line.timeSeconds === null) {
+                      <span class="firmware-output-summary">SUMMARY</span>
+                    } @else {
+                      <time>{{ line.timeSeconds.toFixed(3) }} s</time>
+                    }
+                    <span>{{ line.direction.toUpperCase() }}</span>
+                    <code>{{ line.text }}</code>
+                  </div>
+                }
+              }
+            </div>
+          </section>
+        </section>
+      </div>
+
+      <div class="form-section simulation-environment">
         <h3>Room & electrical input</h3>
         <label class="range-field"
           ><span
@@ -452,47 +897,97 @@
             ><strong>{{ (currentSample()?.timeSeconds ?? 0) / 60 | number: '1.1-1' }} min</strong>
           </div>
         </header>
-        <div class="oven-visual">
-          <div class="oven-shell">
-            <div
-              class="coil top"
-              [style.opacity]="0.25 + (currentSample()?.actuator?.applied ?? 0) * 0.75"
-            >
-              <i></i><i></i><i></i><i></i>
+        <div class="oven-visual" [class.awaiting-sample]="currentSample() === null">
+          <div
+            class="cutaway-figure"
+            [style.--heater-duty]="currentSample()?.actuator?.applied ?? 0"
+          >
+            <div class="cutaway-legend" aria-label="Thermal cutaway legend">
+              <span class="top-zone">Top air</span>
+              <span class="bottom-zone">Bottom air</span>
+              <span class="enclosure-zone">Enclosure</span>
+              <span class="gpio-zone">Shared PB9 PWM</span>
             </div>
-            <div class="oven-air">
-              <span class="flow one">⌁</span><span class="flow two">⌁</span>
-              <div class="standard-load"><span>STANDARD</span><strong>LOAD</strong></div>
-            </div>
-            <div
-              class="coil bottom"
-              [style.opacity]="0.25 + (currentSample()?.actuator?.applied ?? 0) * 0.75"
-            >
-              <i></i><i></i><i></i><i></i>
-            </div>
-            <div class="sensor-pin pin-1">
-              T1
-              <b
-                >{{
-                  (currentSample()?.temperatures?.t1C ?? profile().ambientTemperatureC).toFixed(1)
-                }}°</b
+            <div class="oven-shell">
+              <div class="oven-insulation" aria-hidden="true"></div>
+              <div
+                class="coil top"
+                [style.opacity]="0.25 + (currentSample()?.actuator?.applied ?? 0) * 0.75"
               >
-            </div>
-            <div class="sensor-pin pin-2">
-              T2
-              <b
-                >{{
-                  (currentSample()?.temperatures?.t2C ?? profile().ambientTemperatureC).toFixed(1)
-                }}°</b
+                <i></i><i></i><i></i><i></i>
+              </div>
+              <div class="oven-air">
+                <span class="flow one">⌁</span><span class="flow two">⌁</span>
+                <div class="standard-load"><span>STANDARD</span><strong>LOAD</strong></div>
+              </div>
+              <div
+                class="coil bottom"
+                [style.opacity]="0.25 + (currentSample()?.actuator?.applied ?? 0) * 0.75"
               >
+                <i></i><i></i><i></i><i></i>
+              </div>
+              <div class="sensor-pin pin-1" title="Top thermistor on PA6">
+                <span>T1</span>
+                <b
+                  >{{
+                    (currentSample()?.temperatures?.t1C ?? profile().ambientTemperatureC).toFixed(
+                      1
+                    )
+                  }}°</b
+                >
+              </div>
+              <div class="sensor-pin pin-2" title="Bottom thermistor on PA0">
+                <span>T2</span>
+                <b
+                  >{{
+                    (currentSample()?.temperatures?.t2C ?? profile().ambientTemperatureC).toFixed(
+                      1
+                    )
+                  }}°</b
+                >
+              </div>
+              <div class="sensor-pin pin-3" title="Safety thermistor on PA5">
+                <span>T3</span>
+                <b
+                  >{{
+                    (currentSample()?.temperatures?.t3C ?? profile().ambientTemperatureC).toFixed(
+                      1
+                    )
+                  }}°</b
+                >
+              </div>
             </div>
-            <div class="sensor-pin pin-3">
-              T3
-              <b
-                >{{
-                  (currentSample()?.temperatures?.t3C ?? profile().ambientTemperatureC).toFixed(1)
-                }}°</b
-              >
+            <div class="cutaway-zone-strip" aria-label="Physical twin zone temperatures">
+              <div>
+                <span>TOP AIR</span
+                ><b
+                  >{{
+                    (
+                      currentSample()?.temperatures?.topZoneC ?? profile().ambientTemperatureC
+                    ).toFixed(1)
+                  }}°</b
+                >
+              </div>
+              <div>
+                <span>BOTTOM AIR</span
+                ><b
+                  >{{
+                    (
+                      currentSample()?.temperatures?.bottomZoneC ?? profile().ambientTemperatureC
+                    ).toFixed(1)
+                  }}°</b
+                >
+              </div>
+              <div>
+                <span>ENCLOSURE</span
+                ><b
+                  >{{
+                    (
+                      currentSample()?.temperatures?.enclosureC ?? profile().ambientTemperatureC
+                    ).toFixed(1)
+                  }}°</b
+                >
+              </div>
             </div>
           </div>
           <div class="visual-readout">
@@ -511,6 +1006,10 @@
                 }}<small>%</small></strong
               >
             </div>
+            <p>
+              T0 is the exact firmware control average of T1 and T2. Both heater bodies receive the
+              same PB9 PWM duty.
+            </p>
           </div>
         </div>
       </article>
@@ -526,22 +1025,17 @@
               type="button"
               [class.active]="selectedVariant() === 'pid'"
               [attr.aria-pressed]="selectedVariant() === 'pid'"
-              (click)="
-                selectedVariant.set('pid'); cursor.set(activeEntry()?.result?.samples?.length ?? 0)
-              "
+              (click)="selectVariant('pid')"
             >
-              PID
+              Firmware PID
             </button>
             <button
               type="button"
               [class.active]="selectedVariant() === 'assisted'"
               [attr.aria-pressed]="selectedVariant() === 'assisted'"
-              (click)="
-                selectedVariant.set('assisted');
-                cursor.set(activeEntry()?.result?.samples?.length ?? 0)
-              "
+              (click)="selectVariant('assisted')"
             >
-              Feed-forward + PID
+              Firmware + feed-forward
             </button>
           </div>
         </header>
@@ -625,7 +1119,9 @@
             >
               <header>
                 <div>
-                  <span>{{ entry.id === 'pid' ? 'BASELINE' : 'FEED-FORWARD + PID' }}</span
+                  <span>{{
+                    entry.id === 'pid' ? 'FIRMWARE BASELINE' : 'FIRMWARE + FEED-FORWARD'
+                  }}</span
                   ><strong>{{ entry.label }}</strong>
                 </div>
                 @if (entry.id === preferredVariantId()) {

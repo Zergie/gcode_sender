@@ -26,6 +26,9 @@ describe('DashboardComponent', () => {
     expect(content).toContain('T2');
     expect(content).toContain('T3');
     expect(TestBed.inject(WorkbenchStore).telemetry().thermistors).toHaveLength(3);
+    expect(content).toContain('MCU SENSOR');
+    expect(content).not.toContain('TOP HEATER');
+    expect(content).not.toContain('BOTTOM HEATER');
   });
 
   it('does not present ambient placeholders as live telemetry while disconnected', () => {
@@ -42,6 +45,9 @@ describe('DashboardComponent', () => {
     expect(values.every((value) => value.classList.contains('unknown'))).toBe(true);
     expect(values.every((value) => value.textContent?.includes('—'))).toBe(true);
     expect(store.telemetryLive()).toBe(false);
+    expect(content).not.toContain('Load a G-code file or create a heating profile first.');
+    expect(element.querySelector('.job-icon')).toBeNull();
+    expect(element.querySelector('.target-panel .fine-print')).toBeNull();
 
     store.connection.update((connection) => ({ ...connection, status: 'connected' }));
     fixture.detectChanges();
@@ -77,6 +83,22 @@ describe('DashboardComponent', () => {
       '38.6°C',
     ]);
     expect(values.every((value) => !value.classList.contains('unknown'))).toBe(true);
+    expect(element.querySelector('.chart-status')?.textContent).toContain('90.0°C');
+    expect(element.querySelector('.chart-status')?.textContent).not.toContain('Firmware target');
+  });
+
+  it('shows requested and firmware targets together only while they differ', () => {
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
+    store.connection.update((connection) => ({ ...connection, status: 'connected' }));
+    store.telemetry.update((telemetry) => ({ ...telemetry, target: 180 }));
+    store.hasTelemetry.set(true);
+    store.requestedTarget.set(200);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.chart-status')?.textContent).toContain(
+      '200.0 → 180.0°C',
+    );
   });
 
   it('hides model-only targets and heater wattage in PID mode', () => {
@@ -96,6 +118,9 @@ describe('DashboardComponent', () => {
 
   it('retains model targets and heater wattage in model-assisted mode', () => {
     const fixture = TestBed.createComponent(DashboardComponent);
+    const store = TestBed.inject(WorkbenchStore);
+    store.firmwareInLoop.set({} as never);
+    store.setMode('model-assisted');
     fixture.detectChanges();
 
     const content = (fixture.nativeElement as HTMLElement).textContent ?? '';

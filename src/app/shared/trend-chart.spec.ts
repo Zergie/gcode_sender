@@ -58,4 +58,15 @@ describe('TrendChartComponent heating profile overlay', () => {
 
     expect(edits).toEqual([]);
   });
+
+  it('uses round 50-degree grid labels', () => {
+    const fixture = TestBed.createComponent(TrendChartComponent);
+    fixture.componentRef.setInput('points', []);
+    fixture.detectChanges();
+
+    const labels = [...fixture.nativeElement.querySelectorAll('.axis-labels text')].map(
+      (label: SVGTextElement) => label.textContent,
+    );
+    expect(labels).toEqual(['250°', '200°', '150°', '100°', '50°', '0°']);
+  });
 });

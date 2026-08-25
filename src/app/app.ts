@@ -20,7 +20,6 @@ export class App implements OnInit {
     { path: '/terminal', label: 'Terminal', icon: 'terminal' },
     { path: '/jobs', label: 'Jobs', icon: 'jobs' },
     { path: '/simulation', label: 'Simulation', icon: 'simulation' },
-    { path: '/tuning', label: 'Tuning & Profiles', icon: 'tuning' },
     { path: '/settings', label: 'Settings', icon: 'settings' },
     { path: '/about', label: 'About', icon: 'about' },
   ] as const;

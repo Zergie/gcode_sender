@@ -59,6 +59,7 @@ export function compareSimulations(
       profile: request.profile,
       controller: variant.controller,
       scenario: request.scenario,
+      controllerRuntime: request.controllerRuntime,
       timewarp: request.timewarp,
     }),
   }));

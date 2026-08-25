@@ -19,16 +19,39 @@ results, and uses the firmware as the safety authority.
 The complete source of this application, including the adapted implementation,
 is distributed under GPL-3.0-or-later. See [LICENSE](LICENSE).
 
-## QuickPID controller semantics
+## Bundled GCodeParser
 
-The deterministic firmware-controller model is line-derived from QuickPID
-3.1.9 so simulation uses the same 100 ms cadence, gain scaling and conditional
-anti-windup as the supported STM32 firmware.
+Firmware-in-the-loop builds include GCodeParser 1.3.0.
+
+- Project: GCodeParser
+- Upstream source: https://github.com/tgolla/GCodeParser
+- Copyright: Copyright (c) 2021 Terence Golla
+- License: MIT; the complete text is included at
+  `firmware-wasm/vendor/GCodeParser/LICENSE`.
+
+## Bundled NTC_Thermistor
+
+Firmware-in-the-loop builds include NTC_Thermistor 2.1.0.
+
+- Project: NTC_Thermistor
+- Upstream source: https://github.com/bobwolff68/NTC_Thermistor
+- Copyright: Copyright (c) 2018-2019 Yurii Salimov
+- License: MIT; the complete text is included at
+  `firmware-wasm/vendor/NTC_Thermistor/LICENSE`.
+
+## QuickPID controller semantics and bundled source
+
+The host-side state estimator used for model-assisted forecasting is
+line-derived from QuickPID 3.1.9 so its projected 100 ms cadence, gain scaling,
+and conditional anti-windup match the supported STM32 firmware. It never owns
+the simulated actuator loop. The same release's source is bundled for
+firmware-in-the-loop builds.
 
 - Project: QuickPID
 - Upstream source: https://github.com/Dlloydev/QuickPID
 - Copyright: Copyright 2023 David Lloyd <dlloydev@testcor.ca>
 - License: MIT
+- Bundled license: `firmware-wasm/vendor/QuickPID/LICENSE`
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in

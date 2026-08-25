@@ -10,6 +10,7 @@
       v
     Electron main process
       |- SerialService ------ STM32 UART at 115200
+      |- FirmwareBuildService - .ino snapshot / WebAssembly cache
       |- JobService
       |- LiveTuningService
       |- CatalogService ----- approved HTTPS catalog host
@@ -19,6 +20,51 @@
 The renderer has no Node.js integration. Electron runs with context isolation,
 sandboxing, a restrictive permission handler, a navigation guard, and a typed
 preload bridge.
+
+## Firmware in the loop
+
+Firmware-in-the-loop replaces only the simulated controller and virtual MCU
+I/O; it cannot mutate thermal state directly. Electron snapshots a selected
+Arduino sketch directory, applies source and size limits, resolves the supported
+libraries from bounded immutable snapshots of the bundled, version-checked
+sources, and compiles a content-addressed WebAssembly artifact. Compilation
+uses argument-array process spawning and preferably the pinned official
+Emscripten container; an exact local Emscripten 4.0.20 is the fallback. Cache
+identity includes source, compiler, compatibility shim, library versions,
+library content hashes, and ABI. Cache manifests retain build diagnostics and
+verify artifact digests before reuse.
+
+The existing Simulation worker instantiates the artifact once per isolated
+comparison variant. The `arduino-fil-wasm-v1` boundary supplies only virtual
+microsecond time, ADC/digital inputs, UART bytes, EEPROM, and observable output
+pins. PA6, PA0, and PA5 receive fixed 12-bit inverse-B3950-divider ADC counts from physical
+T1, T2, and T3; PA10/PA9 form the command UART; PC13 is an observable active-low
+indicator; and PB9 high-time is edge-integrated into the one shared physical
+heater duty. The physical twin then advances using that measured duty. No
+delay, noise, oscillation, or other response waveform is added by this layer.
+Configured heater and indicator pins must be driven through
+`pinMode(..., OUTPUT)` by the firmware; otherwise the run fails instead of
+interpreting a reset-default LOW as a real output. Pins marked ignored are not
+polled.
+
+Virtual time is independent of wall time and time warp. A virtual reset creates
+a fresh Wasm instance and preserves only the configured EEPROM image. The
+configured capacity is enforced inside `EEPROM.read`/`write`; ABI v1 requires at
+least 33 bytes because the supported sketch addresses byte 32. Wasm
+imports are rejected, memory and event counts are bounded, and a trap aborts
+the thermal run rather than continuing with the last heater output.
+
+The initial source adapter deliberately supports the existing STM32duino sketch
+and its used Arduino APIs: GPIO/ADC, HardwareSerial, HardwareTimer, EEPROM,
+`millis`/`micros`, reset, QuickPID, GCodeParser, and NTC_Thermistor. It is
+source-level semantic peripheral emulation, not arbitrary Arduino support or
+STM32/Cortex-M emulation. Blocking `delay()` is rejected as an unsupported
+peripheral behavior because ABI v1 cannot advance it cooperatively without
+bypassing timer callbacks or the host step budget. A compiled `.bin` is
+therefore outside this adapter. UART byte order is deterministic, but ABI v1
+does not synthesize 115200-baud serialization, native FIFO blocking, or
+instruction-cycle timing. Heavy UART traffic is not cycle-accurate; a saturated
+virtual TX buffer terminates the run explicitly.
 
 ## Control model
 
@@ -48,13 +94,14 @@ sensor response therefore emerge from heat capacity and transfer paths: the
 profile contains no delay, response-time, noise, or oscillation controls. An
 energy ledger exposes numerical conservation error.
 
-Simulation mirrors the supported firmware's QuickPID 3.1.9 configuration at
-100 ms, whole-degree M104 targets, and 8-bit PWM output. The thermal solver uses
-a fixed 50 ms RK4 step. Time warp changes result batching/playback only, never
-the physical equations, controller units, telemetry frequency, or real-hardware
-command speed. The deterministic v1 grid is retained only as an offline output
-reference; its non-conservative heater saturation and transfer formulas are not
-part of production simulation.
+Simulation executes the selected firmware snapshot, including its QuickPID
+configuration, whole-degree M104 handling, and PWM output. The thermal solver
+uses a fixed 50 ms RK4 step. Time warp changes result batching/playback only,
+never the physical equations, controller units, telemetry frequency, or
+real-hardware command speed. There is no built-in controller fallback. The
+deterministic v1 grid is retained only as an offline output reference; its
+non-conservative heater saturation and transfer formulas are not part of
+production simulation.
 
 ## Protocol adapter
 

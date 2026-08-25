@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS: AppSettings = Object.freeze({
   startupMacro: '',
   commandTimeoutMs: 8_000,
   approvedCatalogHosts: [],
+  firmwareInoPath: null,
 });
 
 const MAX_UNPINNED_SESSIONS = 100;
@@ -295,6 +296,7 @@ function validateSettings(value: unknown): AppSettings {
   const startupMacro = value['startupMacro'];
   const commandTimeoutMs = value['commandTimeoutMs'];
   const approvedCatalogHosts = value['approvedCatalogHosts'];
+  const firmwareInoPath = value['firmwareInoPath'] ?? null;
   if (!isTheme(theme) || !(lastSerialPort === null || isBoundedString(lastSerialPort, 1, 1_024))) {
     throw invalid('Settings contain an invalid theme or port');
   }
@@ -314,6 +316,9 @@ function validateSettings(value: unknown): AppSettings {
   ) {
     throw invalid('Approved catalog hosts are invalid');
   }
+  if (!(firmwareInoPath === null || isBoundedString(firmwareInoPath, 1, 32_767))) {
+    throw invalid('Firmware sketch path is invalid');
+  }
   return {
     version: 2,
     theme,
@@ -321,6 +326,7 @@ function validateSettings(value: unknown): AppSettings {
     startupMacro,
     commandTimeoutMs: commandTimeoutMs as number,
     approvedCatalogHosts: [...new Set(approvedCatalogHosts as string[])],
+    firmwareInoPath,
   };
 }
 

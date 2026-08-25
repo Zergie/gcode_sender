@@ -121,6 +121,14 @@ export class DashboardComponent {
   readonly programName = computed(
     () => this.profile()?.name || this.store.selectedProgram()?.file.name || 'No program loaded',
   );
+  readonly targetStatus = computed(() => {
+    const requested = this.store.requestedTarget();
+    if (!this.store.telemetryLive()) return `${requested.toFixed(1)}°C`;
+    const firmware = this.store.telemetry().target;
+    return Math.abs(requested - firmware) < 0.05
+      ? `${requested.toFixed(1)}°C`
+      : `${requested.toFixed(1)} → ${firmware.toFixed(1)}°C`;
+  });
 
   constructor() {
     this.targetDraft.set(this.store.requestedTarget());

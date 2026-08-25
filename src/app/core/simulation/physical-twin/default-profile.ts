@@ -18,7 +18,8 @@ const HALF_CHAMBER_AIR_CAPACITY_J_PER_K =
  * - each low-mass heater coil: 0.020 kg metal-equivalent at 500 J/(kg K)
  * - standard load: 0.80 kg aluminium-equivalent at 900 J/(kg K)
  * - enclosure and attached structure: 4.60 kg steel-equivalent at 500 J/(kg K)
- * - thermistor bodies: 0.12 J/K each, with their response arising from contact conductance
+ * - mounted T1/T2 probe assemblies: 9.6 J/K each (bead, leads, sheath, and mounting mass)
+ * - exposed T3 bead: 0.12 J/K, with its response arising from contact conductance
  *
  * Heater developed area, enclosure leakage, and thermal bridges were initialized against the
  * deterministic v1 100% heat/cool reference. They retain ordinary physical units and are the
@@ -41,8 +42,8 @@ export const DEFAULT_THERMAL_TWIN_PROFILE: ThermalTwinProfile = Object.freeze({
     bottomAir: Object.freeze({ heatCapacityJPerK: HALF_CHAMBER_AIR_CAPACITY_J_PER_K }),
     standardLoad: Object.freeze({ heatCapacityJPerK: 0.8 * 900 }),
     enclosure: Object.freeze({ heatCapacityJPerK: 4.6 * 500 }),
-    t1: Object.freeze({ heatCapacityJPerK: 0.12 }),
-    t2: Object.freeze({ heatCapacityJPerK: 0.12 }),
+    t1: Object.freeze({ heatCapacityJPerK: 9.6 }),
+    t2: Object.freeze({ heatCapacityJPerK: 9.6 }),
     t3: Object.freeze({ heatCapacityJPerK: 0.12 }),
   }),
   heaters: Object.freeze({
@@ -161,9 +162,9 @@ export const DEFAULT_THERMAL_TWIN_PROFILE: ThermalTwinProfile = Object.freeze({
     enclosureConductanceWPerK: 2,
     enclosureRadiatingAreaM2: ENCLOSURE_AREA_M2,
     enclosureEmissivity: 0.8,
-    // Equivalent leakage/ventilation flow of the historically very small, open chamber.
-    topAirExchangeM3PerSecond: 0.0014,
-    bottomAirExchangeM3PerSecond: 0.0014,
+    // Calibrated equivalent leakage flow from the 2026-08-24 physical 200 C cycle.
+    topAirExchangeM3PerSecond: 0.000385,
+    bottomAirExchangeM3PerSecond: 0.000385,
     // Exposed safety bead and lead-wire path to room air; paired with 0.024 W/K to enclosure.
     t3AmbientConductanceWPerK: 0.12,
     airDensityKgPerM3: AIR_DENSITY_KG_PER_M3,

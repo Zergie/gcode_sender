@@ -1,4 +1,5 @@
 import type { ApiResult, AppErrorInfo } from './errors';
+import type { FirmwareBuildOutcome, FirmwareToolchainStatus } from './firmware-contracts';
 import type { LiveTuningRequest, LiveTuningState } from './tuning-contracts';
 
 export type JsonPrimitive = boolean | number | string | null;
@@ -14,6 +15,8 @@ export interface AppSettings {
   readonly startupMacro: string;
   readonly commandTimeoutMs: number;
   readonly approvedCatalogHosts: readonly string[];
+  /** Last Arduino sketch selected for firmware-in-the-loop simulation. */
+  readonly firmwareInoPath: string | null;
 }
 
 export type SettingsPatch = Partial<Omit<AppSettings, 'version'>>;
@@ -249,6 +252,11 @@ export interface GcodeApi {
   readonly system: {
     getInfo(): Promise<ApiResult<SystemInfo>>;
     openExternal(url: string): Promise<ApiResult<void>>;
+  };
+  readonly firmware: {
+    getToolchainStatus(): Promise<ApiResult<FirmwareToolchainStatus>>;
+    /** Opens the native .ino picker and returns null when the user cancels. */
+    pickAndBuild(): Promise<ApiResult<FirmwareBuildOutcome | null>>;
   };
   readonly serial: {
     listPorts(): Promise<ApiResult<readonly SerialPortDescriptor[]>>;

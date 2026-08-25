@@ -20,16 +20,11 @@ export const routes: Routes = [
   },
   {
     path: 'simulation',
-    title: 'Simulation',
-    loadComponent: () =>
-      import('./features/simulation/simulation').then((module) => module.SimulationComponent),
-  },
-  {
-    path: 'tuning',
-    title: 'Tuning & Profiles',
+    title: 'Simulation & Tuning',
     loadComponent: () =>
       import('./features/tuning/tuning').then((module) => module.TuningComponent),
   },
+  { path: 'tuning', pathMatch: 'full', redirectTo: 'simulation' },
   {
     path: 'settings',
     title: 'Settings',

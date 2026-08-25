@@ -29,6 +29,7 @@ import type {
   ProfileState,
   StoredProfile,
 } from '../../../../shared/contracts';
+import type { PreparedFirmware } from '../../../../shared/firmware-contracts';
 import type { LiveTuningState } from '../../../../shared/tuning-contracts';
 import { BUNDLED_COMMAND_CATALOG } from '../../../../shared/bundled-catalog';
 import { validateHeatingProfile } from '../../../../shared/heating-profile-document';
@@ -56,7 +57,6 @@ import {
   cloneOvenModelProfile,
   createPhysicalForecastPlanner,
   createPhysicalTwinObserver,
-  simulate,
   stepPhysicalFeedForward,
   validateOvenModelProfile,
   type OvenModelProfile,
@@ -64,6 +64,7 @@ import {
   type PhysicalForecastPlanner,
   type PhysicalTwinObserver,
 } from '../simulation';
+import { SimulationConfigurationStore } from '../simulation/simulation-configuration.store';
 import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics } from '../tuning';
 
 export type DemoState =
@@ -128,6 +129,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   startupMacro: '',
   commandTimeoutMs: 8_000,
   approvedCatalogHosts: [],
+  firmwareInoPath: null,
 };
 
 const DEFAULT_TUNING: LiveTuningState = {
@@ -176,6 +178,7 @@ const MAX_HEATING_PROFILE_POINTS = 128;
 
 @Injectable({ providedIn: 'root' })
 export class WorkbenchStore implements OnDestroy {
+  private readonly simulationConfiguration = inject(SimulationConfigurationStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -233,15 +236,19 @@ export class WorkbenchStore implements OnDestroy {
   readonly hasTelemetry = signal(false);
   readonly requestedTarget = signal(0);
   readonly modelTarget = signal(0);
-  readonly controlMode = signal<ControlMode>('model-assisted');
+  readonly controlMode = signal<ControlMode>('pid');
+  /** The in-memory Wasm artifact paired with the persisted sketch path. */
+  readonly firmwareInLoop = signal<PreparedFirmware | null>(null);
+  readonly firmwareInLoopHardware = this.simulationConfiguration.hardware;
+  readonly firmwareInLoopBuilding = signal(false);
   readonly controlArmed = signal(false);
   readonly pidSchedule = signal<PidSchedule>(DEFAULT_PID_SCHEDULE);
   readonly activePidGains = signal<PidGains>(interpolatePidGains(DEFAULT_PID_SCHEDULE, 0));
-  readonly ovenModelProfile = signal<OvenModelProfile>(cloneOvenModelProfile(DEFAULT_OVEN_PROFILE));
+  readonly ovenModelProfile = this.simulationConfiguration.profile;
   readonly modelAssistance = signal<ModelAssistedTargetConfiguration>({
     ...DEFAULT_TARGET_ASSISTANCE,
   });
-  readonly activeProfile = signal('Built-in standard oven');
+  readonly activeProfile = signal('Standard oven model');
   readonly activity = signal<ExclusiveActivityState>({ active: null });
   readonly trend = signal<readonly TrendPoint[]>([]);
   readonly terminal = signal<readonly TerminalEntry[]>([]);
@@ -325,7 +332,13 @@ export class WorkbenchStore implements OnDestroy {
     root.dataset['sidebar'] = root.dataset['sidebar'] === 'collapsed' ? 'expanded' : 'collapsed';
   }
 
-  setMode(mode: ControlMode): void {
+  setMode(mode: ControlMode): boolean {
+    if (mode === 'model-assisted' && this.firmwareInLoop() === null) {
+      this.notify(
+        'Select and compile a FIRMWARE .ino file in Settings before enabling Model-assisted PID.',
+      );
+      return false;
+    }
     this.controlMode.set(mode);
     this.physicalForecastPlanner = null;
     this.lastPhysicalForecastAtMs = null;
@@ -335,6 +348,37 @@ export class WorkbenchStore implements OnDestroy {
       mode === 'pid' ? this.requestedTarget() : this.modelTarget(),
     );
     this.notify(mode === 'pid' ? 'PID control selected' : 'Model-assisted PID selected');
+    return true;
+  }
+
+  async chooseFirmwareIno(): Promise<boolean> {
+    if (this.api === undefined) {
+      this.notify('Firmware-in-the-loop selection is available in the Electron desktop app.');
+      return false;
+    }
+    this.firmwareInLoopBuilding.set(true);
+    try {
+      const result = await this.api.firmware.pickAndBuild();
+      if (!result.ok) {
+        this.notify(result.error.message);
+        return false;
+      }
+      if (result.value === null) return false;
+      if (result.value.status === 'failed') {
+        this.notify(result.value.diagnostics.map(({ message }) => message).join(' '));
+        return false;
+      }
+      const firmware = result.value.firmware;
+      this.firmwareInLoop.set(firmware);
+      this.firmwareInLoopHardware.set(firmware.suggestedHardware);
+      await this.updateSettings({ firmwareInoPath: firmware.source.path });
+      this.notify(
+        `${firmware.source.displayName} is ready (${firmware.cacheHit ? 'cached build' : 'fresh build'}).`,
+      );
+      return true;
+    } finally {
+      this.firmwareInLoopBuilding.set(false);
+    }
   }
 
   refreshPorts(): Promise<void> {
@@ -626,6 +670,12 @@ export class WorkbenchStore implements OnDestroy {
     profile: OvenModelProfile,
     assistance: ModelAssistedTargetConfiguration,
   ): boolean {
+    if (this.firmwareInLoop() === null) {
+      this.notify(
+        'Select and compile a FIRMWARE .ino file in Settings before enabling Model-assisted PID.',
+      );
+      return false;
+    }
     const normalizedProfile = cloneOvenModelProfile(profile);
     try {
       validateOvenModelProfile(normalizedProfile);
@@ -1775,25 +1825,14 @@ export class WorkbenchStore implements OnDestroy {
   private async completeDemoValidation(targetC: number): Promise<void> {
     if (this.validation().status !== 'running') return;
     const initial = this.telemetry().average;
-    const result = simulate({
-      profile: this.ovenModelProfile(),
-      scenario: {
-        durationSeconds: 240,
-        targets: [{ atSeconds: 0, targetC }],
-        initialTemperatureC: initial,
-        sampleEverySeconds: 1,
-      },
-      controller: { ...DEFAULT_SIMULATION_CONTROLLER, mode: 'pid' },
-      timewarp: 'maximum',
-    });
-    this.validationSamples = result.samples.map((sample) => ({
+    this.validationSamples = this.demoThermalTrace(240, 1, initial, targetC).map((sample) => ({
       atMs: sample.timeSeconds * 1_000,
-      t0C: sample.temperatures.t0C,
-      t1C: sample.temperatures.t1C,
-      t2C: sample.temperatures.t2C,
-      t3C: sample.temperatures.t3C,
-      reportedTargetC: sample.requestedTargetC,
-      output: Math.round(sample.actuator.applied * 255),
+      t0C: sample.average,
+      t1C: sample.t1,
+      t2C: sample.t2,
+      t3C: sample.t3,
+      reportedTargetC: targetC,
+      output: sample.power,
     }));
     this.validation.update((state) => ({ ...state, sampleCount: this.validationSamples.length }));
     await this.finishValidation('completed');
@@ -1876,26 +1915,56 @@ export class WorkbenchStore implements OnDestroy {
   private seedTrend(): readonly TrendPoint[] {
     const now = this.demoState() === null ? Date.now() : DEMO_FIXTURE_TIME_MS;
     const durationSeconds = 89 * 5;
-    const result = simulate({
-      profile: this.ovenModelProfile(),
-      scenario: {
-        durationSeconds,
-        targets: [{ atSeconds: 0, targetC: 200 }],
-        sampleEverySeconds: 5,
-      },
-      controller: { ...DEFAULT_SIMULATION_CONTROLLER, mode: 'pid' },
-      timewarp: 'maximum',
-    });
-    return result.samples.map((sample) => ({
+    return this.demoThermalTrace(
+      durationSeconds,
+      5,
+      this.ovenModelProfile().ambientTemperatureC,
+      200,
+    ).map((sample) => ({
       time: now - (durationSeconds - sample.timeSeconds) * 1_000,
-      average: sample.temperatures.t0C,
-      t1: sample.temperatures.t1C,
-      t2: sample.temperatures.t2C,
-      t3: sample.temperatures.t3C,
-      target: sample.requestedTargetC,
-      modelTarget: sample.firmwareTargetC,
-      power: Math.round(sample.actuator.applied * 255),
+      average: sample.average,
+      t1: sample.t1,
+      t2: sample.t2,
+      t3: sample.t3,
+      target: 200,
+      modelTarget: 200,
+      power: sample.power,
     }));
+  }
+
+  /** Static browser-demo data; real thermal runs are always owned by selected Wasm firmware. */
+  private demoThermalTrace(
+    durationSeconds: number,
+    sampleEverySeconds: number,
+    initialTemperatureC: number,
+    targetC: number,
+  ): readonly {
+    timeSeconds: number;
+    average: number;
+    t1: number;
+    t2: number;
+    t3: number;
+    power: number;
+  }[] {
+    const ambientC = this.ovenModelProfile().ambientTemperatureC;
+    const sampleCount = Math.round(durationSeconds / sampleEverySeconds);
+    return Array.from({ length: sampleCount + 1 }, (_, index) => {
+      const timeSeconds = index * sampleEverySeconds;
+      const progress = 1 - Math.exp(-timeSeconds / 150);
+      const projectedAverage = initialTemperatureC + (targetC - initialTemperatureC) * progress;
+      const sensorSpread = 0.6 * Math.sin(timeSeconds / 35);
+      const t1 = projectedAverage + sensorSpread;
+      const t2 = projectedAverage - sensorSpread;
+      const average = (t1 + t2) / 2;
+      return {
+        timeSeconds,
+        average,
+        t1,
+        t2,
+        t3: ambientC + (average - ambientC) * 0.08,
+        power: Math.max(0, Math.min(255, Math.round(255 * (1 - progress * 0.85)))),
+      };
+    });
   }
 
   private demoProfiles(): readonly StoredProfile[] {

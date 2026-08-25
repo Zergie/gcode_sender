@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { DEFAULT_OVEN_PROFILE, DEFAULT_SIMULATION_CONTROLLER } from '../default-profile';
 import { simulate } from '../engine';
+import { TEST_FIRMWARE_RUNTIME } from '../firmware-in-loop/firmware-in-loop.fixture';
+import { PHYSICAL_200C_CYCLE } from './physical-cycle.fixture';
 import {
   DEFAULT_THERMAL_TWIN_PROFILE,
   THERMAL_BODY_IDS,
@@ -70,7 +72,55 @@ function maximumTemperatureDifference(
   );
 }
 
+function replayPhysicalCycle(profile: ThermalTwinProfile = DEFAULT_THERMAL_TWIN_PROFILE) {
+  const { initial, samples } = PHYSICAL_200C_CYCLE;
+  const initialAverageC = (initial.t1C + initial.t2C) / 2;
+  const twin = createThermalTwin({
+    profile,
+    initialTemperatureC: initialAverageC,
+    initialTemperaturesC: { t1: initial.t1C, t2: initial.t2C, t3: initial.t3C },
+  });
+  const controlErrorsC: number[] = [];
+  const t3ErrorsC: number[] = [];
+  const heatGainsC: number[] = [];
+  let previousControlC = initialAverageC;
+  let reachedTargetBand = false;
+  let firstTargetBandSeconds: number | null = null;
+
+  for (const [timeSeconds, duty, measuredT1C, measuredT2C, measuredT3C] of samples) {
+    const snapshot = twin.advance({ durationSeconds: 20, duty });
+    const controlC = (snapshot.temperaturesC.t1 + snapshot.temperaturesC.t2) / 2;
+    const measuredControlC = (measuredT1C + measuredT2C) / 2;
+    controlErrorsC.push(controlC - measuredControlC);
+    t3ErrorsC.push(snapshot.temperaturesC.t3 - measuredT3C);
+    if (!reachedTargetBand) heatGainsC.push(controlC - previousControlC);
+    if (controlC >= 199) {
+      reachedTargetBand = true;
+      firstTargetBandSeconds ??= timeSeconds;
+    }
+    previousControlC = controlC;
+  }
+
+  const rmse = (errors: readonly number[]) =>
+    Math.sqrt(errors.reduce((sum, errorC) => sum + errorC ** 2, 0) / errors.length);
+  return {
+    controlRmseC: rmse(controlErrorsC),
+    t3RmseC: rmse(t3ErrorsC),
+    minimumHeatGainC: Math.min(...heatGainsC),
+    firstTargetBandSeconds,
+  };
+}
+
 describe('physical thermal twin', () => {
+  it('replays the measured 200 C physical cycle without triggering the firmware heat-rate fault', () => {
+    const replay = replayPhysicalCycle();
+    expect(replay.minimumHeatGainC).toBeGreaterThanOrEqual(1);
+    expect(replay.firstTargetBandSeconds).toBeGreaterThanOrEqual(140);
+    expect(replay.firstTargetBandSeconds).toBeLessThanOrEqual(220);
+    expect(replay.controlRmseC).toBeLessThan(12);
+    expect(replay.t3RmseC).toBeLessThan(8);
+  });
+
   it('keeps ambient equilibrium exactly at zero duty', () => {
     const twin = createThermalTwin();
     const result = twin.advance({ durationSeconds: 60, duty: 0 });
@@ -326,6 +376,7 @@ describe('physical thermal twin', () => {
     const result = simulate({
       profile: DEFAULT_OVEN_PROFILE,
       controller: DEFAULT_SIMULATION_CONTROLLER,
+      controllerRuntime: TEST_FIRMWARE_RUNTIME,
       scenario: {
         durationSeconds: 2_100,
         targets: [{ atSeconds: 0, targetC: 200 }],
@@ -370,40 +421,6 @@ describe('physical thermal twin', () => {
     expect(mediumError).toBeLessThan(coarseError);
     expect(mediumError).toBeLessThan(0.001);
     expect(Math.abs(fine.energy.balanceResidualJ)).toBeLessThan(1e-8);
-  });
-
-  it('keeps the default physical profile inside the v1 100% heat/cool envelope', () => {
-    // Deterministic sensor trace from v1 commit 56e7583, sampled every 60 seconds.
-    // The old plant is a characterization reference, not a mechanism copied into this twin.
-    const v1ReferenceC = [
-      22, 153.573833647, 158.41255351, 160.959445516, 163.40828375, 165.783177045, 46.714488826,
-      43.482777647, 42.611737609, 41.807878288, 41.034683812,
-    ];
-    const twin = createThermalTwin();
-    const actualC = [twin.snapshot().temperaturesC.t1];
-    let heatEndpoint: ThermalTwinSnapshot | undefined;
-    let cooldownEndpoint: ThermalTwinSnapshot | undefined;
-
-    for (let minute = 1; minute <= 10; minute += 1) {
-      const snapshot = twin.advance({ durationSeconds: 60, duty: minute <= 5 ? 1 : 0 });
-      actualC.push((snapshot.temperaturesC.t1 + snapshot.temperaturesC.t2) / 2);
-      if (minute === 5) {
-        heatEndpoint = snapshot;
-      }
-      if (minute === 10) {
-        cooldownEndpoint = snapshot;
-      }
-    }
-
-    actualC.forEach((temperatureC, index) => {
-      expect(Math.abs(temperatureC - v1ReferenceC[index]!)).toBeLessThan(3);
-    });
-    expect(heatEndpoint).toBeDefined();
-    expect(cooldownEndpoint).toBeDefined();
-    expect(Math.abs(actualC[5]! - v1ReferenceC[5]!)).toBeLessThan(1);
-    expect(Math.abs(actualC[10]! - v1ReferenceC[10]!)).toBeLessThan(1);
-    expect(Math.abs(heatEndpoint?.energy.balanceResidualJ ?? Infinity)).toBeLessThan(1e-8);
-    expect(Math.abs(cooldownEndpoint?.energy.balanceResidualJ ?? Infinity)).toBeLessThan(1e-8);
   });
 });
 

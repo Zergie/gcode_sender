@@ -7,8 +7,10 @@
   "main": "dist/electron/main.js",
   "scripts": {
     "dev": "concurrently --kill-others-on-fail \"npm:dev:renderer\" \"npm:dev:electron\"",
+    "dev:debug": "concurrently --kill-others-on-fail \"npm:dev:renderer\" \"npm:dev:electron:debug\"",
     "dev:renderer": "ng serve --host 127.0.0.1 --port 4200",
     "dev:electron": "npm run build:electron && wait-on http://127.0.0.1:4200 && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:4200 electron .",
+    "dev:electron:debug": "npm run build:electron && wait-on http://127.0.0.1:4200 && cross-env ELECTRON_RENDERER_URL=http://127.0.0.1:4200 electron --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 .",
     "clean": "node scripts/clean-build.mjs all",
     "clean:renderer": "node scripts/clean-build.mjs renderer",
     "clean:electron": "node scripts/clean-build.mjs electron",

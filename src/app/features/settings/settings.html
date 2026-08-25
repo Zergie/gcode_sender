@@ -12,6 +12,37 @@
     <div class="settings-main">
       <article class="panel settings-card">
         <header>
+          <div class="settings-icon"><app-icon name="sun" /></div>
+          <div>
+            <span class="panel-kicker">APPEARANCE</span>
+            <h2>Theme</h2>
+            <p>Optimized for dense, high-DPI desktop displays.</p>
+          </div>
+        </header>
+        <div class="theme-options">
+          @for (theme of ['dark', 'light', 'system']; track theme) {
+            <button
+              type="button"
+              [class.active]="store.settings().theme === theme"
+              [attr.aria-pressed]="store.settings().theme === theme"
+              (click)="changeTheme($any(theme))"
+            >
+              <span class="theme-preview" [class]="theme"><i></i><i></i><i></i></span>
+              <strong>{{ themeLabel(theme) }}</strong>
+              <small>{{
+                theme === 'dark'
+                  ? 'Low-glare control room'
+                  : theme === 'light'
+                    ? 'Bright workspace'
+                    : 'Match operating system'
+              }}</small>
+            </button>
+          }
+        </div>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
           <div class="settings-icon"><app-icon name="plug" /></div>
           <div>
             <span class="panel-kicker">HARDWARE</span>
@@ -55,6 +86,421 @@
 
       <article class="panel settings-card">
         <header>
+          <div class="settings-icon">&lt;/&gt;</div>
+          <div>
+            <span class="panel-kicker">FIRMWARE</span>
+            <h2>Simulation controller</h2>
+            <p>
+              Model-assisted PID is available only with this compiled firmware-in-the-loop sketch.
+            </p>
+          </div>
+        </header>
+        <div class="settings-fields">
+          <div class="field">
+            <span>Arduino sketch</span>
+            <div class="fixed-value">
+              <strong>{{ store.settings().firmwareInoPath ?? 'No .ino file selected' }}</strong
+              ><em>{{
+                store.firmwareInLoop()?.cacheHit
+                  ? 'CACHED WASM READY'
+                  : store.firmwareInLoop()
+                    ? 'WASM READY'
+                    : 'REQUIRED FOR MODEL-ASSISTED PID'
+              }}</em>
+            </div>
+          </div>
+          <button
+            class="button secondary"
+            type="button"
+            [disabled]="store.firmwareInLoopBuilding()"
+            (click)="chooseFirmware()"
+          >
+            {{ store.firmwareInLoopBuilding() ? 'Compiling…' : 'Choose .ino' }}
+          </button>
+        </div>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
+          <div class="settings-icon">◫</div>
+          <div>
+            <span class="panel-kicker">ROOM &amp; ELECTRICAL INPUT</span>
+            <h2>Twin environment</h2>
+            <p>Physical values shared directly with the firmware-in-the-loop twin.</p>
+          </div>
+        </header>
+        <div class="settings-fields">
+          <label class="field"
+            ><span>Ambient temperature</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="0"
+                max="45"
+                [ngModel]="store.ovenModelProfile().ambientTemperatureC"
+                (ngModelChange)="
+                  store.ovenModelProfile.update((profile) => ({
+                    ...profile,
+                    ambientTemperatureC: +$event,
+                  }))
+                "
+              /><em>°C</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Top heater rating</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="200"
+                max="1600"
+                step="10"
+                [ngModel]="store.ovenModelProfile().heaters.top.ratedPowerW"
+                (ngModelChange)="updateHeaterPower('top', $event)"
+              /><em>W</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Bottom heater rating</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="200"
+                max="1600"
+                step="10"
+                [ngModel]="store.ovenModelProfile().heaters.bottom.ratedPowerW"
+                (ngModelChange)="updateHeaterPower('bottom', $event)"
+              /><em>W</em>
+            </div></label
+          >
+        </div>
+        <details class="parameter-group">
+          <summary><span>All thermal bodies</span><em>Heat storage</em></summary>
+          <div class="settings-fields">
+            @for (body of thermalBodyIds; track body) {
+              <label class="field"
+                ><span>{{ body }}</span>
+                <div class="unit-input">
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    [ngModel]="store.ovenModelProfile().bodies[body].heatCapacityJPerK"
+                    (ngModelChange)="updateBodyCapacity(body, $event)"
+                  /><em>J/K</em>
+                </div></label
+              >
+            }
+          </div>
+        </details>
+        <details class="parameter-group">
+          <summary><span>Conduction &amp; convection</span><em>Physical links</em></summary>
+          <div class="settings-fields">
+            @for (link of store.ovenModelProfile().linearLinks; track $index; let index = $index) {
+              <label class="field"
+                ><span>{{ link.a }} ↔ {{ link.b }} · {{ link.mechanism }}</span>
+                <div class="unit-input">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.001"
+                    [ngModel]="link.conductanceWPerK"
+                    (ngModelChange)="updateLinearConductance(index, $event)"
+                  /><em>W/K</em>
+                </div></label
+              >
+            }
+          </div>
+        </details>
+        <details class="parameter-group">
+          <summary><span>Radiation</span><em>Area, emissivity, view factor</em></summary>
+          @for (link of store.ovenModelProfile().radiationLinks; track $index; let index = $index) {
+            <div class="settings-fields">
+              <label class="field"
+                ><span>{{ link.a }} ↔ {{ link.b }} area</span
+                ><input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  [ngModel]="link.areaM2"
+                  (ngModelChange)="updateRadiation(index, 'areaM2', $event)"
+              /></label>
+              <label class="field"
+                ><span>Emissivity</span
+                ><input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  [ngModel]="link.emissivity"
+                  (ngModelChange)="updateRadiation(index, 'emissivity', $event)"
+              /></label>
+              <label class="field"
+                ><span>View factor</span
+                ><input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  [ngModel]="link.viewFactor"
+                  (ngModelChange)="updateRadiation(index, 'viewFactor', $event)"
+              /></label>
+            </div>
+          }
+        </details>
+        <details class="parameter-group">
+          <summary><span>Ambient boundary</span><em>Loss and air exchange</em></summary>
+          <div class="settings-fields">
+            <label class="field"
+              ><span>Enclosure conductance</span
+              ><input
+                type="number"
+                min="0"
+                step="0.01"
+                [ngModel]="store.ovenModelProfile().ambient.enclosureConductanceWPerK"
+                (ngModelChange)="updateAmbient('enclosureConductanceWPerK', $event)"
+            /></label>
+            <label class="field"
+              ><span>Top air exchange</span
+              ><input
+                type="number"
+                min="0"
+                step="0.0001"
+                [ngModel]="store.ovenModelProfile().ambient.topAirExchangeM3PerSecond"
+                (ngModelChange)="updateAmbient('topAirExchangeM3PerSecond', $event)"
+            /></label>
+            <label class="field"
+              ><span>Bottom air exchange</span
+              ><input
+                type="number"
+                min="0"
+                step="0.0001"
+                [ngModel]="store.ovenModelProfile().ambient.bottomAirExchangeM3PerSecond"
+                (ngModelChange)="updateAmbient('bottomAirExchangeM3PerSecond', $event)"
+            /></label>
+            <label class="field"
+              ><span>T3 room conductance</span
+              ><input
+                type="number"
+                min="0"
+                step="0.001"
+                [ngModel]="store.ovenModelProfile().ambient.t3AmbientConductanceWPerK"
+                (ngModelChange)="updateAmbient('t3AmbientConductanceWPerK', $event)"
+            /></label>
+          </div>
+        </details>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
+          <div class="settings-icon">GPIO</div>
+          <div>
+            <span class="panel-kicker">VIRTUAL GPIO MAPPING</span>
+            <h2>Firmware peripherals</h2>
+            <p>These bindings are the pins observed and driven by the WebAssembly firmware.</p>
+          </div>
+        </header>
+        <div class="pid-table">
+          <div class="pid-row pid-head">
+            <span>Pin</span><span>Role</span><span>Polarity</span><span></span><span></span>
+          </div>
+          @for (binding of store.firmwareInLoopHardware().pins; track $index; let index = $index) {
+            <div class="pid-row">
+              <input
+                [attr.aria-label]="'Pin ' + (index + 1)"
+                [ngModel]="binding.pin"
+                (ngModelChange)="updateFirmwarePin(index, $event)"
+              />
+              <select
+                [attr.aria-label]="'Role for ' + binding.pin"
+                [ngModel]="firmwarePinRole(binding)"
+                (ngModelChange)="updateFirmwareRole(index, $event)"
+              >
+                @for (role of firmwarePinRoles; track role.value) {
+                  <option [ngValue]="role.value">{{ role.label }}</option>
+                }
+              </select>
+              @if (binding.kind === 'heater-output' || binding.kind === 'indicator-output') {
+                <select
+                  [ngModel]="binding.activeLevel"
+                  (ngModelChange)="updateFirmwarePolarity(index, $event)"
+                >
+                  <option value="high">Active high</option>
+                  <option value="low">Active low</option>
+                </select>
+              } @else if (binding.kind === 'digital-input') {
+                <select
+                  [ngModel]="binding.level ? 'high' : 'low'"
+                  (ngModelChange)="updateFirmwarePolarity(index, $event)"
+                >
+                  <option value="high">Constant high</option>
+                  <option value="low">Constant low</option>
+                </select>
+              } @else if (binding.kind === 'analog-input') {
+                <input
+                  type="number"
+                  min="0"
+                  max="4095"
+                  step="1"
+                  [ngModel]="binding.rawValue"
+                  (ngModelChange)="updateAnalogValue(index, $event)"
+                />
+              } @else {
+                <span>—</span>
+              }
+              <span></span
+              ><button
+                class="text-button"
+                type="button"
+                [attr.aria-label]="'Remove ' + binding.pin"
+                (click)="removeFirmwarePin(index)"
+              >
+                Remove
+              </button>
+            </div>
+          }
+        </div>
+        <div class="settings-fields">
+          <label class="field"
+            ><span>EEPROM capacity</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="33"
+                max="65536"
+                [ngModel]="store.firmwareInLoopHardware().eeprom.sizeBytes"
+                (ngModelChange)="updateEepromSize($event)"
+              /><em>bytes</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>EEPROM initial fill</span
+            ><select
+              [ngModel]="store.firmwareInLoopHardware().eeprom.initialFill"
+              (ngModelChange)="updateEepromFill($event)"
+            >
+              <option [ngValue]="255">0xFF</option>
+              <option [ngValue]="0">0x00</option>
+            </select></label
+          >
+          <button class="button secondary" type="button" (click)="addFirmwarePin()">
+            + Add GPIO
+          </button>
+          <button class="button secondary" type="button" (click)="resetFirmwareMapping()">
+            Restore known mapping
+          </button>
+        </div>
+        @if (firmwareNtc(); as ntc) {
+          <details class="parameter-group">
+            <summary><span>Thermistor transfer</span><em>Shared NTC calibration</em></summary>
+            <div class="settings-fields">
+              <label class="field"
+                ><span>Reference resistance</span
+                ><input
+                  type="number"
+                  min="1"
+                  [ngModel]="ntc.referenceResistanceOhm"
+                  (ngModelChange)="updateNtc('referenceResistanceOhm', $event)"
+              /></label>
+              <label class="field"
+                ><span>Nominal resistance</span
+                ><input
+                  type="number"
+                  min="1"
+                  [ngModel]="ntc.nominalResistanceOhm"
+                  (ngModelChange)="updateNtc('nominalResistanceOhm', $event)"
+              /></label>
+              <label class="field"
+                ><span>Nominal temperature</span
+                ><input
+                  type="number"
+                  min="-273"
+                  [ngModel]="ntc.nominalTemperatureC"
+                  (ngModelChange)="updateNtc('nominalTemperatureC', $event)"
+              /></label>
+              <label class="field"
+                ><span>Beta</span
+                ><input
+                  type="number"
+                  min="1"
+                  [ngModel]="ntc.betaK"
+                  (ngModelChange)="updateNtc('betaK', $event)"
+              /></label>
+            </div>
+          </details>
+        }
+      </article>
+
+      <article class="panel settings-card">
+        <header>
+          <div class="settings-icon">∿</div>
+          <div>
+            <span class="panel-kicker">ADDITIONAL MODEL PARAMETERS</span>
+            <h2>Geometry &amp; thermal storage</h2>
+            <p>Physical dimensions and heat capacities used by every twin forecast.</p>
+          </div>
+        </header>
+        <div class="settings-fields">
+          <label class="field"
+            ><span>Width</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                [ngModel]="store.ovenModelProfile().geometry.widthM * 1000"
+                (ngModelChange)="updateGeometry('widthM', $event)"
+              /><em>mm</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Depth</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                [ngModel]="store.ovenModelProfile().geometry.depthM * 1000"
+                (ngModelChange)="updateGeometry('depthM', $event)"
+              /><em>mm</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Height</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                [ngModel]="store.ovenModelProfile().geometry.heightM * 1000"
+                (ngModelChange)="updateGeometry('heightM', $event)"
+              /><em>mm</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Standard load capacity</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="0.01"
+                [ngModel]="store.ovenModelProfile().bodies.standardLoad.heatCapacityJPerK"
+                (ngModelChange)="updateBodyCapacity('standardLoad', $event)"
+              /><em>J/K</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Enclosure capacity</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="0.01"
+                [ngModel]="store.ovenModelProfile().bodies.enclosure.heatCapacityJPerK"
+                (ngModelChange)="updateBodyCapacity('enclosure', $event)"
+              /><em>J/K</em>
+            </div></label
+          >
+        </div>
+      </article>
+
+      <article class="panel settings-card">
+        <header>
           <div class="settings-icon">&gt;_</div>
           <div>
             <span class="panel-kicker">SESSION START</span>
@@ -81,37 +527,6 @@
               : 'No startup macro configured'
           }}</span
           ><small>There is intentionally no separate enable switch.</small>
-        </div>
-      </article>
-
-      <article class="panel settings-card">
-        <header>
-          <div class="settings-icon"><app-icon name="sun" /></div>
-          <div>
-            <span class="panel-kicker">APPEARANCE</span>
-            <h2>Theme</h2>
-            <p>Optimized for dense, high-DPI desktop displays.</p>
-          </div>
-        </header>
-        <div class="theme-options">
-          @for (theme of ['dark', 'light', 'system']; track theme) {
-            <button
-              type="button"
-              [class.active]="store.settings().theme === theme"
-              [attr.aria-pressed]="store.settings().theme === theme"
-              (click)="changeTheme($any(theme))"
-            >
-              <span class="theme-preview" [class]="theme"><i></i><i></i><i></i></span>
-              <strong>{{ themeLabel(theme) }}</strong>
-              <small>{{
-                theme === 'dark'
-                  ? 'Low-glare control room'
-                  : theme === 'light'
-                    ? 'Bright workspace'
-                    : 'Match operating system'
-              }}</small>
-            </button>
-          }
         </div>
       </article>
 

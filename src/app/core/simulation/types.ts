@@ -2,10 +2,12 @@ import type {
   ControlMode,
   ModelAssistedTargetConfiguration,
   PidControllerConfiguration,
-  PidGains,
-  PidTerms,
 } from '../control';
 import type { ThermalTwinProfile } from './physical-twin';
+import type {
+  FirmwareWasmArtifact,
+  VirtualHardwareConfiguration,
+} from '../../../../shared/firmware-contracts';
 
 /**
  * Versioned application profile around the physical thermal-twin definition.
@@ -25,9 +27,22 @@ export interface SimulationControllerConfiguration {
   readonly modelAssistance: ModelAssistedTargetConfiguration;
 }
 
+export interface SimulationControllerRuntime {
+  readonly kind: 'wasm-firmware';
+  readonly artifact: FirmwareWasmArtifact;
+  readonly hardware: VirtualHardwareConfiguration;
+  readonly initialEeprom?: Uint8Array;
+}
+
 export interface TemperatureTargetPoint {
   readonly atSeconds: number;
   readonly targetC: number;
+}
+
+/** A line placed on the simulated controller's UART at a deterministic virtual time. */
+export interface SimulationSerialCommand {
+  readonly atSeconds: number;
+  readonly command: string;
 }
 
 export interface SimulationScenario {
@@ -35,6 +50,8 @@ export interface SimulationScenario {
   readonly initialTemperatureC?: number;
   /** Piecewise-constant targets; the first point must start at zero. */
   readonly targets: readonly TemperatureTargetPoint[];
+  /** Optional operator input for the simulated controller UART. */
+  readonly serialCommands?: readonly SimulationSerialCommand[];
   readonly sampleEverySeconds: number;
 }
 
@@ -44,6 +61,8 @@ export interface SimulationRequest {
   readonly profile: OvenModelProfile;
   readonly controller: SimulationControllerConfiguration;
   readonly scenario: SimulationScenario;
+  /** The selected firmware program that owns the simulated actuator loop. */
+  readonly controllerRuntime: SimulationControllerRuntime;
   /** Execution pacing only. It never changes solverStepSeconds. */
   readonly timewarp?: SimulationTimewarp;
 }
@@ -68,11 +87,6 @@ export interface SimulationActuatorState {
   readonly pidOutput: number;
 }
 
-export interface SimulationPidState {
-  readonly gains: PidGains;
-  readonly terms: PidTerms;
-}
-
 export interface SimulationSample {
   readonly timeSeconds: number;
   readonly requestedTargetC: number;
@@ -81,7 +95,6 @@ export interface SimulationSample {
   readonly targetLeadC: number;
   readonly temperatures: SimulationTemperatures;
   readonly actuator: SimulationActuatorState;
-  readonly pid: SimulationPidState;
 }
 
 export interface SimulationMetrics {
@@ -109,6 +122,46 @@ export interface SimulationResult {
   readonly samples: readonly SimulationSample[];
   readonly metrics: SimulationMetrics;
   readonly execution: SimulationExecutionMetadata;
+  readonly firmware?: SimulationFirmwareExecution;
+}
+
+export interface SimulationFirmwareSerialEvent {
+  readonly timeSeconds: number;
+  readonly direction: 'rx' | 'tx';
+  readonly text: string;
+}
+
+export interface SimulationFirmwareIndicatorSample {
+  /** Start of the simulated interval summarized by this GPIO observation. */
+  readonly intervalStartSeconds: number;
+  /** End of the simulated interval summarized by this GPIO observation. */
+  readonly timeSeconds: number;
+  readonly indicators: Readonly<
+    Record<
+      string,
+      {
+        readonly pin: string;
+        /** Physical GPIO level at the end of the interval. */
+        readonly level: 'high' | 'low';
+        /** Logical configured activity state at the end of the interval. */
+        readonly active: boolean;
+        /** Time-weighted active fraction across the complete summarized interval. */
+        readonly activeFraction: number;
+      }
+    >
+  >;
+}
+
+export interface SimulationFirmwareExecution {
+  readonly buildId: string;
+  readonly serialTranscript: readonly SimulationFirmwareSerialEvent[];
+  readonly indicatorSamples: readonly SimulationFirmwareIndicatorSample[];
+  readonly resetCount: number;
+  readonly truncation?: {
+    readonly droppedSerialEvents: number;
+    readonly droppedSerialBytes: number;
+    readonly droppedIndicatorSamples: number;
+  };
 }
 
 export interface SimulationVariant {
@@ -122,6 +175,8 @@ export interface SimulationComparisonRequest {
   readonly scenario: SimulationScenario;
   readonly variants: readonly SimulationVariant[];
   readonly baselineId: string;
+  /** One selected firmware program is instantiated independently for every variant. */
+  readonly controllerRuntime: SimulationControllerRuntime;
   readonly timewarp?: SimulationTimewarp;
 }
 

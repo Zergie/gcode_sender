@@ -24,6 +24,7 @@ import type { JobService } from './services/job-service';
 import type { LiveTuningService } from './services/live-tuning-service';
 import type { PersistenceStore } from './services/persistence-store';
 import type { SerialService } from './services/serial-service';
+import type { FirmwareBuildService } from './firmware';
 
 interface IpcDependencies {
   readonly getRenderer: () => WebContents | null;
@@ -34,6 +35,7 @@ interface IpcDependencies {
   readonly store: PersistenceStore;
   readonly activity: ActivityService;
   readonly logger: Logger;
+  readonly firmware: FirmwareBuildService;
 }
 
 export function registerIpcHandlers(dependencies: IpcDependencies): () => void {
@@ -70,6 +72,18 @@ export function registerIpcHandlers(dependencies: IpcDependencies): () => void {
   handle(IPC.systemOpenExternal, async (urlText: string) => {
     const url = requireSafeExternalUrl(urlText);
     await shell.openExternal(url.href, { activate: true });
+  });
+
+  handle(IPC.firmwareToolchainStatus, () => dependencies.firmware.getToolchainStatus());
+  handle(IPC.firmwarePickAndBuild, async () => {
+    const result = await dialog.showOpenDialog({
+      title: 'Choose Arduino firmware sketch',
+      properties: ['openFile'],
+      filters: [{ name: 'Arduino sketches', extensions: ['ino'] }],
+    });
+    return result.canceled || result.filePaths.length === 0
+      ? null
+      : dependencies.firmware.build(result.filePaths[0]!);
   });
 
   handle(IPC.serialList, () => dependencies.serial.listPorts());

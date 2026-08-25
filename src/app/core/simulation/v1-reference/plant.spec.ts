@@ -8,6 +8,10 @@ import {
   v1ReferenceActuatorGain,
 } from './plant';
 
+// The literal 24,960-cell v1 solver is intentionally expensive. Keep enough
+// headroom for concurrent renderer workers without relaxing any golden values.
+const V1_REFERENCE_FIXTURE_TIMEOUT_MS = 15_000;
+
 function expectCloseTrace(actual: readonly number[], expected: readonly number[]): void {
   expect(actual).toHaveLength(expected.length);
   expected.forEach((expectedC, index) => {
@@ -50,6 +54,7 @@ describe('v1 deterministic characterization reference', () => {
       );
       expect(result.execution.gridCells).toBe(24_960);
     },
+    V1_REFERENCE_FIXTURE_TIMEOUT_MS,
   );
 
   it('is bit-for-bit deterministic without timer jitter or sensor noise', () => {

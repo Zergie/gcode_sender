@@ -41,6 +41,12 @@ firmware cannot be treated as reliable.
 - Energy-conserving physical oven twin with explicit heater, air, Standard-load,
   enclosure, and thermistor bodies; deterministic 1x, 5x, 20x, 100x, and
   maximum time warp.
+- Firmware-in-the-loop simulation for the supported Arduino `.ino`
+  sketch. The app compiles a content-addressed WebAssembly snapshot, exposes
+  configurable virtual STM32 GPIO mapping and EEPROM with the supported
+  board's fixed 12-bit ADC output, and derives heater duty from the firmware's
+  actual output-pin high time. ARM `.bin` files are intentionally not accepted
+  because they require CPU/peripheral emulation.
 - Firmware-faithful QuickPID cadence and quantized shared PWM. PID-only and
   model-assisted PID modes both leave the actuator loop in firmware;
   model-assisted control observes the live twin state and selects a bounded
@@ -87,6 +93,17 @@ Requirements:
 - Node.js 24.19 or newer;
 - npm 11 or newer.
 
+Firmware-in-the-loop builds use bundled, version-checked GCodeParser 1.3.0,
+NTC_Thermistor 2.1.0, and QuickPID 3.1.9 sources. They additionally require
+either local Emscripten `em++` 4.0.20 or Docker with the pinned official image:
+
+    docker pull emscripten/emsdk:4.0.20@sha256:460fff8f8ac87e11b16447fbd66538a686eafa0e4fb977aa0989ed19fe2079f7
+
+The Simulation page reports these capabilities before opening a sketch.
+Arduino CLI, the STM32 core, and separately installed Arduino libraries are not
+used by this source-level adapter. A compiled firmware snapshot is required to
+run the physical twin; there is no built-in controller fallback.
+
 Install and start:
 
     npm install
@@ -118,6 +135,14 @@ and is not signed or notarized.
   issuing overlapping machine commands.
 - Time warp advances simulation time only. It never accelerates commands sent to
   physical hardware.
+- Firmware WebAssembly runs in the simulation worker with deterministic virtual
+  time and an allowlisted, semantic Arduino/STM32 peripheral layer. It has no
+  filesystem, network, host-clock, entropy, real serial, or real GPIO access.
+  This executes the sketch's source-level logic; it is not Cortex-M instruction
+  or register-level emulation. UART bytes retain deterministic order, but ABI
+  v1 does not model 115200-baud serialization, native FIFO blocking, or
+  instruction-cycle timing. Heavy UART traffic is therefore not cycle-accurate;
+  buffer saturation aborts the simulation instead of discarding output.
 - Feed-forward is exposed as model-assisted PID correction, not uncontrolled
   open-loop heater power.
 - A live tune snapshots firmware gains using M503, validates reported output,

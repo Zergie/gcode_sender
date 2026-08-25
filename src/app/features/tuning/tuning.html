@@ -1,22 +1,32 @@
-<div class="page tuning-page">
-  <app-page-header
-    title="Tuning & Profiles"
-    description="Version PID schedules, calibrate live hardware, and manage oven models."
-  >
-    <button class="button secondary" type="button" (click)="store.importProfiles()">
-      Import JSON
-    </button>
-    <button
-      class="button secondary"
-      type="button"
-      [disabled]="store.profiles().length === 0"
-      (click)="exportAllProfiles()"
+<div class="page tuning-page" [class.embedded]="embedded()">
+  @if (!embedded()) {
+    <app-page-header
+      title="Simulation & Tuning"
+      description="Run the firmware-in-the-loop twin, tune PID schedules, and manage profiles."
     >
-      Export profiles
-    </button>
-  </app-page-header>
+      <button class="button secondary" type="button" (click)="store.importProfiles()">
+        Import JSON
+      </button>
+      <button
+        class="button secondary"
+        type="button"
+        [disabled]="store.profiles().length === 0"
+        (click)="exportAllProfiles()"
+      >
+        Export profiles
+      </button>
+    </app-page-header>
+  }
 
   <nav class="section-tabs" aria-label="Tuning sections">
+    <button
+      type="button"
+      [class.active]="section() === 'simulation'"
+      [attr.aria-pressed]="section() === 'simulation'"
+      (click)="section.set('simulation')"
+    >
+      Simulation
+    </button>
     <button
       type="button"
       [class.active]="section() === 'schedule'"
@@ -43,7 +53,9 @@
     </button>
   </nav>
 
-  @if (section() === 'schedule') {
+  @if (section() === 'simulation') {
+    <app-simulation [embedded]="true" />
+  } @else if (section() === 'schedule') {
     <section class="tuning-grid">
       <article class="panel schedule-editor">
         <header class="panel-header">

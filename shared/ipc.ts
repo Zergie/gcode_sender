@@ -1,6 +1,8 @@
 export const IPC = {
   systemInfo: 'system:info',
   systemOpenExternal: 'system:open-external',
+  firmwareToolchainStatus: 'firmware:toolchain-status',
+  firmwarePickAndBuild: 'firmware:pick-and-build',
   serialList: 'serial:list',
   serialState: 'serial:state:get',
   serialConnect: 'serial:connect',

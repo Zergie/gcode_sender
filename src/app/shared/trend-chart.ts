@@ -53,7 +53,7 @@ interface ChartGeometry {
           </linearGradient>
         </defs>
         <g class="grid-lines" aria-hidden="true">
-          <path d="M44 22H884M44 84H884M44 146H884M44 208H884M44 270H884" />
+          <path d="M44 22H884M44 71.6H884M44 121.2H884M44 170.8H884M44 220.4H884M44 270H884" />
           <path d="M44 22V270M254 22V270M464 22V270M674 22V270M884 22V270" />
         </g>
         <path class="area" [attr.d]="geometry().area" aria-hidden="true" />
@@ -99,9 +99,10 @@ interface ChartGeometry {
         }
         <g class="axis-labels" aria-hidden="true">
           <text x="5" y="27">250°</text>
-          <text x="12" y="89">188°</text>
-          <text x="12" y="151">125°</text>
-          <text x="20" y="213">63°</text>
+          <text x="12" y="76.6">200°</text>
+          <text x="12" y="126.2">150°</text>
+          <text x="12" y="175.8">100°</text>
+          <text x="20" y="225.4">50°</text>
           <text x="27" y="275">0°</text>
         </g>
       </svg>

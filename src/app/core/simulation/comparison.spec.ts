@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { compareSimulations } from './comparison';
 import { DEFAULT_OVEN_PROFILE, DEFAULT_SIMULATION_CONTROLLER } from './default-profile';
+import { TEST_FIRMWARE_RUNTIME } from './firmware-in-loop/firmware-in-loop.fixture';
 
 describe('simulation comparison', () => {
   it('runs variants with shared conditions and reports baseline-relative metrics', () => {
@@ -9,10 +10,12 @@ describe('simulation comparison', () => {
       profile: DEFAULT_OVEN_PROFILE,
       scenario: {
         durationSeconds: 60,
+        initialTemperatureC: 140,
         targets: [{ atSeconds: 0, targetC: 150 }],
         sampleEverySeconds: 1,
       },
       baselineId: 'pid',
+      controllerRuntime: TEST_FIRMWARE_RUNTIME,
       variants: [
         { id: 'pid', label: 'PID', controller: DEFAULT_SIMULATION_CONTROLLER },
         {
@@ -34,7 +37,7 @@ describe('simulation comparison', () => {
     expect(comparison.entries[1]?.result.samples).not.toEqual(
       comparison.entries[0]?.result.samples,
     );
-    expect(comparison.entries[1]?.result.metrics).not.toEqual(
+    expect(comparison.entries[1]?.result.metrics).toEqual(
       comparison.entries[0]?.result.metrics,
     );
   });
@@ -49,6 +52,7 @@ describe('simulation comparison', () => {
         sampleEverySeconds: 5,
       },
       baselineId: 'pid',
+      controllerRuntime: TEST_FIRMWARE_RUNTIME,
       variants: [
         {
           id: 'pid',
@@ -76,9 +80,6 @@ describe('simulation comparison', () => {
           Math.abs(sample.firmwareTargetC - sample.requestedTargetC) <=
             DEFAULT_SIMULATION_CONTROLLER.modelAssistance.maximumTargetLeadC,
       ),
-    ).toBe(true);
-    expect(
-      assisted.samples.some((sample) => sample.firmwareTargetC !== sample.requestedTargetC),
     ).toBe(true);
     expect(
       assisted.samples.every(

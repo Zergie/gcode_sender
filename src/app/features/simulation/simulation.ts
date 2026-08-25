@@ -4,6 +4,7 @@ import {
   NgZone,
   computed,
   inject,
+  input,
   signal,
 } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
@@ -11,8 +12,8 @@ import { FormsModule } from '@angular/forms';
 import { DecimalPipe } from '@angular/common';
 import {
   DEFAULT_SIMULATION_CONTROLLER,
-  cloneOvenModelProfile,
-  compareSimulations,
+  FirmwareInLoopError,
+  prepareFirmwarePins,
   validateOvenModelProfile,
   type AmbientBoundaryConfiguration,
   type LinearHeatTransferMechanism,
@@ -33,6 +34,19 @@ import type { TrendPoint } from '../../core/platform/workbench.store';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
 import { PageHeaderComponent } from '../../shared/page-header';
 import { TrendChartComponent } from '../../shared/trend-chart';
+import type { GcodeApi } from '../../../../shared/contracts';
+import {
+  FIRMWARE_ADC_BITS,
+  FIRMWARE_ADC_MAX_VALUE,
+  FIRMWARE_EEPROM_MAX_BYTES,
+  FIRMWARE_EEPROM_MIN_BYTES,
+  type FirmwareDiagnostic,
+  type FirmwareToolchainStatus,
+  type NtcBetaDivider,
+  type PreparedFirmware,
+  type VirtualHardwareConfiguration,
+  type VirtualPinBinding,
+} from '../../../../shared/firmware-contracts';
 import type {
   SimulationWorkerRequest,
   SimulationWorkerResponse,
@@ -40,6 +54,96 @@ import type {
 
 const SIMULATION_TREND_ORIGIN_MS = Date.UTC(2026, 7, 15, 12, 0, 0);
 const DISPLAYED_METRIC_TOLERANCE_C = 0.005;
+const MAX_FIRMWARE_OUTPUT_LINES = 300;
+const SIMULATION_WORKER_DEADLINE_MS = 5 * 60 * 1_000;
+
+type FirmwarePinRole =
+  | 'heater-output'
+  | 'thermistor-t1'
+  | 'thermistor-t2'
+  | 'thermistor-t3'
+  | 'indicator-output'
+  | 'uart-rx'
+  | 'uart-tx'
+  | 'digital-input'
+  | 'analog-input'
+  | 'ignored-output';
+
+interface FirmwareOutputLine {
+  readonly id: number;
+  /** Null identifies an untimed end-of-run summary rather than a fabricated event time. */
+  readonly timeSeconds: number | null;
+  readonly direction: 'rx' | 'tx' | 'gpio' | 'system';
+  readonly text: string;
+}
+
+const DEFAULT_NTC_TRANSFER: NtcBetaDivider = {
+  kind: 'ntc-beta-divider',
+  referenceResistanceOhm: 4_700,
+  nominalResistanceOhm: 100_000,
+  nominalTemperatureC: 25,
+  betaK: 3_950,
+  adcBits: FIRMWARE_ADC_BITS,
+  topology: 'reference-to-vcc-thermistor-to-ground',
+};
+
+function defaultFirmwareHardware(): VirtualHardwareConfiguration {
+  return {
+    version: 1,
+    boardProfileId: 'stm32duino-source-compat-v1',
+    pins: [
+      {
+        kind: 'thermistor-input',
+        pin: 'PA6',
+        sensor: 't1',
+        transfer: { ...DEFAULT_NTC_TRANSFER },
+      },
+      {
+        kind: 'thermistor-input',
+        pin: 'PA0',
+        sensor: 't2',
+        transfer: { ...DEFAULT_NTC_TRANSFER },
+      },
+      {
+        kind: 'thermistor-input',
+        pin: 'PA5',
+        sensor: 't3',
+        transfer: { ...DEFAULT_NTC_TRANSFER },
+      },
+      {
+        kind: 'heater-output',
+        pin: 'PB9',
+        actuator: 'shared-heaters',
+        activeLevel: 'high',
+        sampling: 'edge-integrated',
+      },
+      {
+        kind: 'indicator-output',
+        pin: 'PC13',
+        indicatorId: 'status-led',
+        label: 'Status LED',
+        activeLevel: 'low',
+      },
+      { kind: 'uart-rx', pin: 'PA10', uartId: 'console' },
+      { kind: 'uart-tx', pin: 'PA9', uartId: 'console' },
+    ],
+    eeprom: { initialFill: 255, sizeBytes: 1_024 },
+  };
+}
+
+function cloneFirmwareHardware(
+  hardware: VirtualHardwareConfiguration,
+): VirtualHardwareConfiguration {
+  return {
+    ...hardware,
+    pins: hardware.pins.map((binding) =>
+      binding.kind === 'thermistor-input'
+        ? { ...binding, transfer: { ...binding.transfer } }
+        : { ...binding },
+    ),
+    eeprom: { ...hardware.eeprom },
+  };
+}
 
 type HeaterPosition = keyof OvenModelProfile['heaters'];
 type RadiationParameter = keyof Pick<RadiationHeatLink, 'areaM2' | 'emissivity' | 'viewFactor'>;
@@ -76,18 +180,32 @@ interface SimulationRunContext {
   readonly targetC: number;
   readonly durationSeconds: number;
   readonly timewarp: SimulationTimewarp;
+  readonly resumeAtSeconds: number;
+}
+
+interface QueuedFirmwareTerminalCommand {
+  readonly id: number;
+  readonly atSeconds: number;
+  readonly command: string;
 }
 
 @Component({
   selector: 'app-simulation',
   imports: [DecimalPipe, FormsModule, PageHeaderComponent, TrendChartComponent],
   templateUrl: './simulation.html',
+  styleUrl: './simulation.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SimulationComponent implements OnDestroy {
+  readonly embedded = input(false);
+  readonly firmwareAdcBits = FIRMWARE_ADC_BITS;
+  readonly firmwareAdcMaximum = FIRMWARE_ADC_MAX_VALUE;
+  readonly firmwareEepromMinimum = FIRMWARE_EEPROM_MIN_BYTES;
+  readonly firmwareEepromMaximum = FIRMWARE_EEPROM_MAX_BYTES;
   readonly store = inject(WorkbenchStore);
   private readonly zone = inject(NgZone);
-  readonly profile = signal<OvenModelProfile>(cloneOvenModelProfile(this.store.ovenModelProfile()));
+  /** Shared with Settings so the twin always runs the configured physical model. */
+  readonly profile = this.store.ovenModelProfile;
   readonly modelAssistance = signal<ModelAssistedTargetConfiguration>({
     ...this.store.modelAssistance(),
   });
@@ -100,11 +218,27 @@ export class SimulationComponent implements OnDestroy {
   readonly comparison = signal<SimulationComparisonResult | null>(null);
   readonly simulationBusy = signal(false);
   readonly simulationError = signal<string | null>(null);
-  readonly selectedVariant = signal<'pid' | 'assisted'>('assisted');
+  readonly selectedVariant = signal('assisted');
+  readonly firmwareBuildBusy = signal(false);
+  readonly firmwareAdvanced = signal(false);
+  readonly firmwareToolchain = signal<FirmwareToolchainStatus | null>(null);
+  readonly preparedFirmware = signal<PreparedFirmware | null>(null);
+  readonly firmwareDiagnostics = signal<readonly FirmwareDiagnostic[]>([]);
+  readonly firmwareHardware = this.store.firmwareInLoopHardware;
+  readonly firmwareOutput = signal<readonly FirmwareOutputLine[]>([]);
+  readonly firmwareTerminalInput = signal('M105');
+  readonly firmwareTerminalTimeSeconds = signal(0);
+  readonly firmwareTerminalCommands = signal<readonly QueuedFirmwareTerminalCommand[]>([]);
+  private readonly firmwareApi: GcodeApi | undefined =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as unknown as { readonly gcode?: GcodeApi }).gcode;
+  private firmwareOutputSequence = 0;
   private playback: ReturnType<typeof setInterval> | undefined;
   private playbackWallStartMs = 0;
   private playbackSimulationStartSeconds = 0;
   private simulationWorker: Worker | undefined;
+  private simulationWorkerDeadline: ReturnType<typeof setTimeout> | undefined;
   private simulationRunSequence = 0;
   private activeSimulationRunToken = 0;
   private destroyed = false;
@@ -220,6 +354,24 @@ export class SimulationComponent implements OnDestroy {
       detail: `${preferred.label} lowers RMSE by ${Math.abs(rmseDifferenceC).toFixed(2)} °C. Maximum T0 separation is ${maximumResponseDifferenceC.toFixed(2)} °C.`,
     };
   });
+  readonly firmwareNtc = computed<NtcBetaDivider>(() => {
+    const firstThermistor = this.firmwareHardware().pins.find(
+      (binding): binding is Extract<VirtualPinBinding, { readonly kind: 'thermistor-input' }> =>
+        binding.kind === 'thermistor-input',
+    );
+    return firstThermistor?.transfer ?? DEFAULT_NTC_TRANSFER;
+  });
+  readonly firmwareConfigurationError = computed(() => {
+    if (this.preparedFirmware() === null) return 'Choose and build an Arduino .ino sketch.';
+
+    try {
+      prepareFirmwarePins(this.firmwareHardware());
+      return null;
+    } catch (error) {
+      if (error instanceof FirmwareInLoopError) return error.message;
+      return error instanceof Error ? error.message : 'The virtual hardware mapping is invalid.';
+    }
+  });
   readonly configurationError = computed(() => {
     try {
       validateOvenModelProfile(this.profile());
@@ -234,6 +386,8 @@ export class SimulationComponent implements OnDestroy {
       ) {
         return 'Duration must be between 1 and 180 minutes.';
       }
+      const firmwareError = this.firmwareConfigurationError();
+      if (firmwareError !== null) return firmwareError;
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : 'The simulation configuration is invalid.';
@@ -241,11 +395,31 @@ export class SimulationComponent implements OnDestroy {
   });
 
   readonly warps: readonly SimulationTimewarp[] = [1, 5, 20, 100, 'maximum'];
+  readonly firmwarePinRoles: ReadonlyArray<{
+    readonly value: FirmwarePinRole;
+    readonly label: string;
+  }> = [
+    { value: 'heater-output', label: 'Shared heater' },
+    { value: 'thermistor-t1', label: 'Thermistor T1' },
+    { value: 'thermistor-t2', label: 'Thermistor T2' },
+    { value: 'thermistor-t3', label: 'Thermistor T3' },
+    { value: 'indicator-output', label: 'LED / indicator' },
+    { value: 'uart-rx', label: 'Serial RX' },
+    { value: 'uart-tx', label: 'Serial TX' },
+    { value: 'digital-input', label: 'Digital input' },
+    { value: 'analog-input', label: 'Analog input' },
+    { value: 'ignored-output', label: 'Ignored output' },
+  ];
 
   constructor() {
-    // Production renderers calculate the initial comparison off-thread. Non-Worker environments
-    // keep the explicit run() fallback without blocking application startup.
-    if (typeof Worker !== 'undefined') this.run(false, false);
+    const firmware = this.store.firmwareInLoop();
+    const hardware = this.store.firmwareInLoopHardware();
+    if (firmware !== null) {
+      this.preparedFirmware.set(firmware);
+      this.firmwareToolchain.set(firmware.toolchain);
+      this.firmwareDiagnostics.set(firmware.diagnostics);
+      this.firmwareHardware.set(cloneFirmwareHardware(hardware));
+    }
   }
 
   ngOnDestroy(): void {
@@ -254,7 +428,7 @@ export class SimulationComponent implements OnDestroy {
     this.stopPlayback();
   }
 
-  run(animate = true, persist = true): void {
+  run(animate = true, persist = true, resumeAtSeconds = 0): void {
     this.stopPlayback();
     this.invalidateSimulationRun();
     this.simulationError.set(null);
@@ -267,18 +441,27 @@ export class SimulationComponent implements OnDestroy {
     const durationSeconds = Math.max(60, Math.round(this.durationMinutes() * 60));
     const targetC = Math.max(0, Math.min(250, this.target()));
     const timewarp = this.timewarp();
+    const preparedFirmware = this.preparedFirmware();
+    if (preparedFirmware === null) {
+      this.store.notify('Choose and build an Arduino .ino sketch before running the simulation.');
+      return;
+    }
     const request: SimulationComparisonRequest = {
       profile,
       scenario: {
         durationSeconds,
         initialTemperatureC: profile.ambientTemperatureC,
         targets: [{ atSeconds: 0, targetC }],
+        serialCommands: this.firmwareTerminalCommands().map(({ atSeconds, command }) => ({
+          atSeconds,
+          command,
+        })),
         sampleEverySeconds: 5,
       },
       variants: [
         {
           id: 'pid',
-          label: 'PID',
+          label: 'Firmware PID',
           controller: {
             ...DEFAULT_SIMULATION_CONTROLLER,
             mode: 'pid',
@@ -288,7 +471,7 @@ export class SimulationComponent implements OnDestroy {
         },
         {
           id: 'assisted',
-          label: 'Physical feed-forward + PID',
+          label: 'Firmware + physical feed-forward',
           controller: {
             ...DEFAULT_SIMULATION_CONTROLLER,
             mode: 'model-assisted-pid',
@@ -298,6 +481,11 @@ export class SimulationComponent implements OnDestroy {
         },
       ],
       baselineId: 'pid',
+      controllerRuntime: {
+        kind: 'wasm-firmware' as const,
+        artifact: preparedFirmware.artifact,
+        hardware: cloneFirmwareHardware(this.firmwareHardware()),
+      },
       timewarp,
     };
     const context: SimulationRunContext = {
@@ -308,13 +496,18 @@ export class SimulationComponent implements OnDestroy {
       targetC,
       durationSeconds,
       timewarp,
+      resumeAtSeconds: Math.max(0, Math.min(durationSeconds, resumeAtSeconds)),
     };
     this.activeSimulationRunToken = context.token;
     this.simulationBusy.set(true);
 
     const worker = this.createSimulationWorker();
     if (worker === null) {
-      this.runSynchronously(request, context);
+      this.failSimulationRun(
+        undefined,
+        context,
+        'Firmware-in-the-loop requires an isolated simulation worker; the firmware was not executed.',
+      );
       return;
     }
 
@@ -334,6 +527,7 @@ export class SimulationComponent implements OnDestroy {
       );
     };
     const message: SimulationWorkerRequest = { token: context.token, request };
+    this.armSimulationWorkerDeadline(worker, context);
     try {
       worker.postMessage(message);
     } catch (error) {
@@ -351,21 +545,6 @@ export class SimulationComponent implements OnDestroy {
     this.simulationError.set(null);
     this.paused.set(true);
     this.stopPlayback();
-  }
-
-  private runSynchronously(
-    request: SimulationComparisonRequest,
-    context: SimulationRunContext,
-  ): void {
-    try {
-      this.completeSimulationRun(context, compareSimulations(request));
-    } catch (error) {
-      this.failSimulationRun(
-        undefined,
-        context,
-        error instanceof Error ? error.message : 'The simulation failed.',
-      );
-    }
   }
 
   private handleWorkerResponse(
@@ -390,10 +569,17 @@ export class SimulationComponent implements OnDestroy {
     this.simulationBusy.set(false);
     this.simulationError.set(null);
     this.comparison.set(result);
-    const total = this.activeEntry()?.result.samples.length ?? 0;
-    this.cursor.set(context.animate ? 1 : total);
+    const samples = this.activeEntry()?.result.samples ?? [];
+    const total = samples.length;
+    const resumeIndex = samples.findIndex(
+      (sample) => sample.timeSeconds >= context.resumeAtSeconds,
+    );
+    this.cursor.set(
+      context.animate ? Math.max(1, resumeIndex < 0 ? total : resumeIndex + 1) : total,
+    );
     this.paused.set(!context.animate);
     if (context.animate) this.startPlayback();
+    this.updateFirmwareOutputFromResult(result);
     if (context.persist) {
       void this.store.saveSimulationSession({
         profile: context.profile,
@@ -446,6 +632,7 @@ export class SimulationComponent implements OnDestroy {
   }
 
   private releaseSimulationWorker(worker: Worker): void {
+    this.clearSimulationWorkerDeadline();
     worker.onmessage = null;
     worker.onerror = null;
     worker.onmessageerror = null;
@@ -458,7 +645,27 @@ export class SimulationComponent implements OnDestroy {
     if (this.simulationWorker !== undefined) {
       this.releaseSimulationWorker(this.simulationWorker);
     }
+    this.clearSimulationWorkerDeadline();
     this.simulationBusy.set(false);
+  }
+
+  private armSimulationWorkerDeadline(worker: Worker, context: SimulationRunContext): void {
+    this.clearSimulationWorkerDeadline();
+    this.simulationWorkerDeadline = setTimeout(() => {
+      this.zone.run(() =>
+        this.failSimulationRun(
+          worker,
+          context,
+          'The simulation exceeded its 5 minute wall-clock limit, so its isolated worker was terminated. Firmware may be blocked inside setup() or loop().',
+        ),
+      );
+    }, SIMULATION_WORKER_DEADLINE_MS);
+  }
+
+  private clearSimulationWorkerDeadline(): void {
+    if (this.simulationWorkerDeadline === undefined) return;
+    clearTimeout(this.simulationWorkerDeadline);
+    this.simulationWorkerDeadline = undefined;
   }
 
   togglePlayback(): void {
@@ -485,41 +692,488 @@ export class SimulationComponent implements OnDestroy {
     if (!this.paused()) this.startPlayback();
   }
 
+  async refreshFirmwareToolchain(): Promise<void> {
+    if (this.firmwareApi === undefined) {
+      this.firmwareToolchain.set({
+        available: false,
+        selected: null,
+        adapters: [
+          {
+            kind: 'local-em++',
+            available: false,
+            displayName: 'Local Emscripten',
+            version: null,
+            detail: 'Firmware compilation is available in the Electron desktop app.',
+          },
+          {
+            kind: 'docker-emscripten',
+            available: false,
+            displayName: 'Docker Emscripten',
+            version: null,
+            detail: 'Firmware compilation is available in the Electron desktop app.',
+          },
+        ],
+      });
+      return;
+    }
+
+    try {
+      const result = await this.firmwareApi.firmware.getToolchainStatus();
+      if (result.ok) {
+        this.firmwareToolchain.set(result.value);
+        return;
+      }
+      this.firmwareToolchain.set(null);
+      this.store.notify(result.error.message);
+    } catch (error) {
+      this.firmwareToolchain.set(null);
+      this.store.notify(
+        error instanceof Error ? error.message : 'The firmware toolchain check failed.',
+      );
+    }
+  }
+
+  async chooseFirmware(): Promise<void> {
+    if (this.firmwareApi === undefined) {
+      this.firmwareDiagnostics.set([
+        {
+          severity: 'error',
+          phase: 'toolchain',
+          code: 'TOOLCHAIN_UNAVAILABLE',
+          message: 'Choose and compile Arduino sketches from the Electron desktop app.',
+        },
+      ]);
+      return;
+    }
+
+    this.firmwareBuildBusy.set(true);
+    this.firmwareDiagnostics.set([]);
+    try {
+      const result = await this.firmwareApi.firmware.pickAndBuild();
+      if (!result.ok) {
+        this.firmwareDiagnostics.set([
+          {
+            severity: 'error',
+            phase: 'compile',
+            code: 'COMPILE_FAILED',
+            message: result.error.message,
+          },
+        ]);
+        return;
+      }
+      if (result.value === null) return;
+      if (result.value.status === 'failed') {
+        this.firmwareToolchain.set(result.value.toolchain);
+        this.firmwareDiagnostics.set(result.value.diagnostics);
+        return;
+      }
+
+      this.invalidateSimulationResults();
+      this.preparedFirmware.set(result.value.firmware);
+      this.firmwareToolchain.set(result.value.firmware.toolchain);
+      this.firmwareDiagnostics.set(result.value.firmware.diagnostics);
+      this.firmwareHardware.set(cloneFirmwareHardware(result.value.firmware.suggestedHardware));
+      this.appendFirmwareOutput({
+        timeSeconds: 0,
+        direction: 'system',
+        text: `${result.value.firmware.source.displayName} is ready (${result.value.firmware.cacheHit ? 'cached build' : 'fresh build'}).`,
+      });
+    } catch (error) {
+      this.firmwareDiagnostics.set([
+        {
+          severity: 'error',
+          phase: 'compile',
+          code: 'COMPILE_FAILED',
+          message: error instanceof Error ? error.message : 'Firmware compilation failed.',
+        },
+      ]);
+    } finally {
+      this.firmwareBuildBusy.set(false);
+    }
+  }
+
+  resetKnownFirmwareMapping(): void {
+    const suggested = this.preparedFirmware()?.suggestedHardware;
+    this.invalidateSimulationResults();
+    this.firmwareHardware.set(
+      suggested === undefined ? defaultFirmwareHardware() : cloneFirmwareHardware(suggested),
+    );
+  }
+
+  addGenericFirmwarePin(): void {
+    const usedPins = new Set(this.firmwareHardware().pins.map((binding) => binding.pin));
+    const suggestions = Array.from({ length: 3 }, (_unused, bank) =>
+      Array.from(
+        { length: 16 },
+        (_innerUnused, pin) => `P${String.fromCharCode('A'.charCodeAt(0) + bank)}${pin}`,
+      ),
+    ).flat();
+    const pin = suggestions.find((candidate) => !usedPins.has(candidate));
+    if (pin === undefined) {
+      this.store.notify('All supported PA, PB and PC virtual pin names are already mapped.');
+      return;
+    }
+    this.invalidateSimulationResults();
+    this.firmwareHardware.update((hardware) => ({
+      ...hardware,
+      pins: [...hardware.pins, { kind: 'digital-input', pin, level: false }],
+    }));
+  }
+
+  removeFirmwarePin(index: number): void {
+    this.invalidateSimulationResults();
+    this.firmwareHardware.update((hardware) => ({
+      ...hardware,
+      pins: hardware.pins.filter((_binding, bindingIndex) => bindingIndex !== index),
+    }));
+  }
+
+  updateFirmwarePinName(index: number, pin: string): void {
+    this.updateFirmwareBinding(index, (binding) => ({
+      ...binding,
+      pin: pin.trim().toUpperCase(),
+    }));
+  }
+
+  firmwarePinRole(binding: VirtualPinBinding): FirmwarePinRole {
+    if (binding.kind === 'thermistor-input') return `thermistor-${binding.sensor}`;
+    return binding.kind;
+  }
+
+  updateFirmwarePinRole(index: number, role: FirmwarePinRole): void {
+    const pin = this.firmwareHardware().pins[index]?.pin ?? '';
+    const binding: VirtualPinBinding = (() => {
+      switch (role) {
+        case 'heater-output':
+          return {
+            kind: 'heater-output',
+            pin,
+            actuator: 'shared-heaters',
+            activeLevel: 'high',
+            sampling: 'edge-integrated',
+          };
+        case 'thermistor-t1':
+        case 'thermistor-t2':
+        case 'thermistor-t3':
+          return {
+            kind: 'thermistor-input',
+            pin,
+            sensor: role.slice(-2) as 't1' | 't2' | 't3',
+            transfer: { ...this.firmwareNtc() },
+          };
+        case 'indicator-output':
+          return {
+            kind: 'indicator-output',
+            pin,
+            indicatorId: `indicator-${pin.toLowerCase() || index + 1}`,
+            label: 'Indicator',
+            activeLevel: 'high',
+          };
+        case 'uart-rx':
+        case 'uart-tx':
+          return { kind: role, pin, uartId: 'console' };
+        case 'digital-input':
+          return { kind: 'digital-input', pin, level: false };
+        case 'analog-input':
+          return { kind: 'analog-input', pin, rawValue: 0 };
+        case 'ignored-output':
+          return { kind: 'ignored-output', pin, reason: 'Not connected in the virtual oven' };
+      }
+    })();
+    this.updateFirmwareBinding(index, () => binding);
+  }
+
+  firmwareBindingDetail(binding: VirtualPinBinding): string {
+    switch (binding.kind) {
+      case 'thermistor-input':
+        return binding.sensor.toUpperCase();
+      case 'heater-output':
+        return 'Top + bottom heaters';
+      case 'indicator-output':
+        return binding.label;
+      case 'uart-rx':
+      case 'uart-tx':
+        return binding.uartId;
+      case 'digital-input':
+        return binding.level ? 'Constant HIGH' : 'Constant LOW';
+      case 'analog-input':
+        return `ADC ${binding.rawValue}`;
+      case 'ignored-output':
+        return binding.reason;
+    }
+  }
+
+  firmwareBindingPolarity(binding: VirtualPinBinding): 'high' | 'low' | null {
+    if (binding.kind === 'heater-output' || binding.kind === 'indicator-output') {
+      return binding.activeLevel;
+    }
+    if (binding.kind === 'digital-input') return binding.level ? 'high' : 'low';
+    return null;
+  }
+
+  updateFirmwarePinPolarity(index: number, level: 'high' | 'low'): void {
+    this.updateFirmwareBinding(index, (binding) => {
+      if (binding.kind === 'heater-output' || binding.kind === 'indicator-output') {
+        return { ...binding, activeLevel: level };
+      }
+      if (binding.kind === 'digital-input') return { ...binding, level: level === 'high' };
+      return binding;
+    });
+  }
+
+  updateFirmwareAnalogValue(index: number, rawValue: number): void {
+    this.updateFirmwareBinding(index, (binding) =>
+      binding.kind === 'analog-input' ? { ...binding, rawValue: Number(rawValue) } : binding,
+    );
+  }
+
+  updateFirmwareNtc<K extends keyof Omit<NtcBetaDivider, 'kind' | 'topology' | 'adcBits'>>(
+    key: K,
+    value: NtcBetaDivider[K],
+  ): void {
+    const numericValue = Number(value) as NtcBetaDivider[K];
+    this.invalidateSimulationResults();
+    this.firmwareHardware.update((hardware) => ({
+      ...hardware,
+      pins: hardware.pins.map((binding) =>
+        binding.kind === 'thermistor-input'
+          ? { ...binding, transfer: { ...binding.transfer, [key]: numericValue } }
+          : binding,
+      ),
+    }));
+  }
+
+  updateFirmwareEepromSize(sizeBytes: number): void {
+    this.invalidateSimulationResults();
+    this.firmwareHardware.update((hardware) => ({
+      ...hardware,
+      eeprom: { ...hardware.eeprom, sizeBytes: Number(sizeBytes) },
+    }));
+  }
+
+  updateFirmwareEepromFill(initialFill: 0 | 255): void {
+    this.invalidateSimulationResults();
+    this.firmwareHardware.update((hardware) => ({
+      ...hardware,
+      eeprom: { ...hardware.eeprom, initialFill: Number(initialFill) === 0 ? 0 : 255 },
+    }));
+  }
+
+  appendFirmwareOutput(line: Omit<FirmwareOutputLine, 'id'>): void {
+    const next = { ...line, id: ++this.firmwareOutputSequence };
+    this.firmwareOutput.update((lines) => [...lines, next].slice(-MAX_FIRMWARE_OUTPUT_LINES));
+  }
+
+  clearFirmwareOutput(): void {
+    this.firmwareOutput.set([]);
+  }
+
+  queueFirmwareTerminalCommand(): void {
+    if (this.simulationBusy() || this.firmwareBuildBusy()) return;
+    const command = this.firmwareTerminalInput().trim();
+    const atSeconds = Number(this.firmwareTerminalTimeSeconds());
+    if (
+      command.length === 0 ||
+      command.includes(String.fromCharCode(0)) ||
+      /[\r\n]/.test(command)
+    ) {
+      this.store.notify('Enter one non-empty terminal line without a line break.');
+      return;
+    }
+    if (command.length > 4_096) {
+      this.store.notify('A terminal line can contain at most 4096 characters.');
+      return;
+    }
+    const durationSeconds = Math.max(60, Math.round(this.durationMinutes() * 60));
+    if (!Number.isFinite(atSeconds) || atSeconds < 0 || atSeconds > durationSeconds) {
+      this.store.notify(`Terminal time must be between 0 and ${durationSeconds} seconds.`);
+      return;
+    }
+    this.invalidateSimulationResults();
+    this.firmwareTerminalCommands.update((commands) =>
+      [...commands, { id: ++this.firmwareOutputSequence, atSeconds, command }].sort(
+        (left, right) => left.atSeconds - right.atSeconds || left.id - right.id,
+      ),
+    );
+    this.firmwareTerminalInput.set('');
+  }
+
+  sendFirmwareTerminalCommand(): void {
+    const wasStarted = this.comparison() !== null;
+    const resumeAtSeconds = wasStarted ? (this.currentSample()?.timeSeconds ?? 0) : 0;
+    const commandCount = this.firmwareTerminalCommands().length;
+    this.firmwareTerminalTimeSeconds.set(resumeAtSeconds);
+    this.queueFirmwareTerminalCommand();
+    if (this.firmwareTerminalCommands().length === commandCount) return;
+    if (!wasStarted) this.timewarp.set(1);
+    this.run(true, true, resumeAtSeconds);
+  }
+
+  setFirmwareTerminalTimeFromCursor(): void {
+    this.firmwareTerminalTimeSeconds.set(this.currentSample()?.timeSeconds ?? 0);
+  }
+
+  removeFirmwareTerminalCommand(id: number): void {
+    this.invalidateSimulationResults();
+    this.firmwareTerminalCommands.update((commands) =>
+      commands.filter((command) => command.id !== id),
+    );
+  }
+
+  clearFirmwareTerminalCommands(): void {
+    if (this.firmwareTerminalCommands().length === 0) return;
+    this.invalidateSimulationResults();
+    this.firmwareTerminalCommands.set([]);
+  }
+
+  handleFirmwareTerminalKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+    event.preventDefault();
+    this.queueFirmwareTerminalCommand();
+  }
+
+  selectVariant(variantId: string): void {
+    this.selectedVariant.set(variantId);
+    this.cursor.set(this.activeEntry()?.result.samples.length ?? 0);
+    if (this.comparison() !== null) this.updateFirmwareOutputFromResult(this.comparison()!);
+  }
+
+  diagnosticLocation(diagnostic: FirmwareDiagnostic): string | null {
+    if (diagnostic.file === undefined) return diagnostic.pin ?? null;
+    const line = diagnostic.line === undefined ? '' : `:${diagnostic.line}`;
+    const column = diagnostic.column === undefined ? '' : `:${diagnostic.column}`;
+    return `${diagnostic.file}${line}${column}`;
+  }
+
+  private updateFirmwareBinding(
+    index: number,
+    update: (binding: VirtualPinBinding) => VirtualPinBinding,
+  ): void {
+    this.invalidateSimulationResults();
+    this.firmwareHardware.update((hardware) => ({
+      ...hardware,
+      pins: hardware.pins.map((binding, bindingIndex) =>
+        bindingIndex === index ? update(binding) : binding,
+      ),
+    }));
+  }
+
+  private invalidateSimulationResults(): void {
+    this.invalidateSimulationRun();
+    this.stopPlayback();
+    this.paused.set(true);
+    this.comparison.set(null);
+    this.cursor.set(0);
+    this.simulationError.set(null);
+    this.firmwareOutput.set([]);
+  }
+
+  private updateFirmwareOutputFromResult(result: SimulationComparisonResult): void {
+    const selectedEntry =
+      result.entries.find((entry) => entry.id === this.selectedVariant()) ?? result.entries[0];
+    const execution = selectedEntry?.result.firmware;
+    if (execution === undefined) {
+      this.firmwareOutput.set([]);
+      return;
+    }
+
+    const lines: Array<Omit<FirmwareOutputLine, 'id'>> = execution.serialTranscript.map(
+      (event) => ({
+        timeSeconds: event.timeSeconds,
+        direction: event.direction,
+        text: event.text,
+      }),
+    );
+    for (const sample of execution.indicatorSamples) {
+      for (const [indicatorId, indicator] of Object.entries(sample.indicators)) {
+        lines.push({
+          timeSeconds: sample.timeSeconds,
+          direction: 'gpio',
+          text: `${indicatorId} (${indicator.pin}) ended ${indicator.active ? 'active' : 'inactive'} · ${indicator.level.toUpperCase()} · ${(indicator.activeFraction * 100).toFixed(1)}% active over ${(sample.timeSeconds - sample.intervalStartSeconds).toFixed(3)} s`,
+        });
+      }
+    }
+    if (execution.resetCount > 0) {
+      lines.push({
+        timeSeconds: null,
+        direction: 'system',
+        text: `${execution.resetCount} virtual MCU reset${execution.resetCount === 1 ? '' : 's'} observed.`,
+      });
+    }
+    const truncation = execution.truncation;
+    if (
+      truncation !== undefined &&
+      (truncation.droppedSerialEvents > 0 || truncation.droppedIndicatorSamples > 0)
+    ) {
+      lines.push({
+        timeSeconds: null,
+        direction: 'system',
+        text: `Output capture limit reached: ${truncation.droppedSerialEvents} serial event${truncation.droppedSerialEvents === 1 ? '' : 's'} (${truncation.droppedSerialBytes} bytes) and ${truncation.droppedIndicatorSamples} GPIO interval summar${truncation.droppedIndicatorSamples === 1 ? 'y' : 'ies'} omitted. Firmware execution was not interrupted.`,
+      });
+    }
+    lines.sort((left, right) => {
+      if (left.timeSeconds === null) return right.timeSeconds === null ? 0 : 1;
+      if (right.timeSeconds === null) return -1;
+      return left.timeSeconds - right.timeSeconds;
+    });
+    this.firmwareOutput.set(
+      lines.slice(-MAX_FIRMWARE_OUTPUT_LINES).map((line) => ({
+        ...line,
+        id: ++this.firmwareOutputSequence,
+      })),
+    );
+  }
+
   updateTarget(value: number): void {
-    this.target.set(Number(value));
+    this.mutateSimulationConfiguration(() => this.target.set(Number(value)));
   }
 
   updateDuration(value: number): void {
-    this.durationMinutes.set(Number(value));
+    this.mutateSimulationConfiguration(() => this.durationMinutes.set(Number(value)));
   }
 
   updateProfile<K extends keyof OvenModelProfile>(key: K, value: OvenModelProfile[K]): void {
-    this.profile.update((profile) => ({
-      ...profile,
-      [key]: typeof value === 'number' ? Number(value) : value,
-    }));
+    this.mutateSimulationConfiguration(() =>
+      this.profile.update((profile) => ({
+        ...profile,
+        [key]: typeof value === 'number' ? Number(value) : value,
+      })),
+    );
   }
 
   updateAssistance<K extends keyof ModelAssistedTargetConfiguration>(
     key: K,
     value: ModelAssistedTargetConfiguration[K],
   ): void {
-    this.modelAssistance.update((configuration) => ({ ...configuration, [key]: Number(value) }));
+    this.mutateSimulationConfiguration(() =>
+      this.modelAssistance.update((configuration) => ({
+        ...configuration,
+        [key]: Number(value),
+      })),
+    );
   }
 
   useForControl(): void {
-    const error = this.configurationError();
-    if (error !== null) {
-      this.store.notify(error);
+    try {
+      validateOvenModelProfile(this.profile());
+      validateTargetShaperConfiguration(this.modelAssistance());
+    } catch (error) {
+      this.store.notify(error instanceof Error ? error.message : 'The physical twin is invalid.');
       return;
     }
-    this.store.useModelAssistedControl(this.profile(), this.modelAssistance());
+    if (!this.store.useModelAssistedControl(this.profile(), this.modelAssistance())) {
+      this.store.notify(
+        'Choose and compile the Arduino .ino file in Settings before using model-assisted control.',
+      );
+    }
   }
 
   saveModelDraft(): void {
-    const error = this.configurationError();
-    if (error !== null) {
-      this.store.notify(error);
+    try {
+      validateOvenModelProfile(this.profile());
+      validateTargetShaperConfiguration(this.modelAssistance());
+    } catch (error) {
+      this.store.notify(error instanceof Error ? error.message : 'The physical twin is invalid.');
       return;
     }
     void this.store.saveProfile(this.profile().name, 'simulation', 'draft', {
@@ -529,79 +1183,89 @@ export class SimulationComponent implements OnDestroy {
   }
 
   updateGeometryMm(key: keyof ThermalTwinGeometry, millimeters: number): void {
-    this.profile.update((profile) => {
-      const geometry = { ...profile.geometry, [key]: Number(millimeters) / 1_000 };
-      const enclosureRadiatingAreaM2 =
-        2 *
-        (geometry.widthM * geometry.depthM +
-          geometry.widthM * geometry.heightM +
-          geometry.depthM * geometry.heightM);
-      const standardLoadRadiatingAreaM2 = 2 * geometry.widthM * geometry.depthM;
-      const halfAirCapacityJPerK =
-        (geometry.widthM *
-          geometry.depthM *
-          geometry.heightM *
-          profile.ambient.airDensityKgPerM3 *
-          profile.ambient.airSpecificHeatJPerKgK) /
-        2;
-      return {
-        ...profile,
-        geometry,
-        ambient: {
-          ...profile.ambient,
-          enclosureRadiatingAreaM2,
-        },
-        bodies: {
-          ...profile.bodies,
-          topAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-          bottomAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-        },
-        radiationLinks: profile.radiationLinks.map((link) =>
-          (link.a === 'standardLoad' && link.b === 'enclosure') ||
-          (link.a === 'enclosure' && link.b === 'standardLoad')
-            ? { ...link, areaM2: standardLoadRadiatingAreaM2 }
-            : link,
-        ),
-      };
-    });
+    this.mutateSimulationConfiguration(() =>
+      this.profile.update((profile) => {
+        const geometry = { ...profile.geometry, [key]: Number(millimeters) / 1_000 };
+        const enclosureRadiatingAreaM2 =
+          2 *
+          (geometry.widthM * geometry.depthM +
+            geometry.widthM * geometry.heightM +
+            geometry.depthM * geometry.heightM);
+        const standardLoadRadiatingAreaM2 = 2 * geometry.widthM * geometry.depthM;
+        const halfAirCapacityJPerK =
+          (geometry.widthM *
+            geometry.depthM *
+            geometry.heightM *
+            profile.ambient.airDensityKgPerM3 *
+            profile.ambient.airSpecificHeatJPerKgK) /
+          2;
+        return {
+          ...profile,
+          geometry,
+          ambient: {
+            ...profile.ambient,
+            enclosureRadiatingAreaM2,
+          },
+          bodies: {
+            ...profile.bodies,
+            topAir: { heatCapacityJPerK: halfAirCapacityJPerK },
+            bottomAir: { heatCapacityJPerK: halfAirCapacityJPerK },
+          },
+          radiationLinks: profile.radiationLinks.map((link) =>
+            (link.a === 'standardLoad' && link.b === 'enclosure') ||
+            (link.a === 'enclosure' && link.b === 'standardLoad')
+              ? { ...link, areaM2: standardLoadRadiatingAreaM2 }
+              : link,
+          ),
+        };
+      }),
+    );
   }
 
   updateHeaterRatedPower(which: HeaterPosition, watts: number): void {
-    this.profile.update((profile) => ({
-      ...profile,
-      heaters: {
-        ...profile.heaters,
-        [which]: { ...profile.heaters[which], ratedPowerW: Number(watts) },
-      },
-    }));
+    this.mutateSimulationConfiguration(() =>
+      this.profile.update((profile) => ({
+        ...profile,
+        heaters: {
+          ...profile.heaters,
+          [which]: { ...profile.heaters[which], ratedPowerW: Number(watts) },
+        },
+      })),
+    );
   }
 
   updateBodyHeatCapacity(body: ThermalBodyId, heatCapacityJPerK: number): void {
-    this.profile.update((profile) => ({
-      ...profile,
-      bodies: {
-        ...profile.bodies,
-        [body]: { ...profile.bodies[body], heatCapacityJPerK: Number(heatCapacityJPerK) },
-      },
-    }));
+    this.mutateSimulationConfiguration(() =>
+      this.profile.update((profile) => ({
+        ...profile,
+        bodies: {
+          ...profile.bodies,
+          [body]: { ...profile.bodies[body], heatCapacityJPerK: Number(heatCapacityJPerK) },
+        },
+      })),
+    );
   }
 
   updateLinearConductance(index: number, conductanceWPerK: number): void {
-    this.profile.update((profile) => ({
-      ...profile,
-      linearLinks: profile.linearLinks.map((link, linkIndex) =>
-        linkIndex === index ? { ...link, conductanceWPerK: Number(conductanceWPerK) } : link,
-      ),
-    }));
+    this.mutateSimulationConfiguration(() =>
+      this.profile.update((profile) => ({
+        ...profile,
+        linearLinks: profile.linearLinks.map((link, linkIndex) =>
+          linkIndex === index ? { ...link, conductanceWPerK: Number(conductanceWPerK) } : link,
+        ),
+      })),
+    );
   }
 
   updateRadiation(index: number, key: RadiationParameter, value: number): void {
-    this.profile.update((profile) => ({
-      ...profile,
-      radiationLinks: profile.radiationLinks.map((link, linkIndex) =>
-        linkIndex === index ? { ...link, [key]: Number(value) } : link,
-      ),
-    }));
+    this.mutateSimulationConfiguration(() =>
+      this.profile.update((profile) => ({
+        ...profile,
+        radiationLinks: profile.radiationLinks.map((link, linkIndex) =>
+          linkIndex === index ? { ...link, [key]: Number(value) } : link,
+        ),
+      })),
+    );
   }
 
   updateRadiationAreaCm2(index: number, areaCm2: number): void {
@@ -612,28 +1276,35 @@ export class SimulationComponent implements OnDestroy {
     key: K,
     value: AmbientBoundaryConfiguration[K],
   ): void {
-    this.profile.update((profile) => {
-      const ambient = { ...profile.ambient, [key]: Number(value) };
-      if (key !== 'airDensityKgPerM3' && key !== 'airSpecificHeatJPerKgK') {
-        return { ...profile, ambient };
-      }
-      const halfAirCapacityJPerK =
-        (profile.geometry.widthM *
-          profile.geometry.depthM *
-          profile.geometry.heightM *
-          ambient.airDensityKgPerM3 *
-          ambient.airSpecificHeatJPerKgK) /
-        2;
-      return {
-        ...profile,
-        ambient,
-        bodies: {
-          ...profile.bodies,
-          topAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-          bottomAir: { heatCapacityJPerK: halfAirCapacityJPerK },
-        },
-      };
-    });
+    this.mutateSimulationConfiguration(() =>
+      this.profile.update((profile) => {
+        const ambient = { ...profile.ambient, [key]: Number(value) };
+        if (key !== 'airDensityKgPerM3' && key !== 'airSpecificHeatJPerKgK') {
+          return { ...profile, ambient };
+        }
+        const halfAirCapacityJPerK =
+          (profile.geometry.widthM *
+            profile.geometry.depthM *
+            profile.geometry.heightM *
+            ambient.airDensityKgPerM3 *
+            ambient.airSpecificHeatJPerKgK) /
+          2;
+        return {
+          ...profile,
+          ambient,
+          bodies: {
+            ...profile.bodies,
+            topAir: { heatCapacityJPerK: halfAirCapacityJPerK },
+            bottomAir: { heatCapacityJPerK: halfAirCapacityJPerK },
+          },
+        };
+      }),
+    );
+  }
+
+  private mutateSimulationConfiguration(mutation: () => void): void {
+    this.invalidateSimulationResults();
+    mutation();
   }
 
   bodyLabel(body: ThermalBodyId): string {

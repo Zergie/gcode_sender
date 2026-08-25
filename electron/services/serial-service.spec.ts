@@ -284,6 +284,147 @@ describe('SerialService firmware handshake', () => {
     port.injectData('ok\n');
     await expect(later).resolves.toMatchObject({ parsed: { kind: 'ok' } });
   });
+
+  it('retires an errored connected port promptly and allows reconnection', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const firstPort = await connectService(service);
+    const pending = service.sendAndWait('M104 S200', 1_000);
+    const pendingOutcome = pending.then(
+      () => ({ status: 'resolved' as const }),
+      (error: unknown) => ({ status: 'rejected' as const, error }),
+    );
+    await eventually(() => expect(firstPort.writes).toContain('M104 S200\n'));
+    firstPort.releaseWrite();
+    firstPort.releaseDrain();
+
+    firstPort.injectError(new Error('USB link lost'));
+
+    await expect(pendingOutcome).resolves.toMatchObject({
+      status: 'rejected',
+      error: { code: 'SERIAL_DISCONNECTED' },
+    });
+    expect(service.getState()).toMatchObject({
+      status: 'error',
+      error: { code: 'SERIAL_DISCONNECTED', message: 'USB link lost' },
+    });
+    expect(firstPort.writes).not.toContain('M104 S0\n');
+
+    const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+    const secondPort = serialPortMock.instances[1]!;
+    await completeHandshake(secondPort);
+    await expect(reconnect).resolves.toMatchObject({ status: 'connected', portPath: 'COM4' });
+  });
+
+  it.each([
+    [
+      'opening',
+      async (port: InstanceType<typeof serialPortMock.ControlledSerialPort>) => {
+        port.releaseOpen(new Error('open failed'));
+      },
+    ],
+    [
+      'handshake',
+      async (port: InstanceType<typeof serialPortMock.ControlledSerialPort>) => {
+        port.releaseOpen();
+        await eventually(() => expect(port.writes).toEqual(['M115\n']));
+        port.releaseWrite();
+        port.releaseDrain();
+        port.injectError(new Error('handshake link lost'));
+      },
+    ],
+    [
+      'startup',
+      async (port: InstanceType<typeof serialPortMock.ControlledSerialPort>) => {
+        port.releaseOpen();
+        await eventually(() => expect(port.writes).toEqual(['M115\n']));
+        port.releaseWrite();
+        port.releaseDrain();
+        port.injectData(`${LEGACY_M115_RESPONSE}\n`);
+        await eventually(() => expect(port.writes).toEqual(['M115\n', 'M104 S180\n']));
+        port.releaseWrite();
+        port.releaseDrain();
+        port.injectError(new Error('startup link lost'));
+      },
+    ],
+  ])('retires a port when it errors during %s', async (_phase, failPort) => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const connection = service.connect({
+      path: 'COM3',
+      startupMacro: 'M104 S180',
+      handshakeTimeoutMs: 250,
+    });
+    const connectionOutcome = connection.then(
+      () => ({ status: 'resolved' as const }),
+      (error: unknown) => ({ status: 'rejected' as const, error }),
+    );
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(1));
+    await failPort(serialPortMock.instances[0]!);
+
+    await expect(connectionOutcome).resolves.toMatchObject({
+      status: 'rejected',
+      error: {
+        code: _phase === 'opening' ? 'SERIAL_CONNECTION_FAILED' : 'SERIAL_DISCONNECTED',
+      },
+    });
+    expect(service.getState()).toMatchObject({ status: 'error' });
+    expect(serialPortMock.instances[0]!.writes).not.toContain('M104 S0\n');
+  });
+
+  it('ignores late and repeated lifecycle events from a retired port', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const firstPort = await connectService(service);
+    firstPort.injectError(new Error('first failure'));
+    firstPort.injectError(new Error('stale failure'));
+    firstPort.injectClose();
+
+    const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+    const secondPort = serialPortMock.instances[1]!;
+    firstPort.injectData(`${LEGACY_M115_RESPONSE}\nok\n`);
+    firstPort.injectError(new Error('late stale failure'));
+    await completeHandshake(secondPort);
+
+    await expect(reconnect).resolves.toMatchObject({ status: 'connected', portPath: 'COM4' });
+    expect(service.getState().error).toBeNull();
+  });
+
+  it('ignores an error that arrives after an unexpected close', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const firstPort = await connectService(service);
+    firstPort.injectClose();
+    firstPort.injectError(new Error('late driver error'));
+
+    expect(service.getState()).toMatchObject({
+      status: 'error',
+      error: { message: 'Serial connection closed unexpectedly' },
+    });
+    const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+    await completeHandshake(serialPortMock.instances[1]!);
+    await expect(reconnect).resolves.toMatchObject({ status: 'connected' });
+  });
+
+  it('keeps the unexpected error state when retirement close fails', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const port = await connectService(service);
+    port.injectError(new Error('close failure path'));
+    port.releaseClose(new Error('driver close failed'));
+
+    expect(service.getState()).toMatchObject({
+      status: 'error',
+      error: { message: 'close failure path' },
+    });
+    const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+    await completeHandshake(serialPortMock.instances[1]!);
+    await expect(reconnect).resolves.toMatchObject({ status: 'connected' });
+  });
 });
 
 async function connectService(
@@ -299,6 +440,17 @@ async function connectService(
   port.injectData(`${LEGACY_M115_RESPONSE}\n`);
   await expect(connection).resolves.toMatchObject({ status: 'connected' });
   return port;
+}
+
+async function completeHandshake(
+  port: InstanceType<typeof serialPortMock.ControlledSerialPort>,
+): Promise<void> {
+  port.releaseOpen();
+  await eventually(() => expect(port.writes).toEqual(['M115\n']));
+  port.releaseWrite();
+  port.releaseDrain();
+  port.injectData(`${LEGACY_M115_RESPONSE}\n`);
+  await eventually(() => expect(port.writes).toEqual(['M115\n']));
 }
 
 async function flushCommandWrite(

@@ -54,6 +54,7 @@ export class SerialService {
   private connectionGeneration = 0;
   private nextWaiterId = 1;
   private readonly waiters = new Map<number, ResponseWaiter>();
+  private readonly retiredPorts = new WeakSet<SerialPort>();
   private readonly listeners: { [K in SerialEventName]: Set<SerialListener<K>> } = {
     state: new Set(),
     line: new Set(),
@@ -132,13 +133,15 @@ export class SerialService {
     });
     this.port = port;
     port.on('data', this.handleData);
-    port.on('error', this.handlePortError);
-    port.on('close', this.handlePortClose);
+    port.on('error', (error: Error) => this.handlePortError(port, attempt, error));
+    port.on('close', () => this.handlePortClose(port, attempt));
 
     try {
       await openPort(port);
       if (attempt !== this.connectionGeneration || this.port !== port) {
-        await closeDetachedPort(port).catch(() => undefined);
+        if (!this.retiredPorts.has(port)) {
+          await closeDetachedPort(port).catch(() => undefined);
+        }
         return this.getState();
       }
       this.updateState({ status: 'handshaking' });
@@ -152,7 +155,9 @@ export class SerialService {
       await this.writeLine('M115', 'system', true);
       const { parsed } = await response;
       if (attempt !== this.connectionGeneration || this.port !== port) {
-        await closeDetachedPort(port).catch(() => undefined);
+        if (!this.retiredPorts.has(port)) {
+          await closeDetachedPort(port).catch(() => undefined);
+        }
         return this.getState();
       }
       if (parsed.kind !== 'firmware') {
@@ -184,11 +189,16 @@ export class SerialService {
       });
       return this.getState();
     } catch (error) {
+      const appError = asAppError(error, 'SERIAL_CONNECTION_FAILED');
       if (attempt !== this.connectionGeneration || this.port !== port) {
-        await closeDetachedPort(port).catch(() => undefined);
+        if (this.retiredPorts.has(port) && this.state.error?.code === 'SERIAL_DISCONNECTED') {
+          throw appError;
+        }
+        if (!this.retiredPorts.has(port)) {
+          await closeDetachedPort(port).catch(() => undefined);
+        }
         return this.getState();
       }
-      const appError = asAppError(error, 'SERIAL_CONNECTION_FAILED');
       await this.closeCurrentPort().catch(() => undefined);
       this.updateState({
         status: 'error',
@@ -314,38 +324,63 @@ export class SerialService {
     }
   };
 
-  private readonly handlePortError = (error: Error): void => {
+  private readonly handlePortError = (port: SerialPort, attempt: number, error: Error): void => {
+    if (attempt !== this.connectionGeneration || this.port !== port) return;
     this.logger.error('Serial port error', { error: error.message, portPath: this.state.portPath });
     const appError = new AppError(
       { code: 'SERIAL_DISCONNECTED', message: error.message, recoverable: true },
       { cause: error },
     );
-    this.updateState({ status: 'error', error: appError.toInfo() });
+    this.retireUnexpectedPort(port, attempt, appError);
   };
 
-  private readonly handlePortClose = (): void => {
-    this.port = null;
-    this.receiveBuffer = '';
-    this.rejectAllWaiters(
+  private readonly handlePortClose = (port: SerialPort, attempt: number): void => {
+    if (attempt !== this.connectionGeneration || this.port !== port) return;
+    if (this.intentionalClose) {
+      this.port = null;
+      this.receiveBuffer = '';
+      this.rejectAllWaiters(
+        new AppError({
+          code: 'SERIAL_DISCONNECTED',
+          message: 'Serial port closed',
+          recoverable: true,
+        }),
+      );
+      return;
+    }
+    this.retireUnexpectedPort(
+      port,
+      attempt,
       new AppError({
         code: 'SERIAL_DISCONNECTED',
-        message: 'Serial port closed',
+        message: 'Serial connection closed unexpectedly',
         recoverable: true,
       }),
     );
-    if (!this.intentionalClose) {
-      this.updateState({
-        status: 'error',
-        firmware: null,
-        connectedAt: null,
-        error: {
-          code: 'SERIAL_DISCONNECTED',
-          message: 'Serial connection closed unexpectedly',
-          recoverable: true,
-        },
+  };
+
+  private retireUnexpectedPort(port: SerialPort, attempt: number, error: AppError): void {
+    if (attempt !== this.connectionGeneration || this.port !== port) return;
+    this.retiredPorts.add(port);
+    this.connectionGeneration += 1;
+    this.port = null;
+    this.receiveBuffer = '';
+    port.removeAllListeners();
+    this.rejectAllWaiters(error);
+    this.updateState({
+      status: 'error',
+      firmware: null,
+      connectedAt: null,
+      error: error.toInfo(),
+    });
+    if (port.isOpen) {
+      void closePort(port).catch((closeError: unknown) => {
+        this.logger.warn('Errored serial port could not be closed', {
+          error: closeError instanceof Error ? closeError.message : String(closeError),
+        });
       });
     }
-  };
+  }
 
   private handleLine(line: string): void {
     const timestamp = new Date().toISOString();

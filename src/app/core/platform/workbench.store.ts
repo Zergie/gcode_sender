@@ -13,7 +13,6 @@ import type {
   JobTimeoutEvent,
   SerialConnectionState,
   SerialLineEvent,
-  SerialPortDescriptor,
   SettingsPatch,
   TemperatureTelemetry,
   ThemePreference,
@@ -61,6 +60,7 @@ import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics 
 import { NotificationStore } from './notification.store';
 import { ConfigurationStore } from '../configuration/configuration.store';
 import { SessionCatalogStore } from './session-catalog.store';
+import { SerialTelemetryStore } from './serial-telemetry.store';
 
 export type DemoState =
   'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
@@ -166,6 +166,7 @@ export class WorkbenchStore implements OnDestroy {
   private readonly configuration = inject(ConfigurationStore);
   private readonly notifications = inject(NotificationStore);
   private readonly sessionCatalog = inject(SessionCatalogStore);
+  private readonly serialTelemetry = inject(SerialTelemetryStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -176,7 +177,6 @@ export class WorkbenchStore implements OnDestroy {
   private destroyed = false;
   private controlTimer: ReturnType<typeof setInterval> | undefined;
   private validationTimer: ReturnType<typeof setTimeout> | undefined;
-  private portsRefreshPromise: Promise<void> | null = null;
   private targetShaperState: TargetShaperState = createTargetShaperState(0);
   private physicalForecastPlanner: PhysicalForecastPlanner | null = null;
   private lastPhysicalForecastAtMs: number | null = null;
@@ -205,24 +205,17 @@ export class WorkbenchStore implements OnDestroy {
     versions: {},
   });
   readonly initialized = signal(false);
-  readonly connection = signal<SerialConnectionState>(DEFAULT_CONNECTION);
-  readonly ports = signal<readonly SerialPortDescriptor[]>([]);
-  readonly selectedPort = signal('');
-  readonly serialPortDialogOpen = signal(false);
-  readonly serialPortsRefreshing = signal(false);
+  readonly connection = this.serialTelemetry.connection;
+  readonly ports = this.serialTelemetry.ports;
+  readonly selectedPort = this.serialTelemetry.selectedPort;
+  readonly serialPortDialogOpen = this.serialTelemetry.serialPortDialogOpen;
+  readonly serialPortsRefreshing = this.serialTelemetry.serialPortsRefreshing;
   readonly selectedPortAvailable = computed(() =>
     this.ports().some((port) => port.path === this.selectedPort()),
   );
   readonly settings = this.configuration.settings;
-  readonly telemetry = signal<TemperatureTelemetry>({
-    timestamp: new Date().toISOString(),
-    average: 22,
-    target: 0,
-    power: 0,
-    thermistors: [22, 22, 22],
-    raw: '',
-  });
-  readonly hasTelemetry = signal(false);
+  readonly telemetry = this.serialTelemetry.telemetry;
+  readonly hasTelemetry = this.serialTelemetry.hasTelemetry;
   readonly requestedTarget = signal(0);
   readonly modelTarget = signal(0);
   readonly controlMode = signal<ControlMode>('pid');
@@ -240,8 +233,8 @@ export class WorkbenchStore implements OnDestroy {
   readonly activeProfile = signal('Standard oven model');
   readonly activity = signal<ExclusiveActivityState>({ active: null });
   readonly trend = signal<readonly TrendPoint[]>([]);
-  readonly terminal = signal<readonly TerminalEntry[]>([]);
-  readonly commandHistory = signal<readonly string[]>([]);
+  readonly terminal = this.serialTelemetry.terminal;
+  readonly commandHistory = this.serialTelemetry.commandHistory;
   readonly selectedProgram = signal<LoadedGcodeProgram | null>(null);
   readonly selectedJob = signal<JobFileInfo | null>(null);
   readonly heatingProfileDraft = signal<HeatingProfile | null>(null);
@@ -312,6 +305,7 @@ export class WorkbenchStore implements OnDestroy {
       clearInterval(this.controlTimer);
       this.controlTimer = undefined;
     }
+    this.serialTelemetry.ngOnDestroy();
     if (this.validationTimer !== undefined) {
       clearTimeout(this.validationTimer);
       this.validationTimer = undefined;
@@ -378,46 +372,7 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   refreshPorts(): Promise<void> {
-    if (this.portsRefreshPromise !== null) return this.portsRefreshPromise;
-    this.serialPortsRefreshing.set(true);
-    const refresh = this.loadPorts().finally(() => {
-      if (this.portsRefreshPromise === refresh) {
-        this.portsRefreshPromise = null;
-        this.serialPortsRefreshing.set(false);
-      }
-    });
-    this.portsRefreshPromise = refresh;
-    return refresh;
-  }
-
-  private async loadPorts(): Promise<void> {
-    try {
-      if (this.api === undefined) {
-        this.ports.set([
-          {
-            path: 'COM4',
-            friendlyName: 'STM32 Virtual COM Port',
-            manufacturer: 'STMicroelectronics',
-          },
-          { path: 'COM7', friendlyName: 'USB Serial Device' },
-        ]);
-        this.clearUnavailableSelectedPort();
-        return;
-      }
-      const result = await this.api.serial.listPorts();
-      if (result.ok) {
-        this.ports.set(result.value);
-        this.clearUnavailableSelectedPort();
-      } else {
-        this.ports.set([]);
-        this.clearUnavailableSelectedPort();
-        this.notify(result.error.message);
-      }
-    } catch (error) {
-      this.ports.set([]);
-      this.clearUnavailableSelectedPort();
-      this.notify(error instanceof Error ? error.message : 'Unable to enumerate serial ports.');
-    }
+    return this.serialTelemetry.refreshPorts();
   }
 
   async toggleConnection(): Promise<void> {
@@ -462,16 +417,12 @@ export class WorkbenchStore implements OnDestroy {
       return;
     }
     this.connection.update((state) => ({ ...state, status: 'connecting', error: null }));
-    const result = await this.api.serial.connect({
-      path,
-      startupMacro: this.settings().startupMacro,
-    });
-    if (result.ok) {
-      this.connection.set(result.value);
+    const connected = await this.serialTelemetry.connect(path, this.settings().startupMacro);
+    if (connected !== null) {
       await this.enableMonitoring();
     } else {
-      this.connection.update((state) => ({ ...state, status: 'error', error: result.error }));
-      this.notify(result.error.message);
+      const error = this.connection().error;
+      if (error !== null) this.notify(error.message);
     }
   }
 
@@ -484,9 +435,7 @@ export class WorkbenchStore implements OnDestroy {
       this.notify('Disconnected. Firmware behavior is outside desktop control.');
       return;
     }
-    const result = await this.api.serial.disconnect();
-    if (result.ok) this.connection.set(result.value);
-    else this.notify(result.error.message);
+    await this.serialTelemetry.disconnect();
   }
 
   async setTarget(value: number): Promise<void> {
@@ -557,12 +506,9 @@ export class WorkbenchStore implements OnDestroy {
     if (commands.length === 0) return false;
 
     for (const command of commands) {
-      this.commandHistory.update((items) =>
-        [command, ...items.filter((item) => item !== command)].slice(0, 50),
-      );
+      this.serialTelemetry.recordCommand(command);
       if (this.api !== undefined) {
-        const result = await this.api.serial.send({ command, origin: 'terminal' });
-        if (!result.ok) this.notify(result.error.message);
+        await this.serialTelemetry.send(command, 'terminal');
       } else {
         this.appendTerminal(this.entry('terminal', 'tx', command));
         window.setTimeout(() => this.demoCommandResponse(command), 180);
@@ -577,12 +523,7 @@ export class WorkbenchStore implements OnDestroy {
       window.setTimeout(() => this.demoCommandResponse(command), 160);
       return true;
     }
-    const result = await this.api.serial.send({ command, origin: 'tuning' });
-    if (!result.ok) {
-      this.notify(result.error.message);
-      return false;
-    }
-    return true;
+    return this.serialTelemetry.send(command, 'tuning');
   }
 
   async beginExclusive(activity: 'tuning' | 'validation'): Promise<boolean> {
@@ -1204,26 +1145,21 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   private clearUnavailableSelectedPort(): void {
-    const selected = this.selectedPort();
-    if (selected !== '' && !this.ports().some((port) => port.path === selected)) {
-      this.selectedPort.set('');
-    }
+    this.serialTelemetry.clearSelectionIfUnavailable();
   }
 
   private async loadDesktopState(): Promise<void> {
     if (this.api === undefined) return;
-    const [connection, job, activity, catalog, systemInfo, tuning, sessions, profiles] =
-      await Promise.all([
-        this.api.serial.getState(),
-        this.api.jobs.getState(),
-        this.api.activity.get(),
-        this.api.catalog.get(),
-        this.api.system.getInfo(),
-        this.api.tuning.getState(),
-        this.api.sessions.list(),
-        this.api.profiles.list(),
-      ]);
-    if (connection.ok) this.connection.set(connection.value);
+    const [job, activity, catalog, systemInfo, tuning, sessions, profiles] = await Promise.all([
+      this.api.jobs.getState(),
+      this.api.activity.get(),
+      this.api.catalog.get(),
+      this.api.system.getInfo(),
+      this.api.tuning.getState(),
+      this.api.sessions.list(),
+      this.api.profiles.list(),
+    ]);
+    await this.serialTelemetry.loadState();
     if (job.ok) this.job.set(job.value);
     if (activity.ok) this.activity.set(activity.value);
     if (catalog.ok) this.sessionCatalog.replaceCatalog(catalog.value);
@@ -1235,15 +1171,13 @@ export class WorkbenchStore implements OnDestroy {
 
   private registerDesktopEvents(): void {
     if (this.api === undefined) return;
+    this.serialTelemetry.initialize(
+      (state) => this.consumeSerialState(state),
+      (event) => this.consumeTelemetry(event),
+      () => undefined,
+      (message) => this.notify(message),
+    );
     this.unsubscribe.push(
-      this.api.events.onSerialState((state) => this.consumeSerialState(state)),
-      this.api.events.onSerialLine((event) =>
-        this.appendTerminal({ ...event, id: ++this.terminalId }),
-      ),
-      this.api.events.onTelemetry((event) => this.consumeTelemetry(event)),
-      this.api.events.onFirmware((firmware) =>
-        this.connection.update((state) => ({ ...state, firmware })),
-      ),
       this.api.events.onJobState((state) => {
         this.job.set(state);
         if (
@@ -1266,7 +1200,6 @@ export class WorkbenchStore implements OnDestroy {
         }
       }),
       this.api.events.onActivity((state) => this.activity.set(state)),
-      this.api.events.onFirmwareError((event) => this.notify(event.message)),
     );
   }
 

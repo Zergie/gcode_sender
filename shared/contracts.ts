@@ -162,7 +162,16 @@ export interface JobExecutionLogEntry {
   readonly timestamp: string;
   readonly sourceLine: number;
   readonly command: string;
-  readonly outcome: 'sent' | 'completed' | 'timeout' | 'continued' | 'retried' | 'error';
+  readonly outcome:
+    | 'sent'
+    | 'completed'
+    | 'timeout'
+    | 'continued'
+    | 'retried'
+    | 'error'
+    | 'job-completed'
+    | 'job-stopped'
+    | 'job-failed';
   readonly response?: string;
 }
 

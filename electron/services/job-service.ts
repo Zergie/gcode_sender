@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir, open, stat } from 'node:fs/promises';
+import { mkdir, open, stat } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';
@@ -30,6 +30,7 @@ import type { ActivityService } from './activity-service';
 import type { PersistenceStore } from './persistence-store';
 import type { SerialService } from './serial-service';
 import { readGcodeLines } from './gcode-line-reader';
+import { BoundedArtifactWriter, type ArtifactWriterStats } from './bounded-artifact-writer';
 
 export interface JobLogPage {
   readonly entries: readonly JobExecutionLogEntry[];
@@ -57,6 +58,8 @@ export class JobService {
   private activeRun: Promise<void> | null = null;
   private activeCommandAbort: AbortController | null = null;
   private logPath: string | null = null;
+  private artifactWriter: BoundedArtifactWriter<JobExecutionLogEntry> | null = null;
+  private artifactStats: ArtifactWriterStats | null = null;
   private logWriteQueue: Promise<void> = Promise.resolve();
 
   constructor(
@@ -187,6 +190,12 @@ export class JobService {
   private beginRun(file: JobFileInfo, startLine: number, timeoutMs: number): JobState {
     const id = randomUUID();
     this.logPath = path.join(this.sessionsDirectory, `${id}.job.jsonl`);
+    const settings = this.store.getSettings();
+    this.artifactWriter = new BoundedArtifactWriter(this.logPath, {
+      maxBytes: settings.artifactLimitBytes ?? EXECUTION_LIMITS.artifactBytes.default,
+      maxRecords: settings.artifactLimitRecords ?? EXECUTION_LIMITS.artifactRecords.default,
+    });
+    this.artifactStats = null;
     this.logWriteQueue = Promise.resolve();
     this.stopRequested = false;
     this.pauseGate = null;
@@ -394,10 +403,11 @@ export class JobService {
       this.logger.error('G-code streaming failed', { error: appError.message, sourceLine });
       this.state = {
         ...this.state,
-        status: this.stopRequested ? 'stopped' : 'failed',
+        status:
+          appError.code === 'STORAGE_FAILED' ? 'failed' : this.stopRequested ? 'stopped' : 'failed',
         endedAt: new Date().toISOString(),
         pauseRequested: false,
-        error: this.stopRequested ? null : appError.toInfo(),
+        error: this.stopRequested && appError.code !== 'STORAGE_FAILED' ? null : appError.toInfo(),
       };
     } finally {
       this.activeCommandAbort = null;
@@ -406,7 +416,26 @@ export class JobService {
       this.timeoutDecision?.deferred.resolve('stop');
       this.timeoutDecision = null;
       this.notifyState();
-      await this.logWriteQueue.catch(() => undefined);
+      try {
+        await this.appendLog({
+          timestamp: new Date().toISOString(),
+          sourceLine,
+          command: '',
+          outcome: terminalOutcome(this.state.status),
+        });
+      } catch (error) {
+        this.failForStorage(error);
+      }
+      try {
+        this.artifactStats = (await this.artifactWriter?.close()) ?? null;
+      } catch (error) {
+        this.failForStorage(error);
+        this.artifactStats = this.artifactWriter?.getStats() ?? null;
+      }
+      if (this.state.error?.code === 'STORAGE_FAILED') {
+        await this.serial.bestEffortHeaterOff().catch(() => undefined);
+      }
+      this.notifyState();
       await this.persistSession().catch((error: unknown) => {
         this.logger.warn('Unable to retain job session metadata', {
           error: error instanceof Error ? error.message : String(error),
@@ -548,13 +577,11 @@ export class JobService {
   }
 
   private async appendLog(entry: JobExecutionLogEntry): Promise<void> {
-    const logPath = this.logPath;
-    if (logPath === null) {
+    const writer = this.artifactWriter;
+    if (writer === null) {
       return;
     }
-    this.logWriteQueue = this.logWriteQueue.then(() =>
-      appendFile(logPath, `${JSON.stringify(entry)}\n`, 'utf8'),
-    );
+    this.logWriteQueue = this.logWriteQueue.then(() => writer.append(entry));
     await this.logWriteQueue;
   }
 
@@ -567,6 +594,7 @@ export class JobService {
     ) {
       return;
     }
+    const stats = this.artifactStats ?? this.artifactWriter?.getStats() ?? null;
     const data: JsonValue = {
       file: {
         name: this.state.file.name,
@@ -576,6 +604,15 @@ export class JobService {
       status: this.state.status,
       lastCompletedSourceLine: this.state.lastCompletedSourceLine,
       logPath: this.logPath,
+      artifact: {
+        path: this.logPath,
+        complete: stats === null ? false : !stats.truncated,
+        limits: stats === null ? null : { ...stats.limits },
+        retainedBytes: stats?.retainedBytes ?? 0,
+        retainedRecords: stats?.retainedRecords ?? 0,
+        omittedBytes: stats?.omittedBytes ?? 0,
+        omittedRecords: stats?.omittedRecords ?? 0,
+      },
     };
     const session: SessionMetadata = {
       id: this.state.id,
@@ -588,6 +625,23 @@ export class JobService {
       data,
     };
     await this.store.saveSession(session);
+  }
+
+  private failForStorage(error: unknown): void {
+    const appError = asAppError(error);
+    this.stopRequested = true;
+    this.activeCommandAbort?.abort();
+    this.pauseGate?.resolve();
+    this.pauseGate = null;
+    this.timeoutDecision?.deferred.resolve('stop');
+    this.timeoutDecision = null;
+    this.state = {
+      ...this.state,
+      status: 'failed',
+      endedAt: this.state.endedAt ?? new Date().toISOString(),
+      pauseRequested: false,
+      error: appError.toInfo(),
+    };
   }
 
   private notifyState(): void {
@@ -650,6 +704,12 @@ function initialProgress(totalBytes: number): JobProgress {
     elapsedMs: 0,
     etaMs: null,
   };
+}
+
+function terminalOutcome(status: JobState['status']): JobExecutionLogEntry['outcome'] {
+  if (status === 'completed') return 'job-completed';
+  if (status === 'stopped') return 'job-stopped';
+  return 'job-failed';
 }
 
 function idleState(): JobState {

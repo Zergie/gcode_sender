@@ -47,6 +47,55 @@ describe('job log pagination', () => {
     expect(page.entries).toHaveLength(2);
     expect(page.nextOffset).toBeNull();
   });
+
+  it('retains the newest complete records and records artifact completeness in the session', async () => {
+    const directory = await temporaryDirectory('gcode-sender-bounded-job-log-');
+    const filePath = path.join(directory, 'job.gcode');
+    await writeFile(filePath, 'M105\nM114\nM115\n', 'utf8');
+    const saveSession = vi.fn(async () => undefined);
+    const service = new JobService(
+      path.join(directory, 'sessions'),
+      {
+        getState: () => ({ status: 'connected' }),
+        subscribe: () => () => undefined,
+        sendAndWait: vi.fn(async () => ({ raw: 'ok', parsed: { kind: 'ok' } })),
+        bestEffortHeaterOff: vi.fn(async () => undefined),
+      } as unknown as SerialService,
+      new ActivityService(),
+      {
+        getSettings: () => ({
+          commandTimeoutMs: 8_000,
+          artifactLimitBytes: 10_000,
+          artifactLimitRecords: 2,
+        }),
+        saveSession,
+      } as unknown as PersistenceStore,
+      silentLogger(),
+    );
+
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('completed'));
+
+    await expect(service.getLog()).resolves.toMatchObject({
+      entries: [
+        { sourceLine: 3, outcome: 'completed' },
+        { sourceLine: 3, outcome: 'job-completed' },
+      ],
+      nextOffset: null,
+    });
+    expect(saveSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          artifact: expect.objectContaining({
+            complete: false,
+            retainedRecords: 2,
+            omittedRecords: expect.any(Number),
+            limits: { maxBytes: 10_000, maxRecords: 2 },
+          }),
+        }),
+      }),
+    );
+  });
 });
 
 describe('G-code program inspection', () => {

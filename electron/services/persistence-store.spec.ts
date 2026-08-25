@@ -25,6 +25,19 @@ afterEach(async () => {
 });
 
 describe('session retention', () => {
+  it('rejects renderer-shaped settings patches that try to change approved catalog hosts', async () => {
+    const directory = await temporaryDirectory();
+    const store = new PersistenceStore(directory, logger);
+    await store.initialize();
+
+    await expect(
+      store.updateSettings({
+        approvedCatalogHosts: ['attacker.example.test'],
+      } as never),
+    ).rejects.toMatchObject({ code: 'PERMISSION_DENIED' });
+    expect(store.getSettings().approvedCatalogHosts).toEqual([]);
+  });
+
   it('keeps pinned sessions while applying both age and count limits to the rest', () => {
     const now = Date.parse('2026-08-15T12:00:00.000Z');
     const recent = Array.from({ length: 105 }, (_, index) =>

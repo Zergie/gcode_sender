@@ -25,7 +25,6 @@ export const IPC = {
   tuningCancel: 'tuning:cancel',
   catalogGet: 'catalog:get',
   catalogRefresh: 'catalog:refresh',
-  catalogApprove: 'catalog:approve',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   profilesList: 'profiles:list',
@@ -49,7 +48,6 @@ export const IPC = {
   eventJobState: 'event:job-state',
   eventJobTimeout: 'event:job-timeout',
   eventTuningState: 'event:tuning-state',
-  eventCatalogApproval: 'event:catalog-approval',
   eventCatalogSnapshot: 'event:catalog-snapshot',
   eventActivity: 'event:activity',
 } as const;

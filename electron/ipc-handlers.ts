@@ -145,9 +145,6 @@ export function registerIpcHandlers(dependencies: IpcDependencies): () => void {
 
   handle(IPC.catalogGet, () => dependencies.catalog.get());
   handle(IPC.catalogRefresh, () => dependencies.catalog.refresh());
-  handle(IPC.catalogApprove, (requestId: string, approved: boolean) =>
-    dependencies.catalog.approve(requestId, approved),
-  );
 
   handle(IPC.settingsGet, () => dependencies.store.getSettings());
   handle(IPC.settingsUpdate, (patch: SettingsPatch) => dependencies.store.updateSettings(patch));

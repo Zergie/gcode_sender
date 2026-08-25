@@ -34,7 +34,6 @@ const CHANNEL = {
   tuningCancel: 'tuning:cancel',
   catalogGet: 'catalog:get',
   catalogRefresh: 'catalog:refresh',
-  catalogApprove: 'catalog:approve',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   profilesList: 'profiles:list',
@@ -58,7 +57,6 @@ const CHANNEL = {
   eventJobState: 'event:job-state',
   eventJobTimeout: 'event:job-timeout',
   eventTuningState: 'event:tuning-state',
-  eventCatalogApproval: 'event:catalog-approval',
   eventCatalogSnapshot: 'event:catalog-snapshot',
   eventActivity: 'event:activity',
 } as const;
@@ -126,7 +124,6 @@ const api: ExtendedGcodeApi = {
   catalog: {
     get: () => invoke(CHANNEL.catalogGet),
     refresh: () => invoke(CHANNEL.catalogRefresh),
-    approve: (requestId, approved) => invoke(CHANNEL.catalogApprove, requestId, approved),
   },
   settings: {
     get: () => invoke(CHANNEL.settingsGet),
@@ -160,7 +157,6 @@ const api: ExtendedGcodeApi = {
     onJobState: (listener) => on(CHANNEL.eventJobState, listener),
     onJobTimeout: (listener) => on(CHANNEL.eventJobTimeout, listener),
     onTuningState: (listener) => on(CHANNEL.eventTuningState, listener),
-    onCatalogApproval: (listener) => on(CHANNEL.eventCatalogApproval, listener),
     onCatalogSnapshot: (listener) => on(CHANNEL.eventCatalogSnapshot, listener),
     onActivity: (listener) => on(CHANNEL.eventActivity, listener),
   },

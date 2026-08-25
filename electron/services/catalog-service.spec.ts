@@ -88,6 +88,22 @@ describe('command catalog snapshot events', () => {
     expect(events.every(({ source }) => source === 'bundled')).toBe(true);
     expect(events.at(-1)).toMatchObject({ firmwareId: 'PID TEMP', stale: true });
   });
+
+  it('does not fetch an unapproved catalog and keeps the bundled fallback active', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const service = new CatalogService(directory, catalogStore([]), silentLogger());
+    await service.setFirmware({
+      raw: 'firmware',
+      firmwareName: 'PID TEMP',
+      gcodeCatalogUrl: 'https://unapproved.example.test/gcode.json',
+    });
+
+    await vi.waitFor(() => expect(service.get().source).toBe('bundled'));
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
 
 function catalogStore(approvedCatalogHosts: readonly string[]): PersistenceStore {

@@ -72,7 +72,30 @@ export class PersistenceStore {
   }
 
   async updateSettings(patch: SettingsPatch): Promise<AppSettings> {
+    if (hasApprovedCatalogHosts(patch)) {
+      throw new AppError({
+        code: 'PERMISSION_DENIED',
+        message: 'Approved catalog hosts can only be changed by the trusted catalog flow',
+        recoverable: true,
+      });
+    }
     const settings = validateSettings({ ...this.state.settings, ...patch, version: 2 });
+    this.state = { ...this.state, settings };
+    await this.persist();
+    return structuredClone(settings);
+  }
+
+  async approveCatalogHost(host: string): Promise<AppSettings> {
+    if (!isBoundedString(host, 1, 253)) {
+      throw invalid('Approved catalog host is invalid');
+    }
+    const hosts = new Set(this.state.settings.approvedCatalogHosts);
+    hosts.add(host);
+    const settings = validateSettings({
+      ...this.state.settings,
+      approvedCatalogHosts: [...hosts].sort(),
+      version: 2,
+    });
     this.state = { ...this.state, settings };
     await this.persist();
     return structuredClone(settings);
@@ -285,6 +308,10 @@ function validatePersistedState(value: unknown): PersistedState {
     profiles: profiles.map(validateProfile),
     sessions: sessions.map(validateSession),
   };
+}
+
+function hasApprovedCatalogHosts(value: unknown): boolean {
+  return isRecord(value) && Object.prototype.hasOwnProperty.call(value, 'approvedCatalogHosts');
 }
 
 function validateSettings(value: unknown): AppSettings {

@@ -3,7 +3,6 @@ import { Injectable, computed, inject, signal } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
 import type {
   AppSettings,
-  CatalogApprovalRequest,
   CommandCatalogSnapshot,
   ControlMode,
   ExclusiveActivityState,
@@ -271,7 +270,6 @@ export class WorkbenchStore implements OnDestroy {
   });
   readonly sessions = signal<readonly SessionMetadata[]>([]);
   readonly profiles = signal<readonly StoredProfile[]>([]);
-  readonly catalogApproval = signal<CatalogApprovalRequest | null>(null);
   readonly toast = signal<string | null>(null);
 
   readonly connected = computed(() => this.connection().status === 'connected');
@@ -1095,23 +1093,6 @@ export class WorkbenchStore implements OnDestroy {
     else this.notify(result.error.message);
   }
 
-  async resolveCatalogApproval(approved: boolean): Promise<void> {
-    const request = this.catalogApproval();
-    if (request === null) return;
-    if (this.api === undefined) {
-      this.catalogApproval.set(null);
-      return;
-    }
-    const result = await this.api.catalog.approve(request.id, approved);
-    if (result.ok) {
-      this.catalog.set(result.value);
-      this.catalogApproval.set(null);
-      this.notify(approved ? `Approved ${request.host}.` : `Rejected ${request.host}.`);
-    } else {
-      this.notify(result.error.message);
-    }
-  }
-
   async openExternal(url: string): Promise<void> {
     if (this.api === undefined) {
       window.open(url, '_blank', 'noopener,noreferrer');
@@ -1314,10 +1295,6 @@ export class WorkbenchStore implements OnDestroy {
       }),
       this.api.events.onActivity((state) => this.activity.set(state)),
       this.api.events.onFirmwareError((event) => this.notify(event.message)),
-      this.api.events.onCatalogApproval((event) => {
-        this.catalogApproval.set(event);
-        this.notify(`Open Settings to approve or reject catalog host ${event.host}.`);
-      }),
       this.api.events.onCatalogSnapshot((snapshot) => this.catalog.set(snapshot)),
     );
   }

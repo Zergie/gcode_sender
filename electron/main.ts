@@ -119,9 +119,6 @@ function wireEvents(current: Runtime): void {
   current.jobs.subscribeState((state) => current.events.emit(IPC.eventJobState, state));
   current.jobs.subscribeTimeout((timeout) => current.events.emit(IPC.eventJobTimeout, timeout));
   current.tuning.subscribe((state) => current.events.emit(IPC.eventTuningState, state));
-  current.catalog.subscribeApproval((request) =>
-    current.events.emit(IPC.eventCatalogApproval, request),
-  );
   current.catalog.subscribeSnapshot((snapshot) =>
     current.events.emit(IPC.eventCatalogSnapshot, snapshot),
   );

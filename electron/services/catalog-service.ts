@@ -136,9 +136,7 @@ export class CatalogService {
     if (!approved) {
       return this.get();
     }
-    const hosts = new Set(this.store.getSettings().approvedCatalogHosts);
-    hosts.add(pending.request.host);
-    await this.store.updateSettings({ approvedCatalogHosts: [...hosts].sort() });
+    await this.store.approveCatalogHost(pending.request.host);
     // Only refresh if the device has not changed while approval was pending.
     if (this.firmware === null || firmwareId(this.firmware) !== firmwareId(pending.firmware)) {
       return this.get();

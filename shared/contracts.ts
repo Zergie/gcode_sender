@@ -19,7 +19,7 @@ export interface AppSettings {
   readonly firmwareInoPath: string | null;
 }
 
-export type SettingsPatch = Partial<Omit<AppSettings, 'version'>>;
+export type SettingsPatch = Partial<Omit<AppSettings, 'version' | 'approvedCatalogHosts'>>;
 
 export interface SerialPortDescriptor {
   readonly path: string;
@@ -288,7 +288,6 @@ export interface GcodeApi {
   readonly catalog: {
     get(): Promise<ApiResult<CommandCatalogSnapshot>>;
     refresh(): Promise<ApiResult<CommandCatalogSnapshot>>;
-    approve(requestId: string, approved: boolean): Promise<ApiResult<CommandCatalogSnapshot>>;
   };
   readonly settings: {
     get(): Promise<ApiResult<AppSettings>>;
@@ -322,7 +321,6 @@ export interface GcodeApi {
     onJobState(listener: (state: JobState) => void): Unsubscribe;
     onJobTimeout(listener: (event: JobTimeoutEvent) => void): Unsubscribe;
     onTuningState(listener: (state: LiveTuningState) => void): Unsubscribe;
-    onCatalogApproval(listener: (event: CatalogApprovalRequest) => void): Unsubscribe;
     onCatalogSnapshot(listener: (snapshot: CommandCatalogSnapshot) => void): Unsubscribe;
     onActivity(listener: (state: ExclusiveActivityState) => void): Unsubscribe;
   };

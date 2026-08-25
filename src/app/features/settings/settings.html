@@ -567,30 +567,6 @@
             store.catalog().stale ? 'STALE' : store.catalog().source.toUpperCase()
           }}</span>
         </header>
-        @if (store.catalogApproval(); as approval) {
-          <section class="catalog-approval" role="alertdialog" aria-labelledby="catalog-title">
-            <span class="panel-kicker">REMOTE ACCESS REQUEST</span>
-            <h3 id="catalog-title">Allow catalog host?</h3>
-            <strong>{{ approval.host }}</strong>
-            <p>{{ approval.url }}</p>
-            <div>
-              <button
-                class="button secondary"
-                type="button"
-                (click)="store.resolveCatalogApproval(false)"
-              >
-                Reject
-              </button>
-              <button
-                class="button primary"
-                type="button"
-                (click)="store.resolveCatalogApproval(true)"
-              >
-                Approve host
-              </button>
-            </div>
-          </section>
-        }
         <div class="catalog-stat">
           <strong>{{ store.catalog().entries.length }}</strong
           ><span>commands available for terminal completion</span>

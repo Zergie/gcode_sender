@@ -1,0 +1,2 @@
+{"timestamp":"2026-08-25T00:00:00.000Z","elapsedSeconds":2,"target":100,"phase":"heating","telemetry":{"timestamp":"2026-08-25T00:00:00.000Z","average":95,"target":100,"power":255,"thermistors":[95,95,95],"raw":"T:95.0 /100.0 P:255"}}
+{"timestamp":"2026-08-25T00:00:00.000Z","elapsedSeconds":3,"target":100,"phase":"heating","telemetry":{"timestamp":"2026-08-25T00:00:00.000Z","average":95,"target":100,"power":255,"thermistors":[95,95,95],"raw":"T:95.0 /100.0 P:255"}}

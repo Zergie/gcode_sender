@@ -37,8 +37,6 @@ export class SettingsComponent {
   readonly thermalBodyIds: readonly ThermalBodyId[] = [
     'topHeater',
     'bottomHeater',
-    'topAir',
-    'bottomAir',
     'standardLoad',
     'enclosure',
     't1',
@@ -104,13 +102,7 @@ export class SettingsComponent {
   }
 
   updateHeaterPower(which: 'top' | 'bottom', watts: number): void {
-    this.configuration.updatePhysicalModel((profile) => ({
-      ...profile,
-      heaters: {
-        ...profile.heaters,
-        [which]: { ...profile.heaters[which], ratedPowerW: Number(watts) },
-      },
-    }));
+    this.showPhysicalEditResult(this.configuration.updateHeaterPower(which, watts));
   }
 
   updateAmbientTemperature(temperatureC: number): void {
@@ -291,13 +283,8 @@ export class SettingsComponent {
   }
 
   updateBodyCapacity(body: ThermalBodyId, heatCapacityJPerK: number): void {
-    this.configuration.updatePhysicalModel((profile) => ({
-      ...profile,
-      bodies: {
-        ...profile.bodies,
-        [body]: { ...profile.bodies[body], heatCapacityJPerK: Number(heatCapacityJPerK) },
-      },
-    }));
+    if (body === 'topAir' || body === 'bottomAir') return;
+    this.showPhysicalEditResult(this.configuration.updateBodyHeatCapacity(body, heatCapacityJPerK));
   }
 
   updateLinearConductance(index: number, conductanceWPerK: number): void {

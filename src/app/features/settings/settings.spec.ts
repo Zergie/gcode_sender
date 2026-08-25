@@ -40,6 +40,26 @@ describe('SettingsComponent simulation configuration', () => {
     expect(store.ovenModelProfile().geometry.widthM).toBeCloseTo(0.095, 10);
   });
 
+  it('renders derived chamber-air capacities without exposing editable controls', () => {
+    const fixture = TestBed.createComponent(SettingsComponent);
+    fixture.detectChanges();
+
+    const text = fixture.nativeElement.textContent as string;
+    expect(text).toContain('Top chamber air (derived)');
+    expect(text).toContain('Bottom chamber air (derived)');
+    expect(
+      Array.from(fixture.nativeElement.querySelectorAll('input')).some(
+        (input) =>
+          (input as HTMLInputElement).value ===
+          String(
+            fixture.componentInstance.configuration.ovenModelProfile().bodies.topAir
+              .heatCapacityJPerK,
+          ),
+      ),
+    ).toBe(false);
+    fixture.destroy();
+  });
+
   it('presents and saves the three bounded execution limits separately', async () => {
     const fixture = TestBed.createComponent(SettingsComponent);
     const component = fixture.componentInstance;

@@ -8,7 +8,12 @@ import type {
 } from '../../../../shared/contracts';
 import { EXECUTION_LIMITS } from '../../../../shared/contracts';
 import type { PreparedFirmware } from '../../../../shared/firmware-contracts';
-import { DEFAULT_OVEN_PROFILE, cloneOvenModelProfile, type OvenModelProfile } from '../simulation';
+import {
+  DEFAULT_OVEN_PROFILE,
+  cloneOvenModelProfile,
+  type OvenModelProfile,
+  type ThermalBodyId,
+} from '../simulation';
 import { createDefaultVirtualHardware } from '../simulation/simulation-configuration.store';
 import type { VirtualHardwareConfiguration } from '../../../../shared/firmware-contracts';
 import {
@@ -96,6 +101,32 @@ export class ConfigurationStore {
         ? { ...profile, ambientTemperatureC: Number(value) }
         : { ...profile, ambient: { ...profile.ambient, [key]: Number(value) } },
     );
+  }
+
+  updateHeaterPower(
+    which: keyof OvenModelProfile['heaters'],
+    ratedPowerW: number,
+  ): PhysicalModelEditResult {
+    return this.applyPhysicalModelEdit((profile) => ({
+      ...profile,
+      heaters: {
+        ...profile.heaters,
+        [which]: { ...profile.heaters[which], ratedPowerW: Number(ratedPowerW) },
+      },
+    }));
+  }
+
+  updateBodyHeatCapacity(
+    body: Exclude<ThermalBodyId, 'topAir' | 'bottomAir'>,
+    heatCapacityJPerK: number,
+  ): PhysicalModelEditResult {
+    return this.applyPhysicalModelEdit((profile) => ({
+      ...profile,
+      bodies: {
+        ...profile.bodies,
+        [body]: { ...profile.bodies[body], heatCapacityJPerK: Number(heatCapacityJPerK) },
+      },
+    }));
   }
 
   private applyPhysicalModelEdit(

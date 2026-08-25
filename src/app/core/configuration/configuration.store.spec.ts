@@ -57,6 +57,20 @@ describe('ConfigurationStore', () => {
     expect(store.ovenModelProfile()).toEqual(original);
   });
 
+  it('centralizes heater and independently editable body-property commands', () => {
+    const settings = new ConfigurationStore();
+    const simulation = new ConfigurationStore();
+
+    expect(settings.updateHeaterPower('top', 1_100).ok).toBe(true);
+    expect(simulation.updateHeaterPower('top', 1_100).ok).toBe(true);
+    expect(settings.updateBodyHeatCapacity('standardLoad', 850).ok).toBe(true);
+    expect(simulation.updateBodyHeatCapacity('standardLoad', 850).ok).toBe(true);
+
+    expect(settings.ovenModelProfile()).toEqual(simulation.ovenModelProfile());
+    expect(settings.updateBodyHeatCapacity('standardLoad', 0).ok).toBe(false);
+    expect(settings.ovenModelProfile().bodies.standardLoad.heatCapacityJPerK).toBe(850);
+  });
+
   it('advances the physical revision once for committed edits and not for rejected edits', () => {
     const store = new ConfigurationStore();
 

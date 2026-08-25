@@ -172,6 +172,21 @@
         <details class="parameter-group">
           <summary><span>All thermal bodies</span><em>Heat storage</em></summary>
           <div class="settings-fields">
+            <div class="derived-value">
+              <span>Top chamber air (derived)</span>
+              <strong
+                >{{ configuration.ovenModelProfile().bodies.topAir.heatCapacityJPerK }} J/K</strong
+              >
+            </div>
+            <div class="derived-value">
+              <span>Bottom chamber air (derived)</span>
+              <strong
+                >{{
+                  configuration.ovenModelProfile().bodies.bottomAir.heatCapacityJPerK
+                }}
+                J/K</strong
+              >
+            </div>
             @for (body of thermalBodyIds; track body) {
               <label class="field"
                 ><span>{{ body }}</span>

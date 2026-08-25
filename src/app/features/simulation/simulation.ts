@@ -1220,26 +1220,13 @@ export class SimulationComponent implements OnDestroy {
   }
 
   updateHeaterRatedPower(which: HeaterPosition, watts: number): void {
-    this.mutateSimulationConfiguration(() =>
-      this.configuration.updatePhysicalModel((profile) => ({
-        ...profile,
-        heaters: {
-          ...profile.heaters,
-          [which]: { ...profile.heaters[which], ratedPowerW: Number(watts) },
-        },
-      })),
-    );
+    this.applyPhysicalModelEdit(() => this.configuration.updateHeaterPower(which, watts));
   }
 
   updateBodyHeatCapacity(body: ThermalBodyId, heatCapacityJPerK: number): void {
-    this.mutateSimulationConfiguration(() =>
-      this.configuration.updatePhysicalModel((profile) => ({
-        ...profile,
-        bodies: {
-          ...profile.bodies,
-          [body]: { ...profile.bodies[body], heatCapacityJPerK: Number(heatCapacityJPerK) },
-        },
-      })),
+    if (body === 'topAir' || body === 'bottomAir') return;
+    this.applyPhysicalModelEdit(() =>
+      this.configuration.updateBodyHeatCapacity(body, heatCapacityJPerK),
     );
   }
 

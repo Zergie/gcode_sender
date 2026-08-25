@@ -1,0 +1,54 @@
+name: Windows desktop packaging
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: windows-packaging-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-packaging:
+    name: Windows desktop packaging
+    runs-on: windows-2022
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24.19.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Select pinned npm 11.17.0
+        run: npm install --global npm@11.17.0
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Rebuild native dependencies
+        run: npm run rebuild:native
+
+      - name: Package and smoke-test Windows desktop
+        run: npm run verify:windows-package -- -KeepArtifacts
+
+      - name: Upload package and smoke-test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-desktop-package
+          path: |
+            out/
+            artifacts/windows-package/
+          if-no-files-found: warn
+          retention-days: 7

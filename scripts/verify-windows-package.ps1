@@ -15,13 +15,18 @@ if ($env:OS -ne 'Windows_NT') {
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $outRoot = Join-Path $repoRoot 'out'
+$diagnosticRoot = Join-Path $repoRoot 'artifacts\windows-package'
 $artifactRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('gcode-sender-package-check-' + [guid]::NewGuid().ToString('N'))
 $userDataPath = Join-Path $artifactRoot 'user-data'
-$packageLog = Join-Path $artifactRoot 'package.log'
-$makeLog = Join-Path $artifactRoot 'make.log'
+$packageLog = Join-Path $diagnosticRoot 'package.log'
+$makeLog = Join-Path $diagnosticRoot 'make.log'
 $npmPath = (Get-Command npm -ErrorAction Stop).Source
 
 New-Item -ItemType Directory -Path $artifactRoot, $userDataPath | Out-Null
+if (Test-Path -LiteralPath $diagnosticRoot) {
+  Remove-Item -LiteralPath $diagnosticRoot -Recurse -Force
+}
+New-Item -ItemType Directory -Path $diagnosticRoot | Out-Null
 
 function Invoke-Npm {
   param(
@@ -106,6 +111,7 @@ try {
   Write-Output "PASS: packaged application launched: $($application.FullName)"
   Write-Output "PASS: app.asar, firmware resources, and unpacked native modules are present."
   Write-Output "PASS: configured installer output was produced under $outRoot."
+  Write-Output "Diagnostics written to $diagnosticRoot"
 } finally {
   Stop-LaunchedProcess -Process $appProcess
   if (-not $KeepArtifacts) {

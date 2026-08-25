@@ -199,7 +199,9 @@ the configured Windows installer. `npm run verify:windows-package` runs both
 packaging commands, validates the unpacked app's Electron, native serial, and
 bundled firmware resources, and launches it with an isolated profile for a
 bounded smoke check. It is Windows-only and retains no artifacts unless the
-script is invoked with `-KeepArtifacts`.
+script is invoked with `-KeepArtifacts`. The packaging workflow runs the same
+command after `npm ci --ignore-scripts` and `npm run rebuild:native`, then
+uploads the unpacked package and bounded packaging logs for seven days.
 
 Electron Forge also contains macOS ZIP and Linux DEB/RPM makers. Those targets
 are kept portable in the source, but this release was tested only on Windows

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
-const routeSelectors = {
+export const routeSelectors = {
   about: [
     '.about-hero',
     '.about-mark',
@@ -179,15 +179,8 @@ const routeSelectors = {
   ],
 };
 
-const routes = process.argv.slice(2);
-if (routes.length === 0 || routes.some((route) => !(route in routeSelectors))) {
-  console.error(
-    `Usage: node scripts/check-migrated-route-styles.mjs ${Object.keys(routeSelectors).join('|')} ...`,
-  );
-  process.exitCode = 2;
-} else {
-  const stylesheet = await readFile('src/styles.scss', 'utf8');
-  const leaked = routes.flatMap((route) =>
+export function findLeakedRouteSelectors(stylesheet, routes = Object.keys(routeSelectors)) {
+  return routes.flatMap((route) =>
     routeSelectors[route]
       .filter((selector) =>
         new RegExp(`(^|[,{\\n])\\s*${selector.replace('.', '\\.')}(?=[\\s,{:#.>+~]|$)`).test(
@@ -196,11 +189,26 @@ if (routes.length === 0 || routes.some((route) => !(route in routeSelectors))) {
       )
       .map((selector) => `${route}:${selector}`),
   );
+}
 
-  if (leaked.length > 0) {
-    console.error(`Route selectors found in src/styles.scss: ${leaked.join(', ')}`);
-    process.exitCode = 1;
+const invokedDirectly =
+  process.argv[1] && process.argv[1].endsWith('check-migrated-route-styles.mjs');
+if (invokedDirectly) {
+  const routes = process.argv.slice(2);
+  if (routes.length === 0 || routes.some((route) => !(route in routeSelectors))) {
+    console.error(
+      `Usage: node scripts/check-migrated-route-styles.mjs ${Object.keys(routeSelectors).join('|')} ...`,
+    );
+    process.exitCode = 2;
   } else {
-    console.log(`${routes.join(', ')} route selectors are component-scoped.`);
+    const stylesheet = await readFile('src/styles.scss', 'utf8');
+    const leaked = findLeakedRouteSelectors(stylesheet, routes);
+
+    if (leaked.length > 0) {
+      console.error(`Route selectors found in src/styles.scss: ${leaked.join(', ')}`);
+      process.exitCode = 1;
+    } else {
+      console.log(`${routes.join(', ')} route selectors are component-scoped.`);
+    }
   }
 }

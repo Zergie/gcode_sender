@@ -172,11 +172,15 @@ outcome, while failure to pull or verify the pinned image is a toolchain-setup
 failure. Compiler and link diagnostics remain compile failures. The integration
 report includes these machine-testable outcomes and never silently skips setup.
 The `Portable firmware integration (windows-2022)` check runs this command with
-pinned Emscripten 4.0.20 on a checkout path containing spaces. Its test-owned
-cache covers cold, warm, incomplete, corrupt, and stale-temporary recovery
-paths; the Ubuntu job provides an additional non-Windows compilation result.
-Require the Windows check for compatibility-layer changes. A failed toolchain
-setup or unavailable prerequisite is a failed integration result, not a skip.
+pinned npm 11.17.0 and Emscripten 4.0.20 on a checkout path containing spaces.
+Its test-owned cache covers cold, warm, incomplete, corrupt, and
+stale-temporary recovery paths; the Ubuntu job provides an additional
+non-Windows compilation result. Require the Windows check for
+compatibility-layer changes. The workflow summary classifies unavailable
+prerequisites and pinned-toolchain setup failures separately from compiler or
+ABI failures, and uploads the bounded build log and test results only when the
+integration job fails. A failed toolchain setup or unavailable prerequisite is
+a failed integration result, not a skip.
 npm run build:renderer performs the production renderer build and enforces the
 global style contract. The contract keeps the global stylesheet within its
 19,000-byte source and 16,000-byte compiled baselines, rejects migrated route

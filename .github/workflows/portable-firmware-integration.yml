@@ -38,6 +38,10 @@ jobs:
           cache: npm
           cache-dependency-path: portable firmware checkout/package-lock.json
 
+      - name: Select pinned npm 11.17.0
+        working-directory: portable firmware checkout
+        run: npm install --global npm@11.17.0
+
       - name: Set up pinned Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
@@ -48,11 +52,39 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Compile and verify cold, warm, and recovered caches
+        id: firmware-test
         working-directory: portable firmware checkout
         shell: bash
         run: |
           set -o pipefail
           npm run test:firmware-integration 2>&1 | tee firmware-build.log
+
+      - name: Publish integration outcome
+        if: always()
+        working-directory: portable firmware checkout
+        shell: bash
+        run: |
+          {
+            echo "## Firmware integration outcome (${{ matrix.os }})"
+            if [[ -f firmware-build.log ]]; then
+              if grep -Eq 'TOOLCHAIN_UNAVAILABLE|TOOLCHAIN_SETUP_FAILED' firmware-build.log; then
+                echo '- Outcome: prerequisite or pinned-toolchain setup failure.'
+              elif grep -Eq 'COMPILE_FAILED|ABI_INCOMPATIBLE' firmware-build.log; then
+                echo '- Outcome: firmware compilation or contract verification failure.'
+              elif [[ '${{ steps.firmware-test.outcome }}' == 'success' ]]; then
+                echo '- Outcome: compiled and verified successfully.'
+              else
+                echo '- Outcome: integration command failed before producing a classified result.'
+              fi
+              echo
+              echo '### Classified diagnostics'
+              grep -E 'TOOLCHAIN_UNAVAILABLE|TOOLCHAIN_SETUP_FAILED|COMPILE_FAILED|ABI_INCOMPATIBLE' firmware-build.log || true
+            elif [[ '${{ steps.firmware-test.outcome }}' == 'skipped' ]]; then
+              echo '- Outcome: integration command was skipped; inspect the setup step above.'
+            else
+              echo '- Outcome: pinned compiler setup failed before the integration command started.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload firmware diagnostics
         if: failure()

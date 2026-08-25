@@ -146,6 +146,27 @@ entrypoints used by Windows automation; they do not rewrite source files.
 The `Windows fast verification` check runs these commands on every pull request
 and on updates to `main`; it is the fast result recommended for branch protection.
 Portable firmware compilation and Windows packaging remain separate, slower checks.
+Before enabling branch protection, run `npm run verify:windows-ci` and validate the
+workflow YAML with `npx prettier --check .github/workflows/*.yml`. The qualification
+check guards the stable workflow names, read-only permissions, cancellation policy,
+locked-install commands, failure reporting, and diagnostic retention contracts.
+
+Windows CI qualification record:
+
+- Require `Windows fast verification` for normal pull-request merges.
+- Keep `Portable firmware integration (windows-2022)` separate because it depends on
+  the pinned Emscripten toolchain; its summary distinguishes unavailable prerequisites,
+  setup failures, compiler failures, and ABI failures.
+- Keep `Windows desktop packaging` separate because it performs native rebuilds and
+  a bounded application smoke check.
+- Qualify both a clean cache miss and a subsequent cache hit by checking that each run
+  still executes `npm ci` and rejects lockfile drift. During workflow maintenance,
+  temporarily fail one named verification step in each job, confirm the job is red
+  with that step visible, then remove the temporary failure before merging.
+- For the firmware job, record both a successful pinned-toolchain run and the
+  actionable unavailable-prerequisite outcome when the toolchain cannot be provided;
+  neither outcome is silently treated as a skipped fast check. Inspect the retained
+  Windows packaging artifact after its smoke check.
 
 Other useful commands:
 

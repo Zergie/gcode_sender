@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { app, BrowserWindow, session, shell } from 'electron';
+import { app, BrowserWindow, dialog, session, shell } from 'electron';
 
 import { IPC } from '../shared/ipc';
 import { EventHub } from './event-hub';
@@ -9,6 +9,7 @@ import { shutdownInOrder } from './shutdown';
 import { createMainWindowOptions } from './window-options';
 import { ActivityService } from './services/activity-service';
 import { CatalogService } from './services/catalog-service';
+import type { CatalogApprovalRequest } from '../shared/contracts';
 import { JobService } from './services/job-service';
 import { LiveTuningService } from './services/live-tuning-service';
 import { PersistenceStore } from './services/persistence-store';
@@ -97,10 +98,28 @@ async function initialize(): Promise<void> {
   wireEvents(runtime);
   configureSessionPermissions();
   await createWindow();
+  catalog.setApprovalDialog((request) => showCatalogApproval(request));
   logger.info('GCode Sender main process initialized', {
     platform: process.platform,
     arch: process.arch,
   });
+}
+
+async function showCatalogApproval(request: CatalogApprovalRequest): Promise<boolean> {
+  if (mainWindow === null || mainWindow.isDestroyed()) {
+    return false;
+  }
+  const result = await dialog.showMessageBox(mainWindow, {
+    type: 'question',
+    title: 'Approve firmware command catalog',
+    message: `Allow this firmware to load its command catalog?`,
+    detail: `Host: ${request.host}\nURL: ${request.url}\n\nThe host will be remembered after approval.`,
+    buttons: ['Approve', 'Reject'],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+  return result.response === 0;
 }
 
 function wireEvents(current: Runtime): void {

@@ -104,7 +104,103 @@ describe('command catalog snapshot events', () => {
     await vi.waitFor(() => expect(service.get().source).toBe('bundled'));
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it('waits for trusted approval before fetching and remembers an approved host', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    const fetch = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify([{ code: 'M105', description: 'Read temperatures' }]), {
+          status: 200,
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const store = catalogStore([]);
+    let decide: ((approved: boolean) => void) | undefined;
+    const prompt = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          decide = resolve;
+        }),
+    );
+    const service = new CatalogService(directory, store, silentLogger(), prompt);
+
+    const refresh = service.setFirmware(firmwareWithCatalog());
+    await vi.waitFor(() =>
+      expect(prompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          host: 'catalog.example.test',
+          url: 'https://catalog.example.test/gcode.json',
+        }),
+      ),
+    );
+    expect(fetch).not.toHaveBeenCalled();
+
+    decide?.(true);
+    await refresh;
+    expect(store.approveCatalogHost).toHaveBeenCalledWith('catalog.example.test');
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    expect(service.get()).toMatchObject({ source: 'remote', stale: false });
+  });
+
+  it.each([false, false])(
+    'keeps the fallback and does not persist or fetch when trusted approval is rejected or dismissed',
+    async (approved) => {
+      const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+      temporaryDirectories.push(directory);
+      const fetch = vi.fn();
+      vi.stubGlobal('fetch', fetch);
+      const store = catalogStore([]);
+      const service = new CatalogService(
+        directory,
+        store,
+        silentLogger(),
+        vi.fn(async () => approved),
+      );
+
+      await service.setFirmware(firmwareWithCatalog());
+      expect(service.get()).toMatchObject({ source: 'bundled', stale: true });
+      expect(store.approveCatalogHost).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not prompt again for a host already approved by the trusted path', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify([{ code: 'M105', description: 'Read temperatures' }]), {
+            status: 200,
+          }),
+        ),
+      ),
+    );
+    const prompt = vi.fn(async () => true);
+    const service = new CatalogService(
+      directory,
+      catalogStore(['catalog.example.test']),
+      silentLogger(),
+      prompt,
+    );
+
+    await service.setFirmware(firmwareWithCatalog());
+    await vi.waitFor(() => expect(service.get().source).toBe('remote'));
+    expect(prompt).not.toHaveBeenCalled();
+  });
 });
+
+function firmwareWithCatalog(): FirmwareInfo {
+  return {
+    raw: 'firmware',
+    firmwareName: 'PID TEMP',
+    uuid: 'oven-1',
+    gcodeCatalogUrl: 'https://catalog.example.test/gcode.json',
+  };
+}
 
 function catalogStore(approvedCatalogHosts: readonly string[]): PersistenceStore {
   const settings: AppSettings = {
@@ -118,6 +214,7 @@ function catalogStore(approvedCatalogHosts: readonly string[]): PersistenceStore
   return {
     getSettings: () => settings,
     updateSettings: vi.fn(() => Promise.resolve(settings)),
+    approveCatalogHost: vi.fn(() => Promise.resolve(settings)),
   } as unknown as PersistenceStore;
 }
 

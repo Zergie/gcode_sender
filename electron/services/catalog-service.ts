@@ -27,6 +27,8 @@ interface PendingApproval {
   readonly firmware: FirmwareInfo;
 }
 
+export type CatalogApprovalDialog = (request: CatalogApprovalRequest) => Promise<boolean>;
+
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 const FETCH_TIMEOUT_MS = 8_000;
 
@@ -34,14 +36,18 @@ export class CatalogService {
   private firmware: FirmwareInfo | null = null;
   private snapshot: CommandCatalogSnapshot = bundledSnapshot(null);
   private pendingApproval: PendingApproval | null = null;
-  private readonly approvalListeners = new Set<(request: CatalogApprovalRequest) => void>();
   private readonly snapshotListeners = new Set<(snapshot: CommandCatalogSnapshot) => void>();
 
   constructor(
     private readonly cacheDirectory: string,
     private readonly store: PersistenceStore,
     private readonly logger: Logger,
+    private approvalDialog: CatalogApprovalDialog = async () => false,
   ) {}
+
+  setApprovalDialog(dialog: CatalogApprovalDialog): void {
+    this.approvalDialog = dialog;
+  }
 
   get(): CommandCatalogSnapshot {
     return structuredClone(this.snapshot);
@@ -86,15 +92,18 @@ export class CatalogService {
         firmwareId: firmwareId(firmware),
       };
       this.pendingApproval = { request, firmware };
-      for (const listener of this.approvalListeners) {
-        listener(request);
+      let approved = false;
+      try {
+        approved = await this.approvalDialog(request);
+      } finally {
+        if (this.pendingApproval?.request.id === request.id) {
+          this.pendingApproval = null;
+        }
       }
-      throw new AppError({
-        code: 'CATALOG_APPROVAL_REQUIRED',
-        message: `Approval is required before contacting ${url.host}`,
-        recoverable: true,
-        details: { requestId: request.id, host: request.host },
-      });
+      if (!approved) {
+        return this.get();
+      }
+      await this.store.approveCatalogHost(request.host);
     }
 
     try {
@@ -121,32 +130,6 @@ export class CatalogService {
       });
       return this.get();
     }
-  }
-
-  async approve(requestId: string, approved: boolean): Promise<CommandCatalogSnapshot> {
-    const pending = this.pendingApproval;
-    if (pending === null || pending.request.id !== requestId) {
-      throw new AppError({
-        code: 'NOT_FOUND',
-        message: 'Catalog approval request is no longer active',
-        recoverable: true,
-      });
-    }
-    this.pendingApproval = null;
-    if (!approved) {
-      return this.get();
-    }
-    await this.store.approveCatalogHost(pending.request.host);
-    // Only refresh if the device has not changed while approval was pending.
-    if (this.firmware === null || firmwareId(this.firmware) !== firmwareId(pending.firmware)) {
-      return this.get();
-    }
-    return this.refresh();
-  }
-
-  subscribeApproval(listener: (request: CatalogApprovalRequest) => void): () => void {
-    this.approvalListeners.add(listener);
-    return () => this.approvalListeners.delete(listener);
   }
 
   subscribeSnapshot(listener: (snapshot: CommandCatalogSnapshot) => void): () => void {

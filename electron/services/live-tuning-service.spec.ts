@@ -78,17 +78,45 @@ describe('live tuning cancellation', () => {
       bestEffortHeaterOff: vi.fn(() => Promise.resolve()),
     } as unknown as SerialService;
     const activity = new ActivityService();
+    let savedSession: unknown;
     const saveSession = vi.fn((session: unknown) => Promise.resolve(session));
+    saveSession.mockImplementation(async (session: unknown) => {
+      savedSession = session;
+      return session;
+    });
     const service = new LiveTuningService(
       '.',
       serial,
       activity,
-      { saveSession } as unknown as PersistenceStore,
+      {
+        getSettings: () => ({ artifactLimitBytes: 1_000, artifactLimitRecords: 2 }),
+        saveSession,
+      } as unknown as PersistenceStore,
       silentLogger(),
     );
 
     service.start({ targets: [100], sampleIntervalMs: 250, stageTimeoutMs: 60_000 });
     await vi.waitFor(() => expect(commands).toContain('M104 S100'));
+    const appendTrace = (
+      service as unknown as { appendTrace(sample: unknown): Promise<void> }
+    ).appendTrace.bind(service);
+    const sample = {
+      timestamp: '2026-08-25T00:00:00.000Z',
+      elapsedSeconds: 1,
+      target: 100,
+      phase: 'heating',
+      telemetry: {
+        timestamp: '2026-08-25T00:00:00.000Z',
+        average: 95,
+        target: 100,
+        power: 255,
+        thermistors: [95, 95, 95],
+        raw: 'T:95.0 /100.0 P:255',
+      },
+    };
+    await appendTrace(sample);
+    await appendTrace({ ...sample, elapsedSeconds: 2 });
+    await appendTrace({ ...sample, elapsedSeconds: 3 });
 
     let settled = false;
     const cancellation = service.cancel().then((state) => {
@@ -107,6 +135,12 @@ describe('live tuning cancellation', () => {
     await expect(cancellation).resolves.toMatchObject({ status: 'cancelled', error: null });
     expect(activity.getState().active).toBeNull();
     expect(saveSession).toHaveBeenCalledOnce();
+    expect((savedSession as { data: { artifact: unknown } }).data.artifact).toMatchObject({
+      complete: false,
+      limits: { maxBytes: 1_000, maxRecords: 2 },
+      retainedRecords: 2,
+      omittedRecords: 1,
+    });
     expect(commands).toEqual([
       'M503',
       'M301 P1000 I0 D0',
@@ -122,7 +156,9 @@ describe('live tuning cancellation', () => {
       '.',
       { sendAndWait, subscribe: () => () => undefined } as unknown as SerialService,
       new ActivityService(),
-      {} as PersistenceStore,
+      {
+        getSettings: () => ({ artifactLimitBytes: 120, artifactLimitRecords: 2 }),
+      } as unknown as PersistenceStore,
       silentLogger(),
     );
 
@@ -159,7 +195,10 @@ describe('live tuning cancellation', () => {
       '.',
       serial,
       activity,
-      { saveSession } as unknown as PersistenceStore,
+      {
+        getSettings: () => ({ artifactLimitBytes: 120, artifactLimitRecords: 2 }),
+        saveSession,
+      } as unknown as PersistenceStore,
       silentLogger(),
     );
 

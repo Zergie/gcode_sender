@@ -7,10 +7,15 @@
  * plus target changes emulate max/off output because raw PWM is not exposed.
  */
 import { randomUUID } from 'node:crypto';
-import { appendFile, mkdir } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 
-import type { JsonValue, SessionMetadata, TemperatureTelemetry } from '../../shared/contracts';
+import {
+  EXECUTION_LIMITS,
+  type JsonValue,
+  type SessionMetadata,
+  type TemperatureTelemetry,
+} from '../../shared/contracts';
 import { AppError, asAppError } from '../../shared/errors';
 import type {
   LiveTuningRequest,
@@ -25,6 +30,7 @@ import type { Logger } from '../logger';
 import type { ActivityService } from './activity-service';
 import type { PersistenceStore } from './persistence-store';
 import type { SerialService } from './serial-service';
+import { BoundedArtifactWriter, type ArtifactWriterStats } from './bounded-artifact-writer';
 
 interface ValidatedRequest {
   readonly targets: readonly number[];
@@ -56,7 +62,8 @@ export class LiveTuningService {
   private activeRun: Promise<void> | null = null;
   private connectionFailure: AppError | null = null;
   private tracePath: string | null = null;
-  private traceQueue: Promise<void> = Promise.resolve();
+  private traceWriter: BoundedArtifactWriter<TuningSample> | null = null;
+  private traceStats: ArtifactWriterStats | null = null;
 
   constructor(
     private readonly sessionsDirectory: string,
@@ -105,7 +112,12 @@ export class LiveTuningService {
     const id = randomUUID();
     this.abortController = new AbortController();
     this.tracePath = path.join(this.sessionsDirectory, `${id}.tuning.jsonl`);
-    this.traceQueue = Promise.resolve();
+    const settings = this.store.getSettings();
+    this.traceWriter = new BoundedArtifactWriter(this.tracePath, {
+      maxBytes: settings.artifactLimitBytes ?? EXECUTION_LIMITS.artifactBytes.default,
+      maxRecords: settings.artifactLimitRecords ?? EXECUTION_LIMITS.artifactRecords.default,
+    });
+    this.traceStats = null;
     this.state = {
       id,
       status: 'snapshotting',
@@ -231,16 +243,25 @@ export class LiveTuningService {
         currentTarget: null,
         error: finalError,
       };
+      try {
+        this.traceStats = (await this.traceWriter?.close()) ?? null;
+      } catch (error) {
+        const traceError = asAppError(error);
+        finalStatus = 'failed';
+        finalError = traceError.toInfo();
+        this.traceStats = this.traceWriter?.getStats() ?? null;
+        this.state = { ...this.state, status: finalStatus, error: finalError };
+        this.logger.error('Unable to retain live tuning trace', { error: traceError.message });
+      }
+      this.notify();
       this.abortController = null;
       this.connectionFailure = null;
-      this.activity.release('tuning');
-      this.notify();
-      await this.traceQueue.catch(() => undefined);
       await this.persistSession().catch((error: unknown) => {
         this.logger.warn('Unable to retain tuning session', {
           error: error instanceof Error ? error.message : String(error),
         });
       });
+      this.activity.release('tuning');
     }
   }
 
@@ -383,14 +404,11 @@ export class LiveTuningService {
   }
 
   private async appendTrace(sample: TuningSample): Promise<void> {
-    const tracePath = this.tracePath;
-    if (tracePath === null) {
+    const writer = this.traceWriter;
+    if (writer === null) {
       return;
     }
-    this.traceQueue = this.traceQueue.then(() =>
-      appendFile(tracePath, `${JSON.stringify(sample)}\n`, 'utf8'),
-    );
-    await this.traceQueue;
+    await writer.append(sample);
   }
 
   private async persistSession(): Promise<void> {
@@ -403,6 +421,15 @@ export class LiveTuningService {
       tracePath: this.tracePath,
       rollbackGains: this.state.rollbackGains,
       results: this.state.results,
+      artifact: {
+        path: this.tracePath,
+        complete: this.traceStats === null ? false : !this.traceStats.truncated,
+        limits: this.traceStats === null ? null : { ...this.traceStats.limits },
+        retainedBytes: this.traceStats?.retainedBytes ?? 0,
+        retainedRecords: this.traceStats?.retainedRecords ?? 0,
+        omittedBytes: this.traceStats?.omittedBytes ?? 0,
+        omittedRecords: this.traceStats?.omittedRecords ?? 0,
+      },
     } as unknown as JsonValue;
     const session: SessionMetadata = {
       id: this.state.id,

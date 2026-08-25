@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -97,6 +97,45 @@ describe.runIf(runIntegration)('firmware build integration', () => {
         expect.arrayContaining([expect.objectContaining({ code: 'CACHE_CORRUPT' })]),
       );
     }
+    const manifestPath = path.join(
+      userDataPath,
+      'firmware-cache',
+      'v1',
+      `${cold.firmware.artifact.buildId}.json`,
+    );
+    await rm(manifestPath);
+    const incomplete = await service.build(sketch);
+    expect(incomplete.status).toBe('ready');
+    if (incomplete.status === 'ready') {
+      expect(incomplete.firmware.cacheHit).toBe(false);
+      expect(incomplete.firmware.diagnostics).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'CACHE_CORRUPT' })]),
+      );
+    }
+    await writeFile(manifestPath, '{ not valid json');
+    const corruptManifest = await service.build(sketch);
+    expect(corruptManifest.status).toBe('ready');
+    if (corruptManifest.status === 'ready') {
+      expect(corruptManifest.firmware.cacheHit).toBe(false);
+      expect(corruptManifest.firmware.diagnostics).toEqual(
+        expect.arrayContaining([expect.objectContaining({ code: 'CACHE_CORRUPT' })]),
+      );
+    }
+    await writeFile(
+      path.join(
+        userDataPath,
+        'firmware-cache',
+        'v1',
+        `${cold.firmware.artifact.buildId}.stale.wasm.tmp`,
+      ),
+      'stale temporary artifact',
+    );
+    const recoveredWarm = await service.build(sketch);
+    expect(recoveredWarm.status).toBe('ready');
+    if (recoveredWarm.status === 'ready') expect(recoveredWarm.firmware.cacheHit).toBe(true);
+    expect(await readdir(path.dirname(manifestPath))).not.toContain(
+      `${cold.firmware.artifact.buildId}.stale.wasm.tmp`,
+    );
     process.stdout.write(
       `FIL_BUILD_REPORT ${JSON.stringify({
         artifactBytes: cold.firmware.artifact.wasmBytes.byteLength,

@@ -1,6 +1,16 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { lstat, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import path from 'node:path';
 
 import {
@@ -169,7 +179,7 @@ export async function prepareFirmwareToolchain(
   const initial = await getFirmwareToolchainStatus(runner);
   const selected = initial.adapters.find(({ kind }) => kind === initial.selected);
   if (selected?.available === true) {
-    const cachePath = containedPath(userDataPath, 'firmware-toolchain', 'v1', 'verified.json');
+    const cachePath = toolchainCachePath(userDataPath, selected);
     const cached = await readVerifiedToolchain(cachePath, selected);
     if (!cached) {
       await mkdir(path.dirname(cachePath), { recursive: true });
@@ -237,7 +247,7 @@ export async function prepareFirmwareToolchain(
       ],
     };
   }
-  const cachePath = containedPath(userDataPath, 'firmware-toolchain', 'v1', 'verified.json');
+  const cachePath = toolchainCachePath(userDataPath, verifiedDocker);
   await mkdir(path.dirname(cachePath), { recursive: true });
   await writeFile(
     cachePath,
@@ -264,6 +274,21 @@ async function readVerifiedToolchain(
   } catch {
     return false;
   }
+}
+
+function toolchainCachePath(userDataPath: string, adapter: FirmwareToolchainAdapterStatus): string {
+  const identity = JSON.stringify({
+    kind: adapter.kind,
+    identity: adapter.detail,
+    version: adapter.version,
+  });
+  return containedPath(
+    userDataPath,
+    'firmware-toolchain',
+    'v1',
+    sha256(new TextEncoder().encode(identity)),
+    'verified.json',
+  );
 }
 
 export async function compileFirmware(
@@ -343,6 +368,7 @@ export async function compileFirmware(
   );
   const cachePath = containedPath(cacheRoot, `${buildId}.wasm`);
   const cacheManifestPath = containedPath(cacheRoot, `${buildId}.json`);
+  await removeStaleCacheTemps(cacheRoot, buildId);
   const cached = await readFirmwareCache(cachePath, cacheManifestPath, buildId);
   if (cached.status === 'valid') {
     return {
@@ -438,6 +464,21 @@ export async function compileFirmware(
     // A cleanup failure must never replace the structured compiler/link result.
     await rm(stagePath, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+async function removeStaleCacheTemps(cacheRoot: string, buildId: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await readdir(cacheRoot);
+  } catch {
+    return;
+  }
+  const prefix = `${buildId}.`;
+  await Promise.all(
+    entries
+      .filter((entry) => entry.startsWith(prefix) && entry.endsWith('.tmp'))
+      .map((entry) => rm(containedPath(cacheRoot, entry), { force: true })),
+  );
 }
 
 export function createFirmwareBuildId(

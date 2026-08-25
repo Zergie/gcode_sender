@@ -360,6 +360,72 @@ describe('exclusive job preparation', () => {
     persisted.resolve();
     await vi.waitFor(() => expect(activity.getState()).toEqual({ active: null }));
   });
+
+  it('keeps every exclusive activity blocked until final log flushing completes', async () => {
+    const directory = await temporaryDirectory('gcode-sender-final-log-');
+    const filePath = path.join(directory, 'job.gcode');
+    await writeFile(filePath, 'M105\n', 'utf8');
+    const flushed = deferred<void>();
+    const activity = new ActivityService();
+    const service = createJobService(
+      directory,
+      vi.fn(async () => ({ raw: 'ok', parsed: { kind: 'ok' } })),
+      activity,
+    );
+
+    service.subscribeState((state) => {
+      if (state.status === 'completed') {
+        (service as unknown as { logWriteQueue: Promise<void> }).logWriteQueue = flushed.promise;
+      }
+    });
+
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('completed'));
+    expect(activity.getState()).toEqual({ active: 'job' });
+    for (const requested of ['job', 'tuning', 'validation'] as const) {
+      expect(() => activity.acquire(requested)).toThrowError(
+        expect.objectContaining({ code: 'BUSY', recoverable: true }),
+      );
+    }
+
+    flushed.resolve();
+    await vi.waitFor(() => expect(activity.getState()).toEqual({ active: null }));
+  });
+
+  it('releases ownership after retained-session persistence failure', async () => {
+    const directory = await temporaryDirectory('gcode-sender-retention-failure-');
+    const filePath = path.join(directory, 'job.gcode');
+    await writeFile(filePath, 'M105\n', 'utf8');
+    const activity = new ActivityService();
+    const saveSession = vi.fn(async () => {
+      throw new AppError({
+        code: 'STORAGE_FAILED',
+        message: 'session storage failed',
+        recoverable: true,
+      });
+    });
+    const service = new JobService(
+      path.join(directory, 'sessions'),
+      {
+        getState: () => ({ status: 'connected' }),
+        subscribe: () => () => undefined,
+        sendAndWait: vi.fn(async () => ({ raw: 'ok', parsed: { kind: 'ok' } })),
+        bestEffortHeaterOff: vi.fn(async () => undefined),
+      } as unknown as SerialService,
+      activity,
+      {
+        getSettings: () => ({ commandTimeoutMs: 8_000 }),
+        saveSession,
+      } as unknown as PersistenceStore,
+      silentLogger(),
+    );
+
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('completed'));
+    await vi.waitFor(() => expect(activity.getState()).toEqual({ active: null }));
+    expect(saveSession).toHaveBeenCalledOnce();
+    expect(service.getState().status).toBe('completed');
+  });
 });
 
 describe('disconnection during an active job', () => {

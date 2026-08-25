@@ -699,7 +699,7 @@
                         min="0"
                         step="1"
                         [ngModel]="link.areaM2 * 10000"
-                        (ngModelChange)="updateRadiationAreaCm2(index, $event)"
+                        [disabled]="isDerivedRadiationArea(link)"
                     /></label>
                     <label class="field"
                       ><span>Emissivity</span
@@ -746,7 +746,7 @@
                   min="0"
                   step=".001"
                   [ngModel]="profile().ambient.enclosureRadiatingAreaM2"
-                  (ngModelChange)="updateAmbient('enclosureRadiatingAreaM2', $event)"
+                  disabled
               /></label>
               <label class="field"
                 ><span>Enclosure emissivity</span

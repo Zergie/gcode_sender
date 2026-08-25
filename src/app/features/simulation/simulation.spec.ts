@@ -837,6 +837,18 @@ describe('SimulationComponent', () => {
     fixture.destroy();
   });
 
+  it('preserves displayed results when a physical link edit is rejected', () => {
+    const fixture = TestBed.createComponent(SimulationComponent);
+    const component = fixture.componentInstance;
+    runShortSynchronousComparison(component);
+    const currentComparison = component.comparison();
+
+    component.updateLinearConductance(99, 4);
+
+    expect(component.comparison()).toBe(currentComparison);
+    fixture.destroy();
+  });
+
   it('keeps firmware history non-live and exposes only a concise output status', () => {
     const fixture = TestBed.createComponent(SimulationComponent);
     const component = fixture.componentInstance;

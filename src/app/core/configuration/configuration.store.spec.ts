@@ -71,6 +71,47 @@ describe('ConfigurationStore', () => {
     expect(settings.ovenModelProfile().bodies.standardLoad.heatCapacityJPerK).toBe(850);
   });
 
+  it('centralizes calibratable links and protects geometry-derived radiation areas', () => {
+    const settings = new ConfigurationStore();
+    const simulation = new ConfigurationStore();
+
+    expect(settings.updateLinearConductance(0, 0.123).ok).toBe(true);
+    expect(simulation.updateLinearConductance(0, 0.123).ok).toBe(true);
+    expect(settings.updateRadiationEmissivity(0, 0.72).ok).toBe(true);
+    expect(simulation.updateRadiationEmissivity(0, 0.72).ok).toBe(true);
+    expect(settings.updateRadiationViewFactor(0, 0.61).ok).toBe(true);
+    expect(simulation.updateRadiationViewFactor(0, 0.61).ok).toBe(true);
+
+    expect(settings.ovenModelProfile()).toEqual(simulation.ovenModelProfile());
+
+    const derivedIndex = settings
+      .ovenModelProfile()
+      .radiationLinks.findIndex(
+        (link) =>
+          (link.a === 'standardLoad' && link.b === 'enclosure') ||
+          (link.a === 'enclosure' && link.b === 'standardLoad'),
+      );
+    const previousArea = settings.ovenModelProfile().radiationLinks[derivedIndex]?.areaM2;
+    const revision = settings.physicalConfigurationRevision();
+    const rejected = settings.updateRadiationArea(derivedIndex, 0.001);
+
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.errors[0]?.path).toContain('areaM2');
+    expect(settings.ovenModelProfile().radiationLinks[derivedIndex]?.areaM2).toBe(previousArea);
+    expect(settings.physicalConfigurationRevision()).toBe(revision);
+  });
+
+  it('rejects invalid link indexes and values atomically', () => {
+    const store = new ConfigurationStore();
+    const original = store.ovenModelProfile();
+    const revision = store.physicalConfigurationRevision();
+
+    expect(store.updateLinearConductance(99, 1).ok).toBe(false);
+    expect(store.updateRadiationEmissivity(0, 1.5).ok).toBe(false);
+    expect(store.ovenModelProfile()).toEqual(original);
+    expect(store.physicalConfigurationRevision()).toBe(revision);
+  });
+
   it('advances the physical revision once for committed edits and not for rejected edits', () => {
     const store = new ConfigurationStore();
 

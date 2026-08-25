@@ -12,6 +12,7 @@ import { createDefaultVirtualHardware } from '../../core/simulation/simulation-c
 import { WorkbenchStore } from '../../core/platform/workbench.store';
 import { SessionCatalogStore } from '../../core/platform/session-catalog.store';
 import { ConfigurationStore } from '../../core/configuration/configuration.store';
+import { isStandardLoadEnclosureLink } from '../../core/configuration/physical-model';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
 
@@ -288,25 +289,21 @@ export class SettingsComponent {
   }
 
   updateLinearConductance(index: number, conductanceWPerK: number): void {
-    this.configuration.updatePhysicalModel((profile) => ({
-      ...profile,
-      linearLinks: profile.linearLinks.map((link, position) =>
-        position === index ? { ...link, conductanceWPerK: Number(conductanceWPerK) } : link,
-      ),
-    }));
+    this.showPhysicalEditResult(
+      this.configuration.updateLinearConductance(index, conductanceWPerK),
+    );
   }
 
   updateRadiation(
     index: number,
-    key: keyof Pick<RadiationHeatLink, 'areaM2' | 'emissivity' | 'viewFactor'>,
+    key: keyof Pick<RadiationHeatLink, 'emissivity' | 'viewFactor'>,
     value: number,
   ): void {
-    this.configuration.updatePhysicalModel((profile) => ({
-      ...profile,
-      radiationLinks: profile.radiationLinks.map((link, position) =>
-        position === index ? { ...link, [key]: Number(value) } : link,
-      ),
-    }));
+    this.showPhysicalEditResult(
+      key === 'emissivity'
+        ? this.configuration.updateRadiationEmissivity(index, value)
+        : this.configuration.updateRadiationViewFactor(index, value),
+    );
   }
 
   updateAmbient(key: keyof AmbientBoundaryConfiguration, value: number): void {
@@ -318,6 +315,10 @@ export class SettingsComponent {
         ambient: { ...profile.ambient, [key]: Number(value) },
       }));
     }
+  }
+
+  isDerivedRadiationArea(link: RadiationHeatLink): boolean {
+    return isStandardLoadEnclosureLink(link.a, link.b);
   }
 
   private showPhysicalEditResult(result: {

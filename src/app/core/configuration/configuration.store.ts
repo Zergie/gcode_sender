@@ -22,6 +22,7 @@ import {
   type PhysicalGeometryKey,
   type PhysicalModelEditResult,
 } from './physical-model';
+import { isStandardLoadEnclosureLink } from './physical-model';
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   version: 2,
@@ -127,6 +128,69 @@ export class ConfigurationStore {
         [body]: { ...profile.bodies[body], heatCapacityJPerK: Number(heatCapacityJPerK) },
       },
     }));
+  }
+
+  updateLinearConductance(index: number, conductanceWPerK: number): PhysicalModelEditResult {
+    if (!this.physicalModelState().linearLinks[index]) {
+      return this.invalidPhysicalEdit(
+        `linearLinks.${index}`,
+        'The heat-transfer link does not exist.',
+      );
+    }
+    return this.applyPhysicalModelEdit((profile) => ({
+      ...profile,
+      linearLinks: profile.linearLinks.map((link, linkIndex) =>
+        linkIndex === index ? { ...link, conductanceWPerK: Number(conductanceWPerK) } : link,
+      ),
+    }));
+  }
+
+  updateRadiationEmissivity(index: number, emissivity: number): PhysicalModelEditResult {
+    return this.updateRadiationLink(index, (link) => ({ ...link, emissivity: Number(emissivity) }));
+  }
+
+  updateRadiationViewFactor(index: number, viewFactor: number): PhysicalModelEditResult {
+    return this.updateRadiationLink(index, (link) => ({ ...link, viewFactor: Number(viewFactor) }));
+  }
+
+  updateRadiationArea(index: number, areaM2: number): PhysicalModelEditResult {
+    const link = this.physicalModelState().radiationLinks[index];
+    if (!link)
+      return this.invalidPhysicalEdit(
+        `radiationLinks.${index}`,
+        'The radiation link does not exist.',
+      );
+    if (isStandardLoadEnclosureLink(link.a, link.b)) {
+      return this.invalidPhysicalEdit(
+        `radiationLinks.${index}.areaM2`,
+        'This radiation area is derived from geometry and cannot be edited directly.',
+      );
+    }
+    return this.updateRadiationLink(index, (current) => ({ ...current, areaM2: Number(areaM2) }));
+  }
+
+  private updateRadiationLink(
+    index: number,
+    update: (
+      link: OvenModelProfile['radiationLinks'][number],
+    ) => OvenModelProfile['radiationLinks'][number],
+  ): PhysicalModelEditResult {
+    if (!this.physicalModelState().radiationLinks[index]) {
+      return this.invalidPhysicalEdit(
+        `radiationLinks.${index}`,
+        'The radiation link does not exist.',
+      );
+    }
+    return this.applyPhysicalModelEdit((profile) => ({
+      ...profile,
+      radiationLinks: profile.radiationLinks.map((link, linkIndex) =>
+        linkIndex === index ? update(link) : link,
+      ),
+    }));
+  }
+
+  private invalidPhysicalEdit(path: string, message: string): PhysicalModelEditResult {
+    return { ok: false, errors: [{ path, message }] };
   }
 
   private applyPhysicalModelEdit(

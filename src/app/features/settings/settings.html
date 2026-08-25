@@ -241,7 +241,7 @@
                   min="0"
                   step="0.0001"
                   [ngModel]="link.areaM2"
-                  (ngModelChange)="updateRadiation(index, 'areaM2', $event)"
+                  [disabled]="isDerivedRadiationArea(link)"
               /></label>
               <label class="field"
                 ><span>Emissivity</span

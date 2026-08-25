@@ -1231,25 +1231,19 @@ export class SimulationComponent implements OnDestroy {
   }
 
   updateLinearConductance(index: number, conductanceWPerK: number): void {
-    this.mutateSimulationConfiguration(() =>
-      this.configuration.updatePhysicalModel((profile) => ({
-        ...profile,
-        linearLinks: profile.linearLinks.map((link, linkIndex) =>
-          linkIndex === index ? { ...link, conductanceWPerK: Number(conductanceWPerK) } : link,
-        ),
-      })),
+    this.applyPhysicalModelEdit(() =>
+      this.configuration.updateLinearConductance(index, conductanceWPerK),
     );
   }
 
   updateRadiation(index: number, key: RadiationParameter, value: number): void {
-    this.mutateSimulationConfiguration(() =>
-      this.configuration.updatePhysicalModel((profile) => ({
-        ...profile,
-        radiationLinks: profile.radiationLinks.map((link, linkIndex) =>
-          linkIndex === index ? { ...link, [key]: Number(value) } : link,
-        ),
-      })),
-    );
+    if (key === 'areaM2') {
+      this.applyPhysicalModelEdit(() => this.configuration.updateRadiationArea(index, value));
+    } else if (key === 'emissivity') {
+      this.applyPhysicalModelEdit(() => this.configuration.updateRadiationEmissivity(index, value));
+    } else {
+      this.applyPhysicalModelEdit(() => this.configuration.updateRadiationViewFactor(index, value));
+    }
   }
 
   updateRadiationAreaCm2(index: number, areaCm2: number): void {
@@ -1260,6 +1254,7 @@ export class SimulationComponent implements OnDestroy {
     key: K,
     value: AmbientBoundaryConfiguration[K],
   ): void {
+    if (key === 'enclosureRadiatingAreaM2') return;
     if (key === 'airDensityKgPerM3' || key === 'airSpecificHeatJPerKgK') {
       this.applyPhysicalModelEdit(() => this.configuration.updateAirProperty(key, Number(value)));
     } else {
@@ -1292,6 +1287,13 @@ export class SimulationComponent implements OnDestroy {
   private mutateSimulationConfiguration(mutation: () => void): void {
     this.invalidateSimulationResults();
     mutation();
+  }
+
+  isDerivedRadiationArea(link: RadiationHeatLink): boolean {
+    return (
+      (link.a === 'standardLoad' && link.b === 'enclosure') ||
+      (link.a === 'enclosure' && link.b === 'standardLoad')
+    );
   }
 
   bodyLabel(body: ThermalBodyId): string {

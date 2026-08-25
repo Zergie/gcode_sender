@@ -56,6 +56,8 @@ web_modules/
 out/
 .tmp/
 .playwright-cli/
+playwright-report/
+test-results/
 
 # Optional npm cache directory
 .npm

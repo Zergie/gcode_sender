@@ -29,6 +29,7 @@
     "start": "npm run dev",
     "test:renderer": "ng test --watch=false",
     "test:backend": "vitest run shared electron --exclude \"src/**\"",
+    "test:browser": "playwright test",
     "verify:windows-dev-icon": "npm run build:electron && powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-dev-icon.ps1",
     "verify:windows-package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-windows-package.ps1",
     "verify:archive-security": "node scripts/archive-security-gate.mjs --lockfile package-lock.json --policy scripts/archive-security-policy.json --exceptions scripts/archive-security-exceptions.json",
@@ -63,6 +64,7 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@angular/build": "^22.1.4",
     "@angular/cli": "^22.1.4",
     "@angular/compiler-cli": "22.1.2",

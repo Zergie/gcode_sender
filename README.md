@@ -123,12 +123,17 @@ Useful commands:
     npm test
     npm run lint
     npm run format:check
+    npm run test:browser
     npm run rebuild:native
     npm run package
     npm run make
     npm run verify:windows-package
 
 npm start runs the Angular development server and Electron together.
+npm run test:browser runs the deterministic renderer-only responsive harness
+without Electron or serial hardware. It covers light and dark themes at the
+900×600 minimum viewport and a 1280×800 desktop viewport; failures retain
+geometry, DOM, and screenshot diagnostics in the Playwright report.
 npm run package creates an unpacked Windows application; npm run make creates
 the configured Windows installer. `npm run verify:windows-package` runs both
 packaging commands, validates the unpacked app's Electron, native serial, and

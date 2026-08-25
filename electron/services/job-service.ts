@@ -16,6 +16,7 @@ import type {
   JsonValue,
   SessionMetadata,
 } from '../../shared/contracts';
+import { EXECUTION_LIMITS } from '../../shared/contracts';
 import { AppError, asAppError } from '../../shared/errors';
 import { INITIAL_GCODE_COMMENT_STATE, normalizeGcodeLine } from '../../shared/job-normalizer';
 import {
@@ -28,6 +29,7 @@ import type { Logger } from '../logger';
 import type { ActivityService } from './activity-service';
 import type { PersistenceStore } from './persistence-store';
 import type { SerialService } from './serial-service';
+import { readGcodeLines } from './gcode-line-reader';
 
 export interface JobLogPage {
   readonly entries: readonly JobExecutionLogEntry[];
@@ -87,7 +89,10 @@ export class JobService {
   }
 
   async inspectFile(filePath: string): Promise<LoadedGcodeProgram> {
-    return inspectProgramMetadata(await this.inspectJobFile(filePath));
+    return inspectProgramMetadata(
+      await this.inspectJobFile(filePath),
+      this.store.getSettings().physicalLineLimitBytes ?? EXECUTION_LIMITS.physicalLineBytes.default,
+    );
   }
 
   private async inspectJobFile(filePath: string): Promise<JobFileInfo> {
@@ -323,20 +328,16 @@ export class JobService {
       await mkdir(this.sessionsDirectory, { recursive: true });
       this.state = { ...this.state, status: 'streaming' };
       this.notifyState();
-      const input = createReadStream(file.path, { encoding: 'utf8' });
-      const lines = readline.createInterface({ input, crlfDelay: Infinity });
-
-      for await (const rawLine of lines) {
-        sourceLine += 1;
-        bytesRead = Math.min(file.sizeBytes, bytesRead + Buffer.byteLength(rawLine, 'utf8') + 1);
-        if (rawLine.includes('\uFFFD')) {
-          throw new AppError({
-            code: 'FILE_INVALID',
-            message: `File is not valid UTF-8 near line ${sourceLine}`,
-            recoverable: true,
-          });
-        }
-        const normalized = normalizeGcodeLine(rawLine, comments);
+      const input = createReadStream(file.path);
+      for await (const line of readGcodeLines(input, {
+        fileName: file.name,
+        maxBytes:
+          this.store.getSettings().physicalLineLimitBytes ??
+          EXECUTION_LIMITS.physicalLineBytes.default,
+      })) {
+        sourceLine = line.sourceLine;
+        bytesRead = Math.min(file.sizeBytes, line.bytesRead);
+        const normalized = normalizeGcodeLine(line.text, comments);
         comments = normalized.state;
         if (sourceLine < startLine || normalized.command === null) {
           this.updateProgress(
@@ -699,7 +700,10 @@ function validatePath(filePath: string): void {
   }
 }
 
-async function inspectProgramMetadata(file: JobFileInfo): Promise<LoadedGcodeProgram> {
+async function inspectProgramMetadata(
+  file: JobFileInfo,
+  physicalLineLimitBytes: number,
+): Promise<LoadedGcodeProgram> {
   const generic = (metadataWarning: string | null = null): LoadedGcodeProgram => ({
     file,
     kind: 'gcode',
@@ -721,7 +725,11 @@ async function inspectProgramMetadata(file: JobFileInfo): Promise<LoadedGcodePro
     if (file.sizeBytes > MAX_HEATING_PROFILE_FILE_BYTES) {
       return generic('Heating-profile metadata was ignored because the file is too large.');
     }
-    const contents = await readAtMost(file.path, MAX_HEATING_PROFILE_FILE_BYTES);
+    const contents = await readAtMost(
+      file.path,
+      MAX_HEATING_PROFILE_FILE_BYTES,
+      physicalLineLimitBytes,
+    );
     if (contents === null) {
       return generic('Heating-profile metadata was ignored because the file is too large.');
     }
@@ -735,23 +743,37 @@ async function inspectProgramMetadata(file: JobFileInfo): Promise<LoadedGcodePro
     return parsed.ok
       ? { file, kind: 'heating-profile', profile: parsed.profile, metadataWarning: null }
       : generic(parsed.warning);
-  } catch {
+  } catch (error) {
+    if (error instanceof AppError) {
+      return generic(error.message);
+    }
     return generic('Heating-profile metadata could not be inspected.');
   }
 }
 
-async function readAtMost(filePath: string, maximumBytes: number): Promise<Uint8Array | null> {
-  const handle = await open(filePath, 'r');
-  try {
-    const buffer = Buffer.alloc(maximumBytes + 1);
-    let offset = 0;
-    while (offset < buffer.length) {
-      const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
-      if (bytesRead === 0) break;
-      offset += bytesRead;
-    }
-    return offset > maximumBytes ? null : buffer.subarray(0, offset);
-  } finally {
-    await handle.close();
+async function readAtMost(
+  filePath: string,
+  maximumBytes: number,
+  physicalLineLimitBytes: number,
+): Promise<Uint8Array | null> {
+  const input = createReadStream(filePath);
+  const chunks: Uint8Array[] = [];
+  let previousBytes = 0;
+  for await (const line of readGcodeLines(input, {
+    fileName: path.basename(filePath),
+    maxBytes: physicalLineLimitBytes,
+  })) {
+    if (line.bytesRead > maximumBytes) return null;
+    const encoded = new TextEncoder().encode(line.text);
+    chunks.push(encoded, Uint8Array.of(0x0a));
+    previousBytes = line.bytesRead;
   }
+  if (previousBytes > maximumBytes) return null;
+  const source = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    source.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return source;
 }

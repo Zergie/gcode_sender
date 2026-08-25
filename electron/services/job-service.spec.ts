@@ -96,6 +96,22 @@ describe('G-code program inspection', () => {
     expect(sendAndWait).toHaveBeenCalledWith('M105', 8_000, expect.any(AbortSignal), 'job');
   });
 
+  it('fails safely when execution encounters an oversized physical line', async () => {
+    const directory = await temporaryDirectory('gcode-sender-line-limit-');
+    const filePath = path.join(directory, 'oversized.gcode');
+    await writeFile(filePath, `${'X'.repeat(64 * 1024 + 1)}\nM105\n`, 'utf8');
+    const service = createJobService(directory, vi.fn());
+
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('failed'));
+
+    expect(service.getState().error).toMatchObject({
+      code: 'FILE_LINE_TOO_LONG',
+      recoverable: true,
+      details: { sourceLine: 1, maxBytes: 64 * 1024 },
+    });
+  });
+
   it('starts through stat-only inspection without invoking metadata classification', async () => {
     const directory = await temporaryDirectory('gcode-sender-start-');
     const filePath = path.join(directory, 'marked.gcode');

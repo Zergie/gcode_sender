@@ -4,6 +4,7 @@ export type AppErrorCode =
   | 'CATALOG_FETCH_FAILED'
   | 'CATALOG_INVALID'
   | 'FILE_INVALID'
+  | 'FILE_LINE_TOO_LONG'
   | 'FILE_NOT_FOUND'
   | 'INTERNAL'
   | 'INVALID_ARGUMENT'

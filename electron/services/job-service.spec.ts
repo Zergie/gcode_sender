@@ -335,6 +335,85 @@ describe('exclusive job preparation', () => {
   });
 });
 
+describe('disconnection during an active job', () => {
+  it('settles a paused job, finalizes its session, and releases ownership', async () => {
+    const directory = await temporaryDirectory('gcode-sender-disconnect-paused-');
+    const filePath = path.join(directory, 'job.gcode');
+    await writeFile(filePath, 'M105\n', 'utf8');
+    const response = deferred<{ raw: string; parsed: { kind: 'ok' } }>();
+    const saveSession = vi.fn(async () => undefined);
+    const heaterOff = vi.fn(async () => undefined);
+    const { service, disconnect, activity } = createDisconnectableJobService(
+      directory,
+      vi.fn(() => response.promise),
+      saveSession,
+      heaterOff,
+    );
+
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('streaming'));
+    service.pauseAfterCurrent();
+    response.resolve({ raw: 'ok', parsed: { kind: 'ok' } });
+    await vi.waitFor(() => expect(service.getState().status).toBe('paused'));
+
+    disconnect();
+
+    await vi.waitFor(() => expect(service.getState().status).toBe('stopped'));
+    expect(saveSession).toHaveBeenCalledOnce();
+    expect(activity.getState()).toEqual({ active: null });
+    expect(heaterOff).not.toHaveBeenCalled();
+  });
+
+  it.each(['retry', 'continue', 'stop'] as const)(
+    'invalidates a stale %s decision after disconnect and cannot affect a later job',
+    async (decision) => {
+      const directory = await temporaryDirectory(`gcode-sender-disconnect-${decision}-`);
+      const firstPath = path.join(directory, 'first.gcode');
+      const secondPath = path.join(directory, 'second.gcode');
+      await writeFile(firstPath, 'M105\n', 'utf8');
+      await writeFile(secondPath, 'M114\n', 'utf8');
+      let commandCount = 0;
+      const timeout = new AppError({
+        code: 'TIMEOUT',
+        message: 'timed out',
+        recoverable: true,
+      });
+      const sendAndWait = vi.fn(async () => {
+        commandCount += 1;
+        if (commandCount === 1) {
+          throw timeout;
+        }
+        return { raw: 'ok', parsed: { kind: 'ok' as const } };
+      });
+      const { service, disconnect, activity } = createDisconnectableJobService(
+        directory,
+        sendAndWait,
+        vi.fn(async () => undefined),
+        vi.fn(async () => undefined),
+      );
+      let decisionId: string | null = null;
+      service.subscribeTimeout(({ decisionId: id }) => {
+        decisionId = id;
+      });
+
+      await service.start({ path: firstPath });
+      await vi.waitFor(() => expect(service.getState().status).toBe('awaiting-decision'));
+      disconnect();
+      await vi.waitFor(() => expect(service.getState().status).toBe('stopped'));
+      expect(activity.getState()).toEqual({ active: null });
+      expect(decisionId).not.toBeNull();
+      expect(() => service.resolveTimeout(decisionId!, decision)).toThrowError(
+        expect.objectContaining({ code: 'NOT_FOUND', recoverable: true }),
+      );
+
+      await service.start({ path: secondPath });
+      await vi.waitFor(() => expect(service.getState().status).toBe('completed'));
+      expect(sendAndWait).toHaveBeenCalledTimes(2);
+      expect(sendAndWait).toHaveBeenLastCalledWith('M114', 8_000, expect.any(AbortSignal), 'job');
+    },
+  );
+});
+
 async function logFile(entries: readonly JobExecutionLogEntry[]): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-job-log-'));
   temporaryDirectories.push(directory);
@@ -411,6 +490,35 @@ function createJobService(directory: string, sendAndWait: ReturnType<typeof vi.f
     } as unknown as PersistenceStore,
     silentLogger(),
   );
+}
+
+function createDisconnectableJobService(
+  directory: string,
+  sendAndWait: ReturnType<typeof vi.fn>,
+  saveSession: ReturnType<typeof vi.fn>,
+  bestEffortHeaterOff: ReturnType<typeof vi.fn>,
+): { service: JobService; disconnect: () => void; activity: ActivityService } {
+  let disconnect!: () => void;
+  const activity = new ActivityService();
+  const service = new JobService(
+    path.join(directory, 'sessions'),
+    {
+      getState: () => ({ status: 'connected' }),
+      subscribe: (_event: 'state', listener: (state: { status: string }) => void) => {
+        disconnect = () => listener({ status: 'disconnected' });
+        return () => undefined;
+      },
+      sendAndWait,
+      bestEffortHeaterOff,
+    } as unknown as SerialService,
+    activity,
+    {
+      getSettings: () => ({ commandTimeoutMs: 8_000 }),
+      saveSession,
+    } as unknown as PersistenceStore,
+    silentLogger(),
+  );
+  return { service, disconnect: () => disconnect(), activity };
 }
 
 function replaceJobInspection(

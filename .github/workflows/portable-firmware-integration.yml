@@ -1,0 +1,66 @@
+name: Portable firmware integration
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: portable-firmware-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  portable-firmware:
+    name: Portable firmware integration (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-2022
+          - ubuntu-24.04
+
+    steps:
+      - name: Check out repository into a path containing spaces
+        uses: actions/checkout@v4
+        with:
+          path: portable firmware checkout
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+          cache: npm
+          cache-dependency-path: portable firmware checkout/package-lock.json
+
+      - name: Set up pinned Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 4.0.20
+
+      - name: Install locked dependencies
+        working-directory: portable firmware checkout
+        run: npm ci --ignore-scripts
+
+      - name: Compile and verify cold, warm, and recovered caches
+        working-directory: portable firmware checkout
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:firmware-integration 2>&1 | tee firmware-build.log
+
+      - name: Upload firmware diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-firmware-${{ matrix.os }}-diagnostics
+          path: |
+            portable firmware checkout/test-results/
+            portable firmware checkout/firmware-build.log
+          if-no-files-found: warn
+          retention-days: 7

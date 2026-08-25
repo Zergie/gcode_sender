@@ -25,6 +25,10 @@ import type { LiveTuningService } from './services/live-tuning-service';
 import type { PersistenceStore } from './services/persistence-store';
 import type { SerialService } from './services/serial-service';
 import type { FirmwareBuildService } from './firmware';
+import {
+  assembleSessionExports,
+  sessionsToCsvWithArtifacts,
+} from './services/session-artifact-exporter';
 
 interface IpcDependencies {
   readonly getRenderer: () => WebContents | null;
@@ -216,7 +220,7 @@ async function exportSessions(
   if (format !== 'json' && format !== 'csv') {
     throw new TypeError('Unknown session export format');
   }
-  const selected = selectByIds(store.listSessions(), ids);
+  const selected = await assembleSessionExports(selectByIds(store.listSessions(), ids));
   const result = await dialog.showSaveDialog({
     title: 'Export sessions',
     defaultPath: `gcode-sender-sessions.${format}`,
@@ -226,7 +230,9 @@ async function exportSessions(
     return null;
   }
   const contents =
-    format === 'json' ? `${JSON.stringify(selected, null, 2)}\n` : sessionsToCsv(selected);
+    format === 'json'
+      ? `${JSON.stringify(selected, null, 2)}\n`
+      : sessionsToCsvWithArtifacts(selected);
   await writeFile(result.filePath, contents, 'utf8');
   return result.filePath;
 }
@@ -240,28 +246,6 @@ function selectByIds<T extends { readonly id: string }>(
   }
   const selectedIds = new Set(ids);
   return items.filter((item) => selectedIds.has(item.id));
-}
-
-function sessionsToCsv(sessions: readonly SessionMetadata[]): string {
-  const rows = [
-    ['id', 'kind', 'title', 'startedAt', 'endedAt', 'pinned', 'data'],
-    ...sessions.map((session) => [
-      session.id,
-      session.kind,
-      session.title,
-      session.startedAt,
-      session.endedAt,
-      String(session.pinned),
-      JSON.stringify(session.data),
-    ]),
-  ];
-  return `${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
-}
-
-function csvCell(value: string): string {
-  // Prevent formula execution when the export is opened by spreadsheet software.
-  const safe = /^[=+\-@]/.test(value) ? `'${value}` : value;
-  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 async function readBoundedFile(filePath: string, maximumBytes: number): Promise<string> {

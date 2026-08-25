@@ -872,238 +872,6 @@ kbd {
   }
 }
 
-/* Jobs */
-.jobs-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
-  align-items: start;
-  gap: 12px;
-}
-.jobs-main,
-.jobs-rail {
-  display: grid;
-  gap: 11px;
-}
-.drop-zone {
-  display: flex;
-  min-height: 86px;
-  align-items: center;
-  gap: 14px;
-  padding: 14px 16px;
-  border-style: dashed;
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-  transition: 0.16s ease;
-}
-.drop-zone.dragging {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  transform: scale(0.997);
-}
-.drop-icon {
-  display: grid;
-  width: 43px;
-  height: 43px;
-  flex: 0 0 auto;
-  place-items: center;
-  border-radius: 8px;
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-.drop-icon app-icon {
-  width: 22px;
-  height: 22px;
-}
-.drop-zone > div:nth-child(2) {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 5px;
-}
-.drop-zone strong {
-  font-size: 13px;
-}
-.drop-zone span {
-  color: var(--text-faint);
-  font-size: 9px;
-}
-.selected-file,
-.job-progress-card {
-  padding: 16px;
-}
-.file-identity {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-}
-.file-identity h2 {
-  overflow: hidden;
-  max-width: 520px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.file-identity p {
-  font: 9px var(--font-mono);
-}
-.format-chip,
-.version-chip,
-.scope-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  color: var(--text-faint);
-  font: 8px var(--font-mono);
-  letter-spacing: 0.06em;
-}
-.stream-facts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin: 14px 0 11px;
-  border: 1px solid var(--line-soft);
-  border-radius: 7px;
-  background: var(--bg-raised);
-}
-.stream-facts div {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 10px 11px;
-  border-right: 1px solid var(--line-soft);
-}
-.stream-facts div:last-child {
-  border: 0;
-}
-.stream-facts span {
-  color: var(--text-faint);
-  font-size: 8px;
-}
-.stream-facts strong {
-  font-size: 9px;
-  font-weight: 650;
-}
-.job-progress-card .big-progress {
-  height: 8px;
-  margin: 17px 0 13px;
-}
-.progress-stats {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-}
-.progress-stats div {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 3px 12px;
-  border-right: 1px solid var(--line-soft);
-}
-.progress-stats div:first-child {
-  padding-left: 0;
-}
-.progress-stats div:last-child {
-  border: 0;
-}
-.progress-stats span {
-  color: var(--text-faint);
-  font-size: 8px;
-}
-.progress-stats strong {
-  font: 11px var(--font-mono);
-}
-.job-controls {
-  display: flex;
-  justify-content: flex-end;
-  gap: 7px;
-  margin-top: 17px;
-  padding-top: 13px;
-  border-top: 1px solid var(--line-soft);
-}
-.start-card {
-  padding: 15px;
-}
-.start-card .field {
-  margin: 11px 0;
-}
-.start-card p {
-  margin: 0 0 13px;
-  color: var(--text-faint);
-  font-size: 9px;
-  line-height: 1.45;
-}
-.recent-list {
-  margin-top: 11px;
-}
-.recent-empty {
-  padding: 18px 12px;
-  color: var(--text-faint);
-  text-align: center;
-  font-size: 9px;
-}
-.jobs-rail > .panel:not(.start-card):not(.protocol-note) {
-  padding: 15px;
-}
-.recent-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-.recent-row:last-child {
-  border: 0;
-  padding-bottom: 0;
-}
-.file-badge.small {
-  width: 24px;
-  height: 28px;
-  font-size: 10px;
-}
-.recent-row > div {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-.recent-row strong {
-  overflow: hidden;
-  font-size: 9px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.recent-row span {
-  color: var(--text-faint);
-  font-size: 8px;
-}
-.recent-row em {
-  color: var(--yellow);
-  font-size: 7px;
-  font-style: normal;
-  text-transform: uppercase;
-}
-.recent-row em.good {
-  color: var(--green);
-}
-.protocol-note {
-  display: flex;
-  gap: 11px;
-  padding: 13px;
-}
-.protocol-note app-icon {
-  flex: 0 0 auto;
-  color: var(--yellow);
-}
-.protocol-note strong {
-  font-size: 10px;
-}
-.protocol-note p {
-  margin: 4px 0 0;
-  color: var(--text-faint);
-  font-size: 9px;
-  line-height: 1.45;
-}
-
 /* Simulation */
 .simulation-run-status {
   display: grid;
@@ -2954,7 +2722,6 @@ kbd {
 }
 
 @media (max-width: 1180px) {
-  .jobs-layout,
   .settings-layout {
     grid-template-columns: minmax(0, 1fr) 285px;
   }
@@ -2966,15 +2733,6 @@ kbd {
   }
   .profile-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .stream-facts {
-    grid-template-columns: repeat(2, 1fr);
-  }
-  .stream-facts div:nth-child(2) {
-    border-right: 0;
-  }
-  .stream-facts div:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--line-soft);
   }
   .settings-fields {
     grid-template-columns: minmax(190px, 1fr) 150px;
@@ -3004,7 +2762,6 @@ kbd {
   }
 }
 @media (max-width: 1020px) {
-  .jobs-layout,
   .settings-layout,
   .tuning-grid,
   .autotune-layout {
@@ -3090,19 +2847,6 @@ kbd {
 .field-error,
 .unit-input em,
 .fine-print,
-.drop-zone span,
-.file-identity p,
-.stream-facts span,
-.stream-facts strong,
-.progress-stats span,
-.start-card p,
-.recent-empty,
-.file-badge.small,
-.recent-row strong,
-.recent-row span,
-.recent-row em,
-.protocol-note strong,
-.protocol-note p,
 .model-summary,
 .range-field output,
 .advanced-toggle,

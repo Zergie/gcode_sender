@@ -10,6 +10,7 @@ import { PageHeaderComponent } from '../../shared/page-header';
   selector: 'app-jobs',
   imports: [DatePipe, TitleCasePipe, FormsModule, IconComponent, PageHeaderComponent],
   templateUrl: './jobs.html',
+  styleUrl: './jobs.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class JobsComponent {

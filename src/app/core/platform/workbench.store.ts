@@ -188,6 +188,8 @@ export class WorkbenchStore implements OnDestroy {
       ? undefined
       : (window as unknown as { readonly gcode?: GcodeApi }).gcode;
   private readonly unsubscribe: Array<() => void> = [];
+  private initializePromise: Promise<void> | null = null;
+  private destroyed = false;
   private controlTimer: ReturnType<typeof setInterval> | undefined;
   private validationTimer: ReturnType<typeof setTimeout> | undefined;
   private portsRefreshPromise: Promise<void> | null = null;
@@ -288,7 +290,13 @@ export class WorkbenchStore implements OnDestroy {
     validateHeatingProfileDraft(this.heatingProfileDraft()),
   );
 
-  async initialize(): Promise<void> {
+  initialize(): Promise<void> {
+    if (this.initializePromise !== null) return this.initializePromise;
+    this.initializePromise = this.initializeOnce();
+    return this.initializePromise;
+  }
+
+  private async initializeOnce(): Promise<void> {
     if (this.initialized()) return;
     this.initialized.set(true);
     this.applyTheme(this.settings().theme);
@@ -318,9 +326,17 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   ngOnDestroy(): void {
-    this.unsubscribe.forEach((unsubscribe) => unsubscribe());
-    if (this.controlTimer !== undefined) clearInterval(this.controlTimer);
-    if (this.validationTimer !== undefined) clearTimeout(this.validationTimer);
+    if (this.destroyed) return;
+    this.destroyed = true;
+    this.unsubscribe.splice(0).forEach((unsubscribe) => unsubscribe());
+    if (this.controlTimer !== undefined) {
+      clearInterval(this.controlTimer);
+      this.controlTimer = undefined;
+    }
+    if (this.validationTimer !== undefined) {
+      clearTimeout(this.validationTimer);
+      this.validationTimer = undefined;
+    }
   }
 
   setTheme(theme: ThemePreference): void {
@@ -1289,6 +1305,9 @@ export class WorkbenchStore implements OnDestroy {
         this.appendTerminal({ ...event, id: ++this.terminalId }),
       ),
       this.api.events.onTelemetry((event) => this.consumeTelemetry(event)),
+      this.api.events.onFirmware((firmware) =>
+        this.connection.update((state) => ({ ...state, firmware })),
+      ),
       this.api.events.onJobState((state) => {
         this.job.set(state);
         if (

@@ -22,7 +22,6 @@ import type {
   ProfileState,
   StoredProfile,
 } from '../../../../shared/contracts';
-import type { LiveTuningState } from '../../../../shared/tuning-contracts';
 import {
   advancePidGainTransition,
   assimilateFirmwareQuickPidObservation,
@@ -54,13 +53,13 @@ import {
   type PhysicalForecastPlanner,
   type PhysicalTwinObserver,
 } from '../simulation';
-import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics } from '../tuning';
 import { NotificationStore } from './notification.store';
 import { ConfigurationStore } from '../configuration/configuration.store';
 import { SessionCatalogStore } from './session-catalog.store';
 import { SerialTelemetryStore } from './serial-telemetry.store';
 import { HeaterControlStore } from './heater-control.store';
 import { JobsProgramsStore } from './jobs-programs.store';
+import { TuningValidationStore } from './tuning-validation.store';
 
 export type DemoState =
   'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
@@ -78,17 +77,6 @@ export interface TrendPoint {
 
 export interface TerminalEntry extends SerialLineEvent {
   readonly id: number;
-}
-
-export interface ValidationRunState {
-  readonly status: 'idle' | 'running' | 'completed' | 'cancelled' | 'failed';
-  readonly targetC: number | null;
-  readonly startedAt: string | null;
-  readonly endedAt: string | null;
-  readonly sampleCount: number;
-  readonly maximumDurationMs: number;
-  readonly metrics: ValidationMetrics | null;
-  readonly error: string | null;
 }
 
 export interface HeatingProfileValidation {
@@ -117,31 +105,6 @@ const DEFAULT_JOB: JobState = {
   error: null,
 };
 
-const DEFAULT_TUNING: LiveTuningState = {
-  id: null,
-  status: 'idle',
-  startedAt: null,
-  endedAt: null,
-  currentTarget: null,
-  currentBreakpointIndex: 0,
-  peaksCollected: 0,
-  peakGoal: 12,
-  rollbackGains: null,
-  results: [],
-  error: null,
-};
-
-const DEFAULT_VALIDATION: ValidationRunState = {
-  status: 'idle',
-  targetC: null,
-  startedAt: null,
-  endedAt: null,
-  sampleCount: 0,
-  maximumDurationMs: 20 * 60_000,
-  metrics: null,
-  error: null,
-};
-
 const DEFAULT_PID_SCHEDULE: PidSchedule = STANDARD_LOAD_PID_SCHEDULE;
 
 const DEFAULT_TARGET_ASSISTANCE: ModelAssistedTargetConfiguration = {
@@ -167,6 +130,7 @@ export class WorkbenchStore implements OnDestroy {
   private readonly serialTelemetry = inject(SerialTelemetryStore);
   private readonly heaterControl = inject(HeaterControlStore);
   private readonly jobsPrograms = inject(JobsProgramsStore);
+  private readonly tuningValidation = inject(TuningValidationStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -175,7 +139,6 @@ export class WorkbenchStore implements OnDestroy {
   private readonly unsubscribe: Array<() => void> = [];
   private initializePromise: Promise<void> | null = null;
   private destroyed = false;
-  private validationTimer: ReturnType<typeof setTimeout> | undefined;
   private targetShaperState: TargetShaperState = createTargetShaperState(0);
   private physicalForecastPlanner: PhysicalForecastPlanner | null = null;
   private lastPhysicalForecastAtMs: number | null = null;
@@ -191,8 +154,6 @@ export class WorkbenchStore implements OnDestroy {
   private lastFirmwareTargetSent: number | null = null;
   private lastGainsSent: PidGains | null = null;
   private controlWriteInFlight = false;
-  private validationFinalizing = false;
-  private validationSamples: M105Telemetry[] = [];
   private terminalId = 0;
 
   readonly isDesktop = signal(this.api !== undefined);
@@ -237,8 +198,8 @@ export class WorkbenchStore implements OnDestroy {
   readonly heatingProfileDirty = this.jobsPrograms.heatingProfileDirtyForCompatibility;
   readonly job = this.jobsPrograms.jobForCompatibility;
   readonly jobTimeout = this.jobsPrograms.jobTimeoutForCompatibility;
-  readonly liveTuning = signal<LiveTuningState>(DEFAULT_TUNING);
-  readonly validation = signal<ValidationRunState>(DEFAULT_VALIDATION);
+  readonly liveTuning = this.tuningValidation.liveTuningForCompatibility;
+  readonly validation = this.tuningValidation.validation;
   readonly catalog = this.sessionCatalog.catalog;
   readonly sessions = this.sessionCatalog.sessions;
   readonly profiles = this.configuration.profiles;
@@ -271,7 +232,27 @@ export class WorkbenchStore implements OnDestroy {
       stopHeating: () => this.stopHeating(),
       commandTimeoutMs: () => this.settings().commandTimeoutMs,
     });
+    this.tuningValidation.configure({
+      connected: () => this.connected(),
+      beginExclusive: (activity) => this.beginExclusive(activity),
+      endExclusive: (activity) => this.endExclusive(activity),
+      disarm: () => this.disarmControl(),
+      prepareValidation: async (target, schedule) => {
+        const validatedSchedule = createPidSchedule(schedule);
+        this.pidSchedule.set(validatedSchedule);
+        const gains = interpolatePidGains(validatedSchedule, target);
+        this.activePidGains.set(gains);
+        const gainsSent = await this.transmitControl(this.pidCommand(gains));
+        return gainsSent && (await this.transmitControl(`M104 S${target.toFixed(1)}`));
+      },
+      requestHeaterOff: () => this.requestHeaterOff(),
+      saveSession: (title, data, startedAt) =>
+        this.sessionCatalog.saveSession('tuning', title, data, startedAt),
+      refreshSessions: () => this.refreshSessions(),
+      completeDemoValidation: (target) => this.completeDemoValidation(target),
+    });
     this.jobsPrograms.initialize();
+    this.tuningValidation.initialize();
     this.applyTheme(this.settings().theme);
 
     if (this.api === undefined) {
@@ -307,10 +288,7 @@ export class WorkbenchStore implements OnDestroy {
     this.heaterControl.ngOnDestroy();
     this.serialTelemetry.ngOnDestroy();
     this.jobsPrograms.ngOnDestroy();
-    if (this.validationTimer !== undefined) {
-      clearTimeout(this.validationTimer);
-      this.validationTimer = undefined;
-    }
+    this.tuningValidation.ngOnDestroy();
   }
 
   setTheme(theme: ThemePreference): void {
@@ -505,56 +483,11 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async startBoundedValidation(targetC: number, schedule: PidSchedule): Promise<boolean> {
-    if (!Number.isFinite(targetC) || targetC < 1 || targetC > 250) {
-      this.notify('Validation target must be between 1 and 250 °C.');
-      return false;
-    }
-    const boundedTarget = targetC;
-    const validatedSchedule = createPidSchedule(schedule);
-    if (!this.connected()) {
-      this.notify('Connect the controller before starting validation.');
-      return false;
-    }
-    if (!(await this.beginExclusive('validation'))) return false;
-
-    this.disarmControl();
-    this.pidSchedule.set(validatedSchedule);
-    const gains = interpolatePidGains(validatedSchedule, boundedTarget);
-    this.activePidGains.set(gains);
-    this.validationSamples = [];
-    this.validationFinalizing = false;
-    const startedAt = new Date().toISOString();
-    this.validation.set({
-      ...DEFAULT_VALIDATION,
-      status: 'running',
-      targetC: boundedTarget,
-      startedAt,
-    });
-
-    if (this.api === undefined) {
-      window.setTimeout(() => void this.completeDemoValidation(boundedTarget), 350);
-      return true;
-    }
-
-    const gainsSent = await this.transmitControl(this.pidCommand(gains));
-    const targetSent = gainsSent
-      ? await this.transmitControl(`M104 S${boundedTarget.toFixed(1)}`)
-      : false;
-    if (!gainsSent || !targetSent) {
-      await this.finishValidation('failed', 'The validation commands were not accepted.');
-      return false;
-    }
-
-    this.validationTimer = setTimeout(
-      () => void this.finishValidation('completed'),
-      DEFAULT_VALIDATION.maximumDurationMs,
-    );
-    return true;
+    return this.tuningValidation.startBoundedValidation(targetC, schedule);
   }
 
   async cancelValidation(): Promise<void> {
-    if (this.validation().status !== 'running') return;
-    await this.finishValidation('cancelled');
+    await this.tuningValidation.cancelValidation();
   }
 
   useModelAssistedControl(
@@ -586,45 +519,11 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async startLiveTuning(targets: readonly number[]): Promise<boolean> {
-    this.disarmControl();
-    if (this.api === undefined) {
-      this.activity.set({ active: 'tuning' });
-      this.liveTuning.set({
-        ...DEFAULT_TUNING,
-        id: `demo-tune-${Date.now()}`,
-        status: 'snapshotting',
-        startedAt: new Date().toISOString(),
-        currentTarget: targets[0] ?? null,
-      });
-      return true;
-    }
-    const result = await this.api.tuning.start({
-      targets,
-      hysteresis: 5,
-      peakCount: 12,
-      maximumTarget: 250,
-    });
-    if (result.ok) {
-      this.liveTuning.set(result.value);
-      return true;
-    }
-    this.notify(result.error.message);
-    return false;
+    return this.tuningValidation.startLiveTuning(targets);
   }
 
   async cancelLiveTuning(): Promise<void> {
-    if (this.api === undefined) {
-      this.activity.set({ active: null });
-      this.liveTuning.update((state) => ({
-        ...state,
-        status: 'cancelled',
-        endedAt: new Date().toISOString(),
-      }));
-      return;
-    }
-    const result = await this.api.tuning.cancel();
-    if (result.ok) this.liveTuning.set(result.value);
-    else this.notify(result.error.message);
+    await this.tuningValidation.cancelLiveTuning();
   }
 
   clearTerminal(): void {
@@ -1162,7 +1061,7 @@ export class WorkbenchStore implements OnDestroy {
     if (activity.ok) this.activity.set(activity.value);
     if (catalog.ok) this.sessionCatalog.replaceCatalog(catalog.value);
     if (systemInfo.ok) this.systemInfo.set(systemInfo.value);
-    if (tuning.ok) this.liveTuning.set(tuning.value);
+    if (tuning.ok) this.tuningValidation.replaceTuning(tuning.value);
     if (sessions.ok) this.sessionCatalog.replaceSessions(sessions.value);
     if (profiles.ok) this.configuration.replaceProfiles(profiles.value);
   }
@@ -1175,19 +1074,7 @@ export class WorkbenchStore implements OnDestroy {
       () => undefined,
       (message) => this.notify(message),
     );
-    this.unsubscribe.push(
-      this.api.events.onTuningState((state) => {
-        this.liveTuning.set(state);
-        if (
-          state.status === 'completed' ||
-          state.status === 'cancelled' ||
-          state.status === 'failed'
-        ) {
-          window.setTimeout(() => void this.refreshSessions(), 750);
-        }
-      }),
-      this.api.events.onActivity((state) => this.activity.set(state)),
-    );
+    this.unsubscribe.push(this.api.events.onActivity((state) => this.activity.set(state)));
   }
 
   private connectDemo(): void {
@@ -1223,7 +1110,7 @@ export class WorkbenchStore implements OnDestroy {
       this.resetPhysicalControlModel();
       this.disarmControl();
       if (this.validation().status === 'running') {
-        void this.finishValidation('failed', 'The controller disconnected during validation.');
+        void this.tuningValidation.failValidation('The controller disconnected during validation.');
       }
     }
   }
@@ -1432,8 +1319,7 @@ export class WorkbenchStore implements OnDestroy {
     }
     if (state === 'tuning') {
       this.activity.set({ active: 'tuning' });
-      this.liveTuning.set({
-        ...DEFAULT_TUNING,
+      this.tuningValidation.replaceTuning({
         id: 'demo-live-tune',
         status: 'cooling',
         startedAt: new Date(DEMO_FIXTURE_TIME_MS - 542_000).toISOString(),
@@ -1442,6 +1328,9 @@ export class WorkbenchStore implements OnDestroy {
         peaksCollected: 5,
         peakGoal: 12,
         rollbackGains: { kp: 18.2, ki: 0.73, kd: 82 },
+        results: [],
+        endedAt: null,
+        error: null,
       });
     }
   }
@@ -1529,38 +1418,7 @@ export class WorkbenchStore implements OnDestroy {
         },
       ].slice(-7_200),
     );
-    if (this.validation().status === 'running') {
-      const startedAt = Date.parse(this.validation().startedAt ?? event.timestamp);
-      const receivedAt = Date.parse(event.timestamp);
-      const previousAt = this.validationSamples.at(-1)?.atMs ?? -1;
-      const relativeAt = Number.isFinite(receivedAt - startedAt) ? receivedAt - startedAt : 0;
-      const sample: M105Telemetry = {
-        atMs: Math.max(previousAt + 1, relativeAt),
-        t0C: event.average,
-        t1C: event.thermistors[0],
-        t2C: event.thermistors[1],
-        t3C: event.thermistors[2],
-        reportedTargetC: event.target,
-        output: event.power,
-        raw: event.raw,
-      };
-      this.validationSamples.push(sample);
-      this.validation.update((state) => ({ ...state, sampleCount: this.validationSamples.length }));
-      if (sample.atMs >= 120_000 && this.validationSamples.length >= 2) {
-        const target = this.validation().targetC;
-        if (target !== null) {
-          try {
-            const metrics = calculateValidationMetrics(this.validationSamples, target);
-            if (metrics.settlingTimeMs !== undefined) void this.finishValidation('completed');
-          } catch (error) {
-            void this.finishValidation(
-              'failed',
-              error instanceof Error ? error.message : 'Validation telemetry was invalid.',
-            );
-          }
-        }
-      }
-    }
+    this.tuningValidation.consumeTelemetry(event);
   }
 
   private observePhysicalTwin(event: TemperatureTelemetry): void {
@@ -1653,87 +1511,6 @@ export class WorkbenchStore implements OnDestroy {
     this.lastObservedPwm8 = 0;
   }
 
-  private async completeDemoValidation(targetC: number): Promise<void> {
-    if (this.validation().status !== 'running') return;
-    const initial = this.telemetry().average;
-    this.validationSamples = this.demoThermalTrace(240, 1, initial, targetC).map((sample) => ({
-      atMs: sample.timeSeconds * 1_000,
-      t0C: sample.average,
-      t1C: sample.t1,
-      t2C: sample.t2,
-      t3C: sample.t3,
-      reportedTargetC: targetC,
-      output: sample.power,
-    }));
-    this.validation.update((state) => ({ ...state, sampleCount: this.validationSamples.length }));
-    await this.finishValidation('completed');
-  }
-
-  private async finishValidation(
-    requestedStatus: 'completed' | 'cancelled' | 'failed',
-    requestedError: string | null = null,
-  ): Promise<void> {
-    const current = this.validation();
-    if (current.status !== 'running' || this.validationFinalizing) return;
-    this.validationFinalizing = true;
-    if (this.validationTimer !== undefined) {
-      clearTimeout(this.validationTimer);
-      this.validationTimer = undefined;
-    }
-
-    let metrics: ValidationMetrics | null = null;
-    let status = requestedStatus;
-    let error = requestedError;
-    if (this.validationSamples.length >= 2 && current.targetC !== null) {
-      try {
-        metrics = calculateValidationMetrics(this.validationSamples, current.targetC);
-      } catch (caught) {
-        if (status === 'completed') status = 'failed';
-        error =
-          caught instanceof Error ? caught.message : 'Validation metrics could not be calculated.';
-      }
-    } else if (status === 'completed') {
-      status = 'failed';
-      error = 'Validation ended before enough telemetry was collected.';
-    }
-
-    if (this.connected()) {
-      const heaterOffError = await this.requestHeaterOff();
-      if (heaterOffError !== null) {
-        status = 'failed';
-        error = `Heater-off was not confirmed: ${heaterOffError}`;
-        this.notify(error);
-      }
-    }
-    await this.endExclusive('validation');
-    const endedAt = new Date().toISOString();
-    this.validation.set({
-      ...current,
-      status,
-      endedAt,
-      sampleCount: this.validationSamples.length,
-      metrics,
-      error,
-    });
-    await this.sessionCatalog.saveSession(
-      'tuning',
-      `Validation · ${current.targetC?.toFixed(0) ?? '—'} °C · Standard load`,
-      {
-        type: 'bounded-validation',
-        condition: 'Standard load',
-        status,
-        targetC: current.targetC,
-        pidSchedule: this.pidSchedule(),
-        metrics,
-        sampleCount: this.validationSamples.length,
-        maximumDurationMs: current.maximumDurationMs,
-        error,
-      },
-      current.startedAt ?? endedAt,
-    );
-    this.validationFinalizing = false;
-  }
-
   private async requestHeaterOff(): Promise<string | null> {
     if (this.api === undefined) {
       this.appendTerminal(this.entry('system', 'tx', 'M104 S0'));
@@ -1741,6 +1518,21 @@ export class WorkbenchStore implements OnDestroy {
     }
     const result = await this.api.serial.heaterOff();
     return result.ok ? null : result.error.message;
+  }
+
+  private async completeDemoValidation(targetC: number): Promise<void> {
+    const initial = this.telemetry().average;
+    const events: TemperatureTelemetry[] = this.demoThermalTrace(240, 1, initial, targetC).map(
+      (sample) => ({
+        timestamp: new Date(Date.now() + sample.timeSeconds * 1_000).toISOString(),
+        average: sample.average,
+        target: targetC,
+        power: sample.power,
+        thermistors: [sample.t1, sample.t2, sample.t3],
+        raw: `T0:${sample.average.toFixed(1)} /${targetC.toFixed(1)} @:${sample.power}`,
+      }),
+    );
+    await this.tuningValidation.completeDemoValidation(events);
   }
 
   private seedTrend(): readonly TrendPoint[] {

@@ -20,6 +20,7 @@ import {
   type PidSchedule,
 } from '../../core/control';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { TuningValidationStore } from '../../core/platform/tuning-validation.store';
 import {
   cloneOvenModelProfile,
   validateOvenModelProfile,
@@ -48,6 +49,7 @@ type TunePhase = 'setup' | 'running' | 'results';
 export class TuningComponent implements OnDestroy {
   readonly embedded = input(false);
   readonly store = inject(WorkbenchStore);
+  readonly tuningStore = inject(TuningValidationStore);
   readonly section = signal<'simulation' | 'schedule' | 'autotune' | 'profiles'>('simulation');
   readonly breakpoints = signal<readonly EditableBreakpoint[]>(
     this.store.pidSchedule().map((row, index) => ({
@@ -110,13 +112,13 @@ export class TuningComponent implements OnDestroy {
   });
   readonly currentTuneTarget = computed(
     () =>
-      this.store.liveTuning().currentTarget ??
+      this.tuningStore.liveTuning().currentTarget ??
       this.tuneTargets()[this.tuneTargetIndex()] ??
       this.tuneTargets().at(-1) ??
       0,
   );
   readonly tunedRows = computed(() => {
-    const liveResults = this.store.liveTuning().results;
+    const liveResults = this.tuningStore.liveTuning().results;
     if (liveResults.length > 0) {
       return liveResults.map((result) => {
         const quick = result.candidates.find(
@@ -160,10 +162,10 @@ export class TuningComponent implements OnDestroy {
       );
   });
   readonly resultPeakSummary = computed(() => {
-    const results = this.store.liveTuning().results;
+    const results = this.tuningStore.liveTuning().results;
     if (results.length === 0) return this.store.demoState() === null ? 'No data' : '12 / 12 each';
     const minimum = Math.min(...results.map((result) => result.peaks.length));
-    return `${minimum} / ${this.store.liveTuning().peakGoal} minimum`;
+    return `${minimum} / ${this.tuningStore.liveTuning().peakGoal} minimum`;
   });
   readonly resultKuSpread = computed(() => {
     const values = this.store
@@ -190,7 +192,7 @@ export class TuningComponent implements OnDestroy {
     }
     effect(() => {
       if (!this.store.isDesktop()) return;
-      const state = this.store.liveTuning();
+      const state = this.tuningStore.liveTuning();
       if (state.status === 'idle') return;
       if (state.status === 'completed') {
         this.tunePhase.set('results');
@@ -290,7 +292,7 @@ export class TuningComponent implements OnDestroy {
 
   async startLiveTune(): Promise<void> {
     if (!this.store.connected() || !this.supervised() || !this.tuneTargetsValid()) return;
-    const started = await this.store.startLiveTuning(this.tuneTargets());
+    const started = await this.tuningStore.startLiveTuning(this.tuneTargets());
     if (!started) return;
     this.tunePhase.set('running');
     this.tuneTargetIndex.set(0);
@@ -313,7 +315,7 @@ export class TuningComponent implements OnDestroy {
 
   async abortTune(reason = 'Tune aborted by operator.'): Promise<void> {
     this.stopDemoTune();
-    await this.store.cancelLiveTuning();
+    await this.tuningStore.cancelLiveTuning();
     this.tunePhase.set('setup');
     this.tuneMessage.set(reason);
     this.store.notify(reason);
@@ -339,7 +341,7 @@ export class TuningComponent implements OnDestroy {
     const schedule = this.tunedSchedule();
     const target = schedule?.at(-1)?.temperatureC;
     if (schedule === null || target === undefined) return;
-    await this.store.startBoundedValidation(target, schedule);
+    await this.tuningStore.startBoundedValidation(target, schedule);
   }
 
   loadProfile(profile: StoredProfile): void {
@@ -457,7 +459,7 @@ export class TuningComponent implements OnDestroy {
           this.tuneProgress.set(100);
           this.tunePhase.set('results');
           this.tuneMessage.set('DEMO · 12 peaks captured at every target. Draft gains are ready.');
-          void this.store.cancelLiveTuning();
+          void this.tuningStore.cancelLiveTuning();
         }
       }
     }, 260);

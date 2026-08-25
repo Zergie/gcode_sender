@@ -364,7 +364,7 @@
               <div>
                 <span>Rollback gains</span
                 ><strong>{{
-                  store.liveTuning().rollbackGains ? 'Captured' : 'Snapshot pending'
+                  tuningStore.liveTuning().rollbackGains ? 'Captured' : 'Snapshot pending'
                 }}</strong>
               </div>
             </div>
@@ -415,7 +415,7 @@
               <button
                 class="button secondary"
                 type="button"
-                [disabled]="!store.connected() || store.validation().status === 'running'"
+                [disabled]="!store.connected() || tuningStore.validation().status === 'running'"
                 (click)="runValidation()"
               >
                 Run validation</button
@@ -425,16 +425,17 @@
                 Apply gains
               </button>
             </div>
-            @if (store.validation().status !== 'idle') {
+            @if (tuningStore.validation().status !== 'idle') {
               <div class="validation-run" role="status">
                 <div>
-                  <span>Bounded validation</span><strong>{{ store.validation().status }}</strong>
+                  <span>Bounded validation</span
+                  ><strong>{{ tuningStore.validation().status }}</strong>
                 </div>
                 <p>
-                  {{ store.validation().sampleCount }} telemetry samples · maximum 20 minutes ·
-                  Standard load
+                  {{ tuningStore.validation().sampleCount }} telemetry samples · maximum 20 minutes
+                  · Standard load
                 </p>
-                @if (store.validation().metrics; as metrics) {
+                @if (tuningStore.validation().metrics; as metrics) {
                   <dl>
                     <div>
                       <dt>Overshoot</dt>
@@ -454,10 +455,10 @@
                     </div>
                   </dl>
                 }
-                @if (store.validation().error; as error) {
+                @if (tuningStore.validation().error; as error) {
                   <p class="field-error">{{ error }}</p>
                 }
-                @if (store.validation().status === 'running') {
+                @if (tuningStore.validation().status === 'running') {
                   <button
                     class="button danger-ghost"
                     type="button"

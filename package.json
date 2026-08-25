@@ -29,6 +29,7 @@
     "start": "npm run dev",
     "test:renderer": "ng test --watch=false",
     "test:backend": "vitest run shared electron --exclude \"src/**\"",
+    "test:firmware-integration": "cross-env RUN_FIRMWARE_WASM_INTEGRATION=1 vitest run electron/firmware/firmware-build.integration.spec.ts",
     "test:browser": "playwright test",
     "check:route-styles": "node scripts/check-migrated-route-styles.mjs about dashboard terminal jobs settings simulation tuning",
     "check:style-contract": "node scripts/check-style-contract.mjs",

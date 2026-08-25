@@ -1,4 +1,5 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -8,6 +9,9 @@ import { FirmwareBuildService } from './firmware-build-service';
 
 const runIntegration = process.env['RUN_FIRMWARE_WASM_INTEGRATION'] === '1';
 const temporaryDirectories: string[] = [];
+const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const fixturePath = path.join(repositoryRoot, 'firmware-wasm', 'compatibility-fixture', 'main.ino');
+const assetsPath = path.join(repositoryRoot, 'firmware-wasm');
 
 afterAll(async () => {
   await Promise.all(
@@ -19,13 +23,13 @@ afterAll(async () => {
 
 describe.runIf(runIntegration)('firmware build integration', () => {
   it('compiles the supported sketch to an import-free, cached Wasm artifact', async () => {
-    const userDataPath = await mkdtemp(path.join(tmpdir(), 'firmware-build-integration-'));
+    const userDataPath = await mkdtemp(path.join(tmpdir(), 'firmware build integration-'));
     temporaryDirectories.push(userDataPath);
     const service = new FirmwareBuildService({
       userDataPath,
-      assetsPath: path.resolve('firmware-wasm'),
+      assetsPath,
     });
-    const sketch = 'C:\\GIT\\microcontroller\\pid_temp_with_gcode_stm32\\main\\main.ino';
+    const sketch = fixturePath;
 
     const cold = await service.build(sketch);
     if (cold.status !== 'ready') {
@@ -48,8 +52,27 @@ describe.runIf(runIntegration)('firmware build integration', () => {
 
     const module = new WebAssembly.Module(cold.firmware.artifact.wasmBytes);
     const exportedNames = WebAssembly.Module.exports(module).map(({ name }) => name);
-    expect(exportedNames).toContain('fil_get_serial_rx_pin');
-    expect(exportedNames).toContain('fil_get_serial_tx_pin');
+    expect(exportedNames).toEqual(
+      expect.arrayContaining([
+        'fil_abi_version',
+        'fil_alloc',
+        'fil_free',
+        'fil_set_analog_input',
+        'fil_set_digital_input',
+        'fil_load_eeprom',
+        'fil_boot',
+        'fil_advance',
+        'fil_enqueue_serial',
+        'fil_drain_serial',
+        'fil_get_pin_level',
+        'fil_get_serial_rx_pin',
+        'fil_get_serial_tx_pin',
+        'fil_take_active_micros',
+        'fil_take_elapsed_micros',
+        'fil_get_reset_count',
+        'fil_dump_eeprom',
+      ]),
+    );
 
     const warm = await service.build(sketch);
     expect(warm.status).toBe('ready');

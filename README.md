@@ -137,6 +137,7 @@ Useful commands:
     npm run lint
     npm run format:check
     npm run test:browser
+    npm run test:firmware-integration
     npm run check:style-contract
     npm run rebuild:native
     npm run package
@@ -144,6 +145,12 @@ Useful commands:
     npm run verify:windows-package
 
 npm start runs the Angular development server and Electron together.
+npm run test:firmware-integration runs the real portable firmware fixture through
+the pinned Emscripten 4.0.20 adapter. It resolves the fixture from the checkout,
+uses a test-owned build root (including roots containing spaces), and validates
+the import-free `arduino-fil-wasm-v1` module contract. A ready result is a
+successful compile; an unavailable Docker/local compiler is a prerequisite
+outcome, while compiler or link diagnostics are failures.
 npm run build:renderer performs the production renderer build and enforces the
 global style contract. The contract keeps the global stylesheet within its
 19,000-byte source and 16,000-byte compiled baselines, rejects migrated route

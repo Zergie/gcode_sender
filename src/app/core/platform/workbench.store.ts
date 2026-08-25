@@ -61,6 +61,7 @@ import { NotificationStore } from './notification.store';
 import { ConfigurationStore } from '../configuration/configuration.store';
 import { SessionCatalogStore } from './session-catalog.store';
 import { SerialTelemetryStore } from './serial-telemetry.store';
+import { HeaterControlStore } from './heater-control.store';
 
 export type DemoState =
   'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
@@ -167,6 +168,7 @@ export class WorkbenchStore implements OnDestroy {
   private readonly notifications = inject(NotificationStore);
   private readonly sessionCatalog = inject(SessionCatalogStore);
   private readonly serialTelemetry = inject(SerialTelemetryStore);
+  private readonly heaterControl = inject(HeaterControlStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -175,7 +177,6 @@ export class WorkbenchStore implements OnDestroy {
   private readonly unsubscribe: Array<() => void> = [];
   private initializePromise: Promise<void> | null = null;
   private destroyed = false;
-  private controlTimer: ReturnType<typeof setInterval> | undefined;
   private validationTimer: ReturnType<typeof setTimeout> | undefined;
   private targetShaperState: TargetShaperState = createTargetShaperState(0);
   private physicalForecastPlanner: PhysicalForecastPlanner | null = null;
@@ -193,7 +194,6 @@ export class WorkbenchStore implements OnDestroy {
   private lastGainsSent: PidGains | null = null;
   private controlWriteInFlight = false;
   private validationFinalizing = false;
-  private controlGeneration = 0;
   private validationSamples: M105Telemetry[] = [];
   private terminalId = 0;
 
@@ -216,20 +216,18 @@ export class WorkbenchStore implements OnDestroy {
   readonly settings = this.configuration.settings;
   readonly telemetry = this.serialTelemetry.telemetry;
   readonly hasTelemetry = this.serialTelemetry.hasTelemetry;
-  readonly requestedTarget = signal(0);
-  readonly modelTarget = signal(0);
-  readonly controlMode = signal<ControlMode>('pid');
+  readonly requestedTarget = this.heaterControl.requestedTarget;
+  readonly modelTarget = this.heaterControl.modelTarget;
+  readonly controlMode = this.heaterControl.controlMode;
   /** The in-memory Wasm artifact paired with the persisted sketch path. */
   readonly firmwareInLoop = this.configuration.firmwareInLoop;
   readonly firmwareInLoopHardware = this.configuration.firmwareInLoopHardware;
   readonly firmwareInLoopBuilding = this.configuration.firmwareInLoopBuilding;
-  readonly controlArmed = signal(false);
-  readonly pidSchedule = signal<PidSchedule>(DEFAULT_PID_SCHEDULE);
-  readonly activePidGains = signal<PidGains>(interpolatePidGains(DEFAULT_PID_SCHEDULE, 0));
+  readonly controlArmed = this.heaterControl.controlArmed;
+  readonly pidSchedule = this.heaterControl.pidSchedule;
+  readonly activePidGains = this.heaterControl.activePidGains;
   readonly ovenModelProfile = this.configuration.ovenModelProfile;
-  readonly modelAssistance = signal<ModelAssistedTargetConfiguration>({
-    ...DEFAULT_TARGET_ASSISTANCE,
-  });
+  readonly modelAssistance = this.heaterControl.modelAssistance;
   readonly activeProfile = signal('Standard oven model');
   readonly activity = signal<ExclusiveActivityState>({ active: null });
   readonly trend = signal<readonly TrendPoint[]>([]);
@@ -301,10 +299,7 @@ export class WorkbenchStore implements OnDestroy {
     this.destroyed = true;
     this.unsubscribe.splice(0).forEach((unsubscribe) => unsubscribe());
     this.sessionCatalog.ngOnDestroy();
-    if (this.controlTimer !== undefined) {
-      clearInterval(this.controlTimer);
-      this.controlTimer = undefined;
-    }
+    this.heaterControl.ngOnDestroy();
     this.serialTelemetry.ngOnDestroy();
     if (this.validationTimer !== undefined) {
       clearTimeout(this.validationTimer);
@@ -324,13 +319,7 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   setMode(mode: ControlMode): boolean {
-    if (mode === 'model-assisted' && this.firmwareInLoop() === null) {
-      this.notify(
-        'Select and compile a FIRMWARE .ino file in Settings before enabling Model-assisted PID.',
-      );
-      return false;
-    }
-    this.controlMode.set(mode);
+    if (!this.heaterControl.setMode(mode, this.firmwareInLoop() !== null)) return false;
     this.physicalForecastPlanner = null;
     this.lastPhysicalForecastAtMs = null;
     this.lastPhysicalForecastRequestC = null;
@@ -439,59 +428,18 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async setTarget(value: number): Promise<void> {
-    const numeric = Number(value);
-    if (!Number.isFinite(numeric)) {
-      this.notify('Enter a finite target between 0 and 250 °C.');
-      return;
-    }
-    const target = Math.min(250, Math.max(0, numeric));
-    if (this.connected() && this.busy()) {
-      this.notify('Target changes are locked while an exclusive operation owns the controller.');
-      return;
-    }
-    this.requestedTarget.set(target);
-    if (!this.connected()) {
-      this.notify('Connect the controller, then apply the target again to arm desktop control.');
-      return;
-    }
-    this.controlArmed.set(true);
-    this.controlGeneration += 1;
-    await this.advanceControl(true);
+    await this.heaterControl.applyTarget(Number(value), this.connected(), this.busy(), () =>
+      this.advanceControl(true),
+    );
   }
 
   async stopHeating(): Promise<void> {
-    this.disarmControl();
-    this.requestedTarget.set(0);
-    this.modelTarget.set(0);
-    this.targetShaperState = createTargetShaperState(0);
-    this.lastFirmwareTargetSent = 0;
-    if (this.connected()) {
-      const heaterOffError = await this.requestHeaterOff();
-      if (heaterOffError !== null) {
-        this.notify(`Heater-off was not confirmed: ${heaterOffError}`);
-        return;
-      }
-    }
-    this.notify('Heater-off confirmed with M104 S0.');
+    this.resetPhysicalControlModel();
+    await this.heaterControl.stopHeating(this.connected(), () => this.requestHeaterOff());
   }
 
   async applyPidSchedule(schedule: PidSchedule): Promise<boolean> {
-    const validated = createPidSchedule(schedule);
-    if (this.connected() && this.busy()) {
-      this.notify('The PID schedule cannot be changed during an exclusive operation.');
-      return false;
-    }
-    this.pidSchedule.set(validated);
-    const nextGains = interpolatePidGains(validated, this.requestedTarget());
-    this.activePidGains.set(nextGains);
-    this.lastGainsSent = null;
-    if (!this.connected()) return true;
-    const command = this.pidCommand(nextGains);
-    if (await this.transmitControl(command)) {
-      this.lastGainsSent = nextGains;
-      return true;
-    }
-    return false;
+    return this.heaterControl.applyPidSchedule(schedule, this.connected(), this.busy());
   }
 
   async sendTerminal(commandText: string): Promise<boolean> {
@@ -622,9 +570,9 @@ export class WorkbenchStore implements OnDestroy {
       return false;
     }
     this.configuration.setPhysicalModel(normalizedProfile);
-    this.modelAssistance.set({ ...assistance });
+    this.heaterControl.setModelAssistance(assistance);
     this.activeProfile.set(normalizedProfile.name);
-    this.controlMode.set('model-assisted');
+    this.heaterControl.setMode('model-assisted', true);
     this.resetPhysicalControlModel();
     this.targetShaperState = createTargetShaperState(this.modelTarget());
     this.notify(`${normalizedProfile.name} is now used for physical model-assisted control.`);
@@ -1242,8 +1190,7 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   private disarmControl(): void {
-    this.controlArmed.set(false);
-    this.controlGeneration += 1;
+    this.heaterControl.disarm();
     this.lastFirmwareTargetSent = null;
     this.lastGainsSent = null;
   }
@@ -1253,9 +1200,8 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   private startControlLoop(): void {
-    if (this.controlTimer !== undefined) return;
     this.lastControlTick = performance.now();
-    this.controlTimer = setInterval(() => void this.advanceControl(false), 1_000);
+    this.heaterControl.initialize(DEFAULT_PID_SCHEDULE, () => void this.advanceControl(false));
   }
 
   private async advanceControl(force: boolean): Promise<void> {
@@ -1367,13 +1313,13 @@ export class WorkbenchStore implements OnDestroy {
       Math.abs(shaped.firmwareTargetC - this.lastFirmwareTargetSent) >= 0.15;
     if (!force && !gainsChanged && !targetChanged) return;
 
-    const generation = this.controlGeneration;
+    const generation = this.heaterControl.generation;
     this.controlWriteInFlight = true;
     try {
       if (force || gainsChanged) {
         const command = this.pidCommand(transitionedGains);
         if (
-          generation === this.controlGeneration &&
+          generation === this.heaterControl.generation &&
           this.controlArmed() &&
           (await this.transmitControl(command))
         ) {
@@ -1382,7 +1328,7 @@ export class WorkbenchStore implements OnDestroy {
       }
       if (
         (force || targetChanged) &&
-        generation === this.controlGeneration &&
+        generation === this.heaterControl.generation &&
         this.controlArmed()
       ) {
         const command = `M104 S${shaped.firmwareTargetC.toFixed(1)}`;

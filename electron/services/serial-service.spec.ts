@@ -379,6 +379,35 @@ describe('SerialService firmware handshake', () => {
     expect(serialPortMock.instances[0]!.writes).not.toContain('M104 S0\n');
   });
 
+  it('rejects a firmware-declared startup failure without waiting for timeout', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const connection = service.connect({
+      path: 'COM3',
+      startupMacro: 'M104 S180',
+      handshakeTimeoutMs: 250,
+    });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(1));
+    const port = serialPortMock.instances[0]!;
+    port.releaseOpen();
+    await eventually(() => expect(port.writes).toEqual(['M115\n']));
+    port.releaseWrite();
+    port.releaseDrain();
+    port.injectData(`${LEGACY_M115_RESPONSE}\n`);
+    await eventually(() => expect(port.writes).toEqual(['M115\n', 'M104 S180\n']));
+    port.releaseWrite();
+    port.releaseDrain();
+    port.injectData('ERROR: startup rejected\n');
+    await eventually(() => expect(service.getState().status).toBe('handshaking'));
+    port.releaseClose();
+
+    await expect(connection).rejects.toMatchObject({
+      code: 'SERIAL_CONNECTION_FAILED',
+      message: 'startup rejected',
+    });
+    expect(service.getState().status).toBe('error');
+  });
+
   it('ignores late and repeated lifecycle events from a retired port', async () => {
     const { SerialService } = await import('./serial-service');
     const service = new SerialService(new ActivityService(), silentLogger());
@@ -430,6 +459,87 @@ describe('SerialService firmware handshake', () => {
     await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
     await completeHandshake(serialPortMock.instances[1]!);
     await expect(reconnect).resolves.toMatchObject({ status: 'connected' });
+  });
+
+  it('rejects a timed-out startup and permits a clean later connection', async () => {
+    vi.useFakeTimers();
+    try {
+      const { SerialService } = await import('./serial-service');
+      const service = new SerialService(new ActivityService(), silentLogger());
+      const states: string[] = [];
+      service.subscribe('state', (state) => states.push(state.status));
+
+      const connection = service.connect({
+        path: 'COM3',
+        startupMacro: 'M104 S180',
+        handshakeTimeoutMs: 250,
+      });
+      await eventually(() => expect(serialPortMock.instances).toHaveLength(1));
+      const firstPort = serialPortMock.instances[0]!;
+      firstPort.releaseOpen();
+      await eventually(() => expect(firstPort.writes).toEqual(['M115\n']));
+      firstPort.releaseWrite();
+      firstPort.releaseDrain();
+      firstPort.injectData(`${LEGACY_M115_RESPONSE}\n`);
+      await eventually(() => expect(firstPort.writes).toEqual(['M115\n', 'M104 S180\n']));
+      firstPort.releaseWrite();
+      firstPort.releaseDrain();
+      await vi.advanceTimersByTimeAsync(8_000);
+      firstPort.releaseClose();
+
+      await expect(connection).rejects.toMatchObject({ code: 'TIMEOUT' });
+      expect(states).not.toContain('connected');
+      expect(service.getState()).toMatchObject({
+        status: 'error',
+        error: { code: 'TIMEOUT' },
+      });
+
+      const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+      await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+      await completeHandshake(serialPortMock.instances[1]!);
+      await expect(reconnect).resolves.toMatchObject({ status: 'connected', portPath: 'COM4' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects an operator-cancelled startup and permits a clean later connection', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const connection = service.connect({
+      path: 'COM3',
+      startupMacro: 'M104 S180',
+      handshakeTimeoutMs: 250,
+    });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(1));
+    const firstPort = serialPortMock.instances[0]!;
+    firstPort.releaseOpen();
+    await eventually(() => expect(firstPort.writes).toEqual(['M115\n']));
+    firstPort.releaseWrite();
+    firstPort.releaseDrain();
+    firstPort.injectData(`${LEGACY_M115_RESPONSE}\n`);
+    await eventually(() => expect(firstPort.writes).toEqual(['M115\n', 'M104 S180\n']));
+    firstPort.releaseWrite();
+    firstPort.releaseDrain();
+
+    const connectionOutcome = connection.then(
+      () => ({ status: 'resolved' as const }),
+      (error: unknown) => ({ status: 'rejected' as const, error }),
+    );
+    const disconnect = service.disconnect();
+    await eventually(() => expect(service.getState().status).toBe('disconnecting'));
+    firstPort.releaseClose();
+    await expect(disconnect).resolves.toMatchObject({ status: 'disconnected' });
+    await expect(connectionOutcome).resolves.toMatchObject({
+      status: 'rejected',
+      error: { code: 'SERIAL_DISCONNECTED' },
+    });
+    expect(service.getState()).toMatchObject({ status: 'disconnected', portPath: null });
+
+    const reconnect = service.connect({ path: 'COM4', handshakeTimeoutMs: 250 });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(2));
+    await completeHandshake(serialPortMock.instances[1]!);
+    await expect(reconnect).resolves.toMatchObject({ status: 'connected', portPath: 'COM4' });
   });
 });
 

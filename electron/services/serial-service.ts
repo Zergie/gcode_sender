@@ -54,6 +54,7 @@ export class SerialService {
   private connectionGeneration = 0;
   private nextWaiterId = 1;
   private transactionTail: Promise<void> = Promise.resolve();
+  private closePromise: Promise<void> | null = null;
   private readonly waiters = new Map<number, ResponseWaiter>();
   private readonly retiredPorts = new WeakSet<SerialPort>();
   private readonly listeners: { [K in SerialEventName]: Set<SerialListener<K>> } = {
@@ -192,7 +193,7 @@ export class SerialService {
     } catch (error) {
       const appError = asAppError(error, 'SERIAL_CONNECTION_FAILED');
       if (attempt !== this.connectionGeneration || this.port !== port) {
-        if (this.retiredPorts.has(port) && this.state.error?.code === 'SERIAL_DISCONNECTED') {
+        if (this.retiredPorts.has(port)) {
           throw appError;
         }
         if (!this.retiredPorts.has(port)) {
@@ -200,6 +201,7 @@ export class SerialService {
         }
         return this.getState();
       }
+      this.intentionalClose = true;
       await this.closeCurrentPort().catch(() => undefined);
       this.updateState({
         status: 'error',
@@ -224,6 +226,7 @@ export class SerialService {
       return this.getState();
     }
     this.intentionalClose = true;
+    this.retiredPorts.add(this.port);
     this.updateState({ status: 'disconnecting' });
     await this.closeCurrentPort();
     this.updateState({
@@ -420,6 +423,15 @@ export class SerialService {
         break;
       case 'error':
         this.emit('firmwareError', { timestamp, message: parsed.message, raw: line });
+        if (this.state.status === 'handshaking') {
+          this.rejectAllWaiters(
+            new AppError({
+              code: 'SERIAL_CONNECTION_FAILED',
+              message: parsed.message,
+              recoverable: true,
+            }),
+          );
+        }
         break;
       case 'message':
       case 'ok':
@@ -531,22 +543,41 @@ export class SerialService {
   }
 
   private async closeCurrentPort(): Promise<void> {
-    const port = this.port;
-    if (port === null) {
+    if (this.closePromise !== null) {
+      await this.closePromise;
       return;
     }
-    this.rejectAllWaiters(
-      new AppError({
-        code: 'SERIAL_DISCONNECTED',
-        message: 'Serial connection closed',
-        recoverable: true,
-      }),
-    );
-    if (port.isOpen) {
-      await closePort(port);
-    } else {
-      port.removeAllListeners();
-      this.port = null;
+    const port = this.port;
+    if (port === null) {
+      this.receiveBuffer = '';
+      return;
+    }
+    this.closePromise = (async () => {
+      this.rejectAllWaiters(
+        new AppError({
+          code: 'SERIAL_DISCONNECTED',
+          message: 'Serial connection closed',
+          recoverable: true,
+        }),
+      );
+      if (port.isOpen) {
+        try {
+          await closePort(port);
+        } finally {
+          port.removeAllListeners();
+          this.port = null;
+          this.receiveBuffer = '';
+        }
+      } else {
+        port.removeAllListeners();
+        this.port = null;
+        this.receiveBuffer = '';
+      }
+    })();
+    try {
+      await this.closePromise;
+    } finally {
+      this.closePromise = null;
     }
   }
 

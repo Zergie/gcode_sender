@@ -374,6 +374,7 @@ export class SerialService {
         clearTimeout(waiter.timer);
         waiter.abortCleanup();
         waiter.resolve({ parsed, raw: line });
+        return;
       }
     }
   }

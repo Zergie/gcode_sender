@@ -32,6 +32,7 @@ type FirmwarePinRole =
   selector: 'app-settings',
   imports: [FormsModule, IconComponent, PageHeaderComponent],
   templateUrl: './settings.html',
+  styleUrl: './settings.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SettingsComponent {

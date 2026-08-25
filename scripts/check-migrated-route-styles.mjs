@@ -55,6 +55,26 @@ const routeSelectors = {
     '.recent-row',
     '.protocol-note',
   ],
+  settings: [
+    '.settings-page',
+    '.settings-layout',
+    '.settings-main',
+    '.settings-rail',
+    '.settings-card',
+    '.settings-icon',
+    '.settings-fields',
+    '.fixed-value',
+    '.connection-summary',
+    '.settings-inline-note',
+    '.theme-options',
+    '.theme-preview',
+    '.timeout-field',
+    '.catalog-card',
+    '.catalog-stat',
+    '.notification-card',
+    '.data-card',
+    '.switch-row',
+  ],
 };
 
 const routes = process.argv.slice(2);

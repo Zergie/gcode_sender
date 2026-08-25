@@ -209,18 +209,21 @@ describe('SerialService firmware handshake', () => {
 
     const first = service.sendAndWait('M104 S200', 1_000);
     const second = service.sendAndWait('M104 S210', 1_000);
-    await eventually(() => expect(port.writes).toEqual(['M115\n', 'M104 S200\n', 'M104 S210\n']));
-    port.releaseWrite();
-    port.releaseDrain();
+    await eventually(() => expect(port.writes).toEqual(['M115\n', 'M104 S200\n']));
+    expect(port.writes).not.toContain('M104 S210\n');
     port.releaseWrite();
     port.releaseDrain();
 
     const telemetry: unknown[] = [];
     service.subscribe('telemetry', (value) => telemetry.push(value));
     port.injectData('T0:25 /200 @:0 T1:25 T2:25 T3:25\n');
-    await expect(first).rejects.toMatchObject({ code: 'TIMEOUT' });
+    port.injectData('ok\n');
+    await expect(first).resolves.toMatchObject({ parsed: { kind: 'ok' } });
     expect(telemetry).toHaveLength(1);
 
+    await eventually(() => expect(port.writes).toEqual(['M115\n', 'M104 S200\n', 'M104 S210\n']));
+    port.releaseWrite();
+    port.releaseDrain();
     port.injectData('ok\n');
     await expect(second).resolves.toMatchObject({ parsed: { kind: 'ok' } });
   });

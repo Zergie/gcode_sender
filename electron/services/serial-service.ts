@@ -53,6 +53,7 @@ export class SerialService {
   private intentionalClose = false;
   private connectionGeneration = 0;
   private nextWaiterId = 1;
+  private transactionTail: Promise<void> = Promise.resolve();
   private readonly waiters = new Map<number, ResponseWaiter>();
   private readonly retiredPorts = new WeakSet<SerialPort>();
   private readonly listeners: { [K in SerialEventName]: Set<SerialListener<K>> } = {
@@ -276,14 +277,30 @@ export class SerialService {
       });
     }
     const normalized = requireSingleLine(command);
+    const transaction = this.transactionTail.then(() =>
+      this.executeTransaction(normalized, timeoutMs, signal, origin),
+    );
+    this.transactionTail = transaction.then(
+      () => undefined,
+      () => undefined,
+    );
+    return transaction;
+  }
+
+  private async executeTransaction(
+    command: string,
+    timeoutMs: number,
+    signal: AbortSignal | undefined,
+    origin: SerialSendOrigin | 'job' | 'system',
+  ): Promise<{ readonly parsed: ParsedFirmwareLine; readonly raw: string }> {
     const response = this.waitForResponse(
-      (parsed) => isCompletionForCommand(normalized, parsed),
+      (parsed) => isCompletionForCommand(command, parsed),
       timeoutMs,
       signal,
-      `No completion response for ${normalized}`,
+      `No completion response for ${command}`,
     );
     try {
-      await this.writeLine(normalized, origin, origin === 'system');
+      await this.writeLine(command, origin, origin === 'system');
     } catch (error) {
       this.rejectMatchingWaiter();
       await response.catch(() => undefined);

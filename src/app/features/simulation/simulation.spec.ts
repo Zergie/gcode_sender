@@ -548,8 +548,13 @@ describe('SimulationComponent', () => {
     expect(text).toContain('Physical links');
     expect(text).toContain('Convection');
     expect(text).toContain('Grey-body exchange');
-    expect(text).toContain('T3-to-room conductance (W/K)');
-    expect(text).toContain('physical path that pulls the safety sensor toward ambient');
+    expect(text).toContain('T3 enclosure sensor-to-room conductance (W/K)');
+    expect(text).toContain('physical path that pulls the sensor toward ambient');
+    expect(text).toContain(
+      'Temperature measured by the externally exposed enclosure thermistor; informational only.',
+    );
+    expect(text).not.toContain('Safety thermistor');
+    expect(text).not.toContain('safety sensor');
     expect(text).toContain('Physical feed-forward target');
     expect(text).toContain("this simulation's scenario target");
     expect(text).toContain('searches bounded whole-degree M104 commands');

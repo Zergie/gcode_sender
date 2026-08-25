@@ -165,7 +165,7 @@ export const DEFAULT_THERMAL_TWIN_PROFILE: ThermalTwinProfile = Object.freeze({
     // Calibrated equivalent leakage flow from the 2026-08-24 physical 200 C cycle.
     topAirExchangeM3PerSecond: 0.000385,
     bottomAirExchangeM3PerSecond: 0.000385,
-    // Exposed safety bead and lead-wire path to room air; paired with 0.024 W/K to enclosure.
+    // Exposed enclosure-sensor bead and lead-wire path to room air; paired with 0.024 W/K to enclosure.
     t3AmbientConductanceWPerK: 0.12,
     airDensityKgPerM3: AIR_DENSITY_KG_PER_M3,
     airSpecificHeatJPerKgK: AIR_SPECIFIC_HEAT_J_PER_KG_K,

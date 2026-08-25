@@ -355,7 +355,10 @@
             <section id="firmware-electrical-settings" class="firmware-electrical-settings">
               <header>
                 <h4>NTC divider</h4>
-                <p>Applied identically to T1, T2 and T3 before ADC quantization.</p>
+                <p>
+                  Applied identically to T1, T2 and T3 before ADC quantization. T3 is the
+                  {{ t3Semantics.label }}.
+                </p>
               </header>
               <div class="parameter-grid three">
                 <label class="field"
@@ -777,7 +780,7 @@
                   (ngModelChange)="updateAmbient('bottomAirExchangeM3PerSecond', $event)"
               /></label>
               <label class="field"
-                ><span>T3-to-room conductance (W/K)</span
+                ><span>{{ t3Semantics.label }}-to-room conductance (W/K)</span
                 ><input
                   type="number"
                   min="0"
@@ -787,8 +790,9 @@
               /></label>
             </div>
             <p class="field-help">
-              T3 exchanges heat directly with room air through its exposed body and leads. This
-              conductance is the physical path that pulls the safety sensor toward ambient.
+              {{ t3Semantics.label }} exchanges heat directly with room air through its exposed body
+              and leads. This conductance is the physical path that pulls the sensor toward ambient.
+              {{ t3Semantics.description }}
             </p>
           </details>
 
@@ -814,7 +818,7 @@
                   (ngModelChange)="updateBodyHeatCapacity('t2', $event)"
               /></label>
               <label class="field"
-                ><span>T3 capacity (J/K)</span
+                ><span>{{ t3Semantics.label }} capacity (J/K)</span
                 ><input
                   type="number"
                   min="0.001"
@@ -946,8 +950,8 @@
                   }}°</b
                 >
               </div>
-              <div class="sensor-pin pin-3" title="Safety thermistor on PA5">
-                <span>T3</span>
+              <div class="sensor-pin pin-3" [attr.title]="t3Semantics.label + ' on PA5'">
+                <span>{{ t3Semantics.channel }}</span>
                 <b
                   >{{
                     (currentSample()?.temperatures?.t3C ?? profile().ambientTemperatureC).toFixed(

@@ -37,6 +37,7 @@ import type { TrendPoint } from '../../core/platform/workbench.store';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
 import { SessionCatalogStore } from '../../core/platform/session-catalog.store';
 import { ConfigurationStore } from '../../core/configuration/configuration.store';
+import { T3_TELEMETRY_SEMANTICS } from '../../core/telemetry/t3-semantics';
 import { PageHeaderComponent } from '../../shared/page-header';
 import { TrendChartComponent } from '../../shared/trend-chart';
 import type { GcodeApi } from '../../../../shared/contracts';
@@ -162,7 +163,7 @@ const BODY_LABELS: Readonly<Record<ThermalBodyId, string>> = {
   enclosure: 'Enclosure',
   t1: 'T1 thermistor',
   t2: 'T2 thermistor',
-  t3: 'T3 thermistor',
+  t3: T3_TELEMETRY_SEMANTICS.label,
 };
 
 const MECHANISM_LABELS: Readonly<Record<LinearHeatTransferMechanism, string>> = {
@@ -202,6 +203,7 @@ interface QueuedFirmwareTerminalCommand {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SimulationComponent implements OnDestroy {
+  readonly t3Semantics = T3_TELEMETRY_SEMANTICS;
   readonly embedded = input(false);
   readonly firmwareAdcBits = FIRMWARE_ADC_BITS;
   readonly firmwareAdcMaximum = FIRMWARE_ADC_MAX_VALUE;
@@ -443,7 +445,7 @@ export class SimulationComponent implements OnDestroy {
     { value: 'heater-output', label: 'Shared heater' },
     { value: 'thermistor-t1', label: 'Thermistor T1' },
     { value: 'thermistor-t2', label: 'Thermistor T2' },
-    { value: 'thermistor-t3', label: 'Thermistor T3' },
+    { value: 'thermistor-t3', label: T3_TELEMETRY_SEMANTICS.label },
     { value: 'indicator-output', label: 'LED / indicator' },
     { value: 'uart-rx', label: 'Serial RX' },
     { value: 'uart-tx', label: 'Serial TX' },
@@ -1030,7 +1032,9 @@ export class SimulationComponent implements OnDestroy {
   firmwareBindingDetail(binding: VirtualPinBinding): string {
     switch (binding.kind) {
       case 'thermistor-input':
-        return binding.sensor.toUpperCase();
+        return binding.sensor === 't3'
+          ? T3_TELEMETRY_SEMANTICS.label
+          : binding.sensor.toUpperCase();
       case 'heater-output':
         return 'Top + bottom heaters';
       case 'indicator-output':

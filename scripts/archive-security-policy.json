@@ -1,0 +1,10 @@
+{
+  "archivePackages": {
+    "tar": [],
+    "tar-fs": [],
+    "tar-stream": [],
+    "extract-zip": [],
+    "@electron/asar": [],
+    "yauzl": []
+  }
+}

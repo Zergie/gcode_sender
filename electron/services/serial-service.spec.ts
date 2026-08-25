@@ -138,6 +138,70 @@ describe('SerialService firmware handshake', () => {
     expect(port.writes).toEqual(['M115\n']);
   });
 
+  it.each([
+    ['', ['M115\n']],
+    ['M104 S180', ['M115\n', 'M104 S180\n']],
+    ['M104 S180\nM104 S181\nM104 S182', ['M115\n', 'M104 S180\n', 'M104 S181\n', 'M104 S182\n']],
+  ])(
+    'publishes connected only after the %s startup macro completes',
+    async (startupMacro, expectedWrites) => {
+      const { SerialService } = await import('./serial-service');
+      const service = new SerialService(new ActivityService(), silentLogger());
+      const states: string[] = [];
+      service.subscribe('state', (state) => states.push(state.status));
+
+      const connection = service.connect({ path: 'COM3', startupMacro, handshakeTimeoutMs: 250 });
+      await eventually(() => expect(serialPortMock.instances).toHaveLength(1));
+      const port = serialPortMock.instances[0]!;
+      port.releaseOpen();
+      await eventually(() => expect(port.writes).toEqual(['M115\n']));
+      port.releaseWrite();
+      port.releaseDrain();
+      port.injectData(`${LEGACY_M115_RESPONSE}\n`);
+
+      for (let index = 1; index < expectedWrites.length; index += 1) {
+        await eventually(() => expect(port.writes).toEqual(expectedWrites.slice(0, index + 1)));
+        expect(states).toEqual(['connecting', 'handshaking']);
+        expect(service.getState().status).toBe('handshaking');
+        port.releaseWrite();
+        port.releaseDrain();
+        port.injectData('ok\n');
+      }
+
+      await expect(connection).resolves.toMatchObject({ status: 'connected' });
+      expect(states).toEqual(['connecting', 'handshaking', 'connected']);
+      expect(port.writes).toEqual(expectedWrites);
+    },
+  );
+
+  it('rejects terminal traffic while a startup acknowledgement is deferred', async () => {
+    const { SerialService } = await import('./serial-service');
+    const service = new SerialService(new ActivityService(), silentLogger());
+    const connection = service.connect({
+      path: 'COM3',
+      startupMacro: 'M104 S180',
+      handshakeTimeoutMs: 250,
+    });
+    await eventually(() => expect(serialPortMock.instances).toHaveLength(1));
+    const port = serialPortMock.instances[0]!;
+    port.releaseOpen();
+    await eventually(() => expect(port.writes).toEqual(['M115\n']));
+    port.releaseWrite();
+    port.releaseDrain();
+    port.injectData(`${LEGACY_M115_RESPONSE}\n`);
+    await eventually(() => expect(port.writes).toEqual(['M115\n', 'M104 S180\n']));
+
+    await expect(service.send('G1 X1', 'terminal')).rejects.toMatchObject({
+      code: 'NOT_CONNECTED',
+    });
+    expect(port.writes).toEqual(['M115\n', 'M104 S180\n']);
+
+    port.releaseWrite();
+    port.releaseDrain();
+    port.injectData('ok\n');
+    await expect(connection).resolves.toMatchObject({ status: 'connected' });
+  });
+
   it('assigns one compatible firmware response to only one command transaction', async () => {
     const { SerialService } = await import('./serial-service');
     const service = new SerialService(new ActivityService(), silentLogger());

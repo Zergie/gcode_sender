@@ -163,6 +163,15 @@ export class SerialService {
         });
       }
 
+      const startupCommands = normalizeStartupMacro(request.startupMacro ?? '');
+      for (const command of startupCommands) {
+        if (attempt !== this.connectionGeneration || this.port !== port) {
+          await closeDetachedPort(port).catch(() => undefined);
+          return this.getState();
+        }
+        await this.sendAndWait(command, 8_000, undefined, 'system');
+      }
+
       this.updateState({
         status: 'connected',
         firmware: parsed.value,
@@ -173,15 +182,6 @@ export class SerialService {
         portPath: request.path,
         firmware: parsed.value.firmwareName,
       });
-
-      const startupCommands = normalizeStartupMacro(request.startupMacro ?? '');
-      for (const command of startupCommands) {
-        if (attempt !== this.connectionGeneration || this.port !== port) {
-          await closeDetachedPort(port).catch(() => undefined);
-          return this.getState();
-        }
-        await this.sendAndWait(command, 8_000, undefined, 'system');
-      }
       return this.getState();
     } catch (error) {
       if (attempt !== this.connectionGeneration || this.port !== port) {

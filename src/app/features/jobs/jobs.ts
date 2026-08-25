@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe, TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { SessionCatalogStore } from '../../core/platform/session-catalog.store';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
 
@@ -13,10 +14,11 @@ import { PageHeaderComponent } from '../../shared/page-header';
 })
 export class JobsComponent {
   readonly store = inject(WorkbenchStore);
+  readonly sessionCatalog = inject(SessionCatalogStore);
   readonly dragging = signal(false);
   readonly restartLine = signal(1);
   readonly recentJobs = computed(() =>
-    this.store
+    this.sessionCatalog
       .sessions()
       .filter((session) => session.kind === 'job')
       .slice(0, 5)

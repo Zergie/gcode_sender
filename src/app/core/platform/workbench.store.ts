@@ -2,7 +2,6 @@ import { DOCUMENT } from '@angular/common';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
 import type {
-  CommandCatalogSnapshot,
   ControlMode,
   ExclusiveActivityState,
   GcodeApi,
@@ -15,8 +14,6 @@ import type {
   SerialConnectionState,
   SerialLineEvent,
   SerialPortDescriptor,
-  SessionKind,
-  SessionMetadata,
   SettingsPatch,
   TemperatureTelemetry,
   ThemePreference,
@@ -28,7 +25,6 @@ import type {
   StoredProfile,
 } from '../../../../shared/contracts';
 import type { LiveTuningState } from '../../../../shared/tuning-contracts';
-import { BUNDLED_COMMAND_CATALOG } from '../../../../shared/bundled-catalog';
 import { validateHeatingProfile } from '../../../../shared/heating-profile-document';
 import {
   advancePidGainTransition,
@@ -64,6 +60,7 @@ import {
 import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics } from '../tuning';
 import { NotificationStore } from './notification.store';
 import { ConfigurationStore } from '../configuration/configuration.store';
+import { SessionCatalogStore } from './session-catalog.store';
 
 export type DemoState =
   'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
@@ -168,6 +165,7 @@ const MAX_HEATING_PROFILE_POINTS = 128;
 export class WorkbenchStore implements OnDestroy {
   private readonly configuration = inject(ConfigurationStore);
   private readonly notifications = inject(NotificationStore);
+  private readonly sessionCatalog = inject(SessionCatalogStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -252,15 +250,8 @@ export class WorkbenchStore implements OnDestroy {
   readonly jobTimeout = signal<JobTimeoutEvent | null>(null);
   readonly liveTuning = signal<LiveTuningState>(DEFAULT_TUNING);
   readonly validation = signal<ValidationRunState>(DEFAULT_VALIDATION);
-  readonly catalog = signal<CommandCatalogSnapshot>({
-    entries: BUNDLED_COMMAND_CATALOG,
-    source: 'bundled',
-    url: null,
-    firmwareId: null,
-    fetchedAt: null,
-    stale: false,
-  });
-  readonly sessions = signal<readonly SessionMetadata[]>([]);
+  readonly catalog = this.sessionCatalog.catalog;
+  readonly sessions = this.sessionCatalog.sessions;
   readonly profiles = this.configuration.profiles;
   readonly toast = this.notifications.toast;
 
@@ -305,6 +296,7 @@ export class WorkbenchStore implements OnDestroy {
     }
 
     this.registerDesktopEvents();
+    this.sessionCatalog.initialize();
     await Promise.all([this.loadSettings(), this.refreshPorts(), this.loadDesktopState()]);
     this.clearUnavailableSelectedPort();
     this.targetShaperState = createTargetShaperState(this.telemetry().target);
@@ -315,6 +307,7 @@ export class WorkbenchStore implements OnDestroy {
     if (this.destroyed) return;
     this.destroyed = true;
     this.unsubscribe.splice(0).forEach((unsubscribe) => unsubscribe());
+    this.sessionCatalog.ngOnDestroy();
     if (this.controlTimer !== undefined) {
       clearInterval(this.controlTimer);
       this.controlTimer = undefined;
@@ -1085,30 +1078,11 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async refreshCatalog(): Promise<void> {
-    if (this.api === undefined) {
-      this.catalog.update((current) => ({
-        ...current,
-        source: 'cache',
-        fetchedAt: new Date().toISOString(),
-        stale: false,
-      }));
-      this.notify('Command catalog refreshed from demo cache.');
-      return;
-    }
-    const result = await this.api.catalog.refresh();
-    if (result.ok) this.catalog.set(result.value);
-    else this.notify(result.error.message);
+    await this.sessionCatalog.refreshCatalog();
   }
 
   async revokeCatalogHost(host: string): Promise<void> {
-    if (this.api === undefined) {
-      this.notify('Catalog host approval is unavailable in demo mode.');
-      return;
-    }
-    const result = await this.api.catalog.revokeHost(host);
-    if (result.ok) {
-      this.configuration.patchSettings({ approvedCatalogHosts: result.value });
-    } else this.notify(result.error.message);
+    await this.sessionCatalog.revokeCatalogHost(host);
   }
 
   async openExternal(url: string): Promise<void> {
@@ -1176,7 +1150,7 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async saveTerminalSession(): Promise<string | null> {
-    return this.saveSession(
+    return this.sessionCatalog.saveSession(
       'terminal',
       `Terminal · ${new Date().toLocaleString()}`,
       {
@@ -1194,32 +1168,25 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async saveSimulationSession(data: unknown): Promise<string | null> {
-    return this.saveSession('simulation', `Simulation · ${new Date().toLocaleString()}`, data);
+    return this.sessionCatalog.saveSession(
+      'simulation',
+      `Simulation · ${new Date().toLocaleString()}`,
+      data,
+    );
   }
 
   async exportTerminalSession(format: 'json' | 'csv'): Promise<void> {
     const id = await this.saveTerminalSession();
     if (id === null || this.api === undefined) return;
-    const result = await this.api.sessions.exportFile([id], format);
-    if (result.ok && result.value !== null)
-      this.notify(`Terminal session exported to ${result.value}`);
-    else if (!result.ok) this.notify(result.error.message);
+    await this.sessionCatalog.exportSessions([id], format);
   }
 
   async exportSessions(ids: readonly string[], format: 'json' | 'csv'): Promise<void> {
-    if (this.api === undefined) {
-      this.notify('Session export opens a native save dialog in the desktop app.');
-      return;
-    }
-    const result = await this.api.sessions.exportFile(ids, format);
-    if (result.ok && result.value !== null) this.notify(`Sessions exported to ${result.value}`);
-    else if (!result.ok) this.notify(result.error.message);
+    await this.sessionCatalog.exportSessions(ids, format);
   }
 
   async refreshSessions(): Promise<void> {
-    if (this.api === undefined) return;
-    const result = await this.api.sessions.list();
-    if (result.ok) this.sessions.set(result.value);
+    await this.sessionCatalog.refreshSessions();
   }
 
   notify(message: string): void {
@@ -1259,10 +1226,10 @@ export class WorkbenchStore implements OnDestroy {
     if (connection.ok) this.connection.set(connection.value);
     if (job.ok) this.job.set(job.value);
     if (activity.ok) this.activity.set(activity.value);
-    if (catalog.ok) this.catalog.set(catalog.value);
+    if (catalog.ok) this.sessionCatalog.replaceCatalog(catalog.value);
     if (systemInfo.ok) this.systemInfo.set(systemInfo.value);
     if (tuning.ok) this.liveTuning.set(tuning.value);
-    if (sessions.ok) this.sessions.set(sessions.value);
+    if (sessions.ok) this.sessionCatalog.replaceSessions(sessions.value);
     if (profiles.ok) this.configuration.replaceProfiles(profiles.value);
   }
 
@@ -1300,43 +1267,7 @@ export class WorkbenchStore implements OnDestroy {
       }),
       this.api.events.onActivity((state) => this.activity.set(state)),
       this.api.events.onFirmwareError((event) => this.notify(event.message)),
-      this.api.events.onCatalogSnapshot((snapshot) => this.catalog.set(snapshot)),
     );
-  }
-
-  private async saveSession(
-    kind: SessionKind,
-    title: string,
-    data: unknown,
-    startedAt = new Date().toISOString(),
-  ): Promise<string | null> {
-    const now = new Date().toISOString();
-    const session: SessionMetadata = {
-      id: crypto.randomUUID(),
-      version: 1,
-      kind,
-      title,
-      startedAt,
-      endedAt: now,
-      pinned: false,
-      data: data as JsonValue,
-    };
-    if (this.api === undefined) {
-      this.sessions.update((items) => [session, ...items].slice(0, 100));
-      this.notify(`${title} saved in the browser demo.`);
-      return session.id;
-    }
-    const result = await this.api.sessions.save(session);
-    if (!result.ok) {
-      this.notify(result.error.message);
-      return null;
-    }
-    this.sessions.update((items) => [
-      result.value,
-      ...items.filter((item) => item.id !== result.value.id),
-    ]);
-    this.notify(`${result.value.title} saved.`);
-    return result.value.id;
   }
 
   private connectDemo(): void {
@@ -1866,7 +1797,7 @@ export class WorkbenchStore implements OnDestroy {
       metrics,
       error,
     });
-    await this.saveSession(
+    await this.sessionCatalog.saveSession(
       'tuning',
       `Validation · ${current.targetC?.toFixed(0) ?? '—'} °C · Standard load`,
       {

@@ -10,6 +10,7 @@ import type {
 } from '../../core/simulation';
 import { createDefaultVirtualHardware } from '../../core/simulation/simulation-configuration.store';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { SessionCatalogStore } from '../../core/platform/session-catalog.store';
 import { ConfigurationStore } from '../../core/configuration/configuration.store';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
@@ -57,6 +58,7 @@ export class SettingsComponent {
     { value: 'ignored-output', label: 'Ignored output' },
   ];
   readonly store = inject(WorkbenchStore);
+  readonly sessionCatalog = inject(SessionCatalogStore);
   readonly configuration = inject(ConfigurationStore);
   readonly startupMacro = signal('');
   readonly timeoutSeconds = signal(8);

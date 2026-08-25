@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { SessionCatalogStore } from '../../core/platform/session-catalog.store';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
 
@@ -13,12 +14,13 @@ import { PageHeaderComponent } from '../../shared/page-header';
 })
 export class TerminalComponent {
   readonly store = inject(WorkbenchStore);
+  readonly sessionCatalog = inject(SessionCatalogStore);
   readonly command = signal('');
   readonly historyIndex = signal(-1);
   readonly suggestions = computed(() => {
     const token = this.command().split(/\s|\n/).at(-1)?.toUpperCase() ?? '';
     if (!/^[GMT]\d*$/.test(token)) return [];
-    return this.store
+    return this.sessionCatalog
       .catalog()
       .entries.filter((entry) => entry.code.startsWith(token))
       .slice(0, 5);

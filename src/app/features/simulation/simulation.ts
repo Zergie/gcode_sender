@@ -32,6 +32,7 @@ import {
 } from '../../core/control';
 import type { TrendPoint } from '../../core/platform/workbench.store';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { SessionCatalogStore } from '../../core/platform/session-catalog.store';
 import { ConfigurationStore } from '../../core/configuration/configuration.store';
 import { PageHeaderComponent } from '../../shared/page-header';
 import { TrendChartComponent } from '../../shared/trend-chart';
@@ -204,6 +205,7 @@ export class SimulationComponent implements OnDestroy {
   readonly firmwareEepromMinimum = FIRMWARE_EEPROM_MIN_BYTES;
   readonly firmwareEepromMaximum = FIRMWARE_EEPROM_MAX_BYTES;
   readonly store = inject(WorkbenchStore);
+  readonly sessionCatalog = inject(SessionCatalogStore);
   readonly configuration = inject(ConfigurationStore);
   private readonly zone = inject(NgZone);
   /** Shared with Settings so the twin always runs the configured physical model. */
@@ -593,17 +595,21 @@ export class SimulationComponent implements OnDestroy {
     if (context.animate) this.startPlayback();
     this.updateFirmwareOutputFromResult(result);
     if (context.persist) {
-      void this.store.saveSimulationSession({
-        profile: context.profile,
-        scenario: { targetC: context.targetC, durationSeconds: context.durationSeconds },
-        timewarp: context.timewarp,
-        variants: result.entries.map((entry) => ({
-          id: entry.id,
-          label: entry.label,
-          metrics: entry.result.metrics,
-          execution: entry.result.execution,
-        })),
-      });
+      void this.sessionCatalog.saveSession(
+        'simulation',
+        `Simulation · ${new Date().toLocaleString()}`,
+        {
+          profile: context.profile,
+          scenario: { targetC: context.targetC, durationSeconds: context.durationSeconds },
+          timewarp: context.timewarp,
+          variants: result.entries.map((entry) => ({
+            id: entry.id,
+            label: entry.label,
+            metrics: entry.result.metrics,
+            execution: entry.result.execution,
+          })),
+        },
+      );
     }
   }
 

@@ -625,22 +625,22 @@
             <span class="panel-kicker">COMMAND CATALOG</span>
             <h2>Firmware reference</h2>
           </div>
-          <span class="state-chip" [class.validated]="!store.catalog().stale">{{
-            store.catalog().stale ? 'STALE' : store.catalog().source.toUpperCase()
+          <span class="state-chip" [class.validated]="!sessionCatalog.catalog().stale">{{
+            sessionCatalog.catalog().stale ? 'STALE' : sessionCatalog.catalog().source.toUpperCase()
           }}</span>
         </header>
         <div class="catalog-stat">
-          <strong>{{ store.catalog().entries.length }}</strong
+          <strong>{{ sessionCatalog.catalog().entries.length }}</strong
           ><span>commands available for terminal completion</span>
         </div>
         <dl>
           <div>
             <dt>Source</dt>
-            <dd>{{ store.catalog().source }}</dd>
+            <dd>{{ sessionCatalog.catalog().source }}</dd>
           </div>
           <div>
             <dt>Last fetched</dt>
-            <dd>{{ store.catalog().fetchedAt ?? 'Bundled fallback' }}</dd>
+            <dd>{{ sessionCatalog.catalog().fetchedAt ?? 'Bundled fallback' }}</dd>
           </div>
           <div>
             <dt>Policy</dt>
@@ -660,7 +660,7 @@
                 <button
                   class="button secondary"
                   type="button"
-                  (click)="store.revokeCatalogHost(host)"
+                  (click)="sessionCatalog.revokeCatalogHost(host)"
                 >
                   Revoke
                 </button>
@@ -668,7 +668,11 @@
             }
           </div>
         }
-        <button class="button secondary full" type="button" (click)="store.refreshCatalog()">
+        <button
+          class="button secondary full"
+          type="button"
+          (click)="sessionCatalog.refreshCatalog()"
+        >
           Refresh catalog
         </button>
         <p class="fine-print">
@@ -704,7 +708,7 @@
           deleted.
         </p>
         <div>
-          <span>Sessions</span><strong>{{ store.sessions().length }}</strong>
+          <span>Sessions</span><strong>{{ sessionCatalog.sessions().length }}</strong>
         </div>
         <div>
           <span>Profile revisions</span><strong>{{ configuration.profiles().length }}</strong>

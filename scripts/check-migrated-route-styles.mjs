@@ -22,6 +22,21 @@ const routeSelectors = {
     '.output-panel',
     '.program-card',
   ],
+  terminal: [
+    '.terminal-page',
+    '.terminal-shell',
+    '.terminal-toolbar',
+    '.traffic-legend',
+    '.terminal-output',
+    '.terminal-line',
+    '.terminal-empty',
+    '.terminal-composer',
+    '.prompt',
+    '.command-field',
+    '.send-button',
+    '.autocomplete',
+    '.terminal-hints',
+  ],
 };
 
 const route = process.argv[2];

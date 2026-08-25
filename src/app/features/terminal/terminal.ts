@@ -10,6 +10,7 @@ import { PageHeaderComponent } from '../../shared/page-header';
   selector: 'app-terminal',
   imports: [DatePipe, FormsModule, IconComponent, PageHeaderComponent],
   templateUrl: './terminal.html',
+  styleUrl: './terminal.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TerminalComponent {

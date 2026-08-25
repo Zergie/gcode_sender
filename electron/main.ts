@@ -165,6 +165,7 @@ async function createWindow(): Promise<void> {
   window.webContents.on('will-navigate', (event) => event.preventDefault());
   window.webContents.on('will-redirect', (event) => event.preventDefault());
   window.webContents.on('render-process-gone', (_event, details) => {
+    runtime?.catalog.invalidatePendingApproval();
     runtime?.logger.error('Renderer process exited', {
       reason: details.reason,
       exitCode: details.exitCode,
@@ -172,6 +173,7 @@ async function createWindow(): Promise<void> {
   });
   window.once('ready-to-show', () => window.show());
   window.on('closed', () => {
+    runtime?.catalog.invalidatePendingApproval();
     runtime?.events.detach(window.webContents);
     if (mainWindow === window) {
       mainWindow = null;

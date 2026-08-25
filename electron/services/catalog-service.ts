@@ -25,6 +25,7 @@ interface CatalogCacheFile {
 interface PendingApproval {
   readonly request: CatalogApprovalRequest;
   readonly firmware: FirmwareInfo;
+  readonly revision: number;
 }
 
 export type CatalogApprovalDialog = (request: CatalogApprovalRequest) => Promise<boolean>;
@@ -34,6 +35,8 @@ const FETCH_TIMEOUT_MS = 8_000;
 
 export class CatalogService {
   private firmware: FirmwareInfo | null = null;
+  private firmwareRevision = 0;
+  private approvalGeneration = 0;
   private snapshot: CommandCatalogSnapshot = bundledSnapshot(null);
   private pendingApproval: PendingApproval | null = null;
   private readonly snapshotListeners = new Set<(snapshot: CommandCatalogSnapshot) => void>();
@@ -49,13 +52,24 @@ export class CatalogService {
     this.approvalDialog = dialog;
   }
 
+  /** Invalidate consent when the renderer/window that requested it is gone. */
+  invalidatePendingApproval(): void {
+    this.approvalGeneration += 1;
+    this.pendingApproval = null;
+  }
+
   get(): CommandCatalogSnapshot {
     return structuredClone(this.snapshot);
   }
 
   async setFirmware(firmware: FirmwareInfo): Promise<void> {
+    const revision = ++this.firmwareRevision;
+    this.invalidatePendingApproval();
     this.firmware = firmware;
     const cached = await this.readCache(firmware);
+    if (!this.isCurrentFirmware(revision, firmware)) {
+      return;
+    }
     if (cached !== null) {
       this.setSnapshot(
         toSnapshot(cached, Date.now() - Date.parse(cached.fetchedAt) > CACHE_MAX_AGE_MS, 'cache'),
@@ -76,9 +90,12 @@ export class CatalogService {
 
   async refresh(): Promise<CommandCatalogSnapshot> {
     const firmware = this.firmware;
+    const revision = this.firmwareRevision;
     const urlText = firmware?.gcodeCatalogUrl;
     if (firmware === null || urlText === undefined) {
-      this.setSnapshot(bundledSnapshot(firmware === null ? null : firmwareId(firmware)));
+      if (this.isCurrentFirmware(revision, firmware)) {
+        this.setSnapshot(bundledSnapshot(firmware === null ? null : firmwareId(firmware)));
+      }
       return this.get();
     }
 
@@ -91,23 +108,36 @@ export class CatalogService {
         url: url.href,
         firmwareId: firmwareId(firmware),
       };
-      this.pendingApproval = { request, firmware };
+      const approvalGeneration = this.approvalGeneration + 1;
+      this.approvalGeneration = approvalGeneration;
+      this.pendingApproval = { request, firmware, revision };
       let approved = false;
+      let live = false;
       try {
         approved = await this.approvalDialog(request);
+        live = this.isLiveApproval(request, firmware, revision, approvalGeneration);
       } finally {
         if (this.pendingApproval?.request.id === request.id) {
           this.pendingApproval = null;
         }
       }
-      if (!approved) {
+      if (!approved || !live) {
         return this.get();
       }
       await this.store.approveCatalogHost(request.host);
+      if (
+        !this.isCurrentFirmware(revision, firmware) ||
+        this.approvalGeneration !== approvalGeneration
+      ) {
+        return this.get();
+      }
     }
 
     try {
       const entries = await fetchCatalog(url);
+      if (!this.isCurrentFirmware(revision, firmware)) {
+        return this.get();
+      }
       const cache: CatalogCacheFile = {
         version: 1,
         url: url.href,
@@ -120,9 +150,13 @@ export class CatalogService {
       return this.get();
     } catch (error) {
       const cached = await this.readCache(firmware);
-      this.setSnapshot(
-        cached === null ? bundledSnapshot(firmwareId(firmware)) : toSnapshot(cached, true, 'cache'),
-      );
+      if (this.isCurrentFirmware(revision, firmware)) {
+        this.setSnapshot(
+          cached === null
+            ? bundledSnapshot(firmwareId(firmware))
+            : toSnapshot(cached, true, 'cache'),
+        );
+      }
       const appError = asAppError(error, 'CATALOG_FETCH_FAILED');
       this.logger.warn('Using fallback command catalog', {
         error: appError.message,
@@ -135,6 +169,27 @@ export class CatalogService {
   subscribeSnapshot(listener: (snapshot: CommandCatalogSnapshot) => void): () => void {
     this.snapshotListeners.add(listener);
     return () => this.snapshotListeners.delete(listener);
+  }
+
+  private isCurrentFirmware(revision: number, firmware: FirmwareInfo | null): boolean {
+    return this.firmwareRevision === revision && this.firmware === firmware;
+  }
+
+  private isLiveApproval(
+    request: CatalogApprovalRequest,
+    firmware: FirmwareInfo,
+    revision: number,
+    approvalGeneration: number,
+  ): boolean {
+    return (
+      this.isCurrentFirmware(revision, firmware) &&
+      this.approvalGeneration === approvalGeneration &&
+      this.pendingApproval?.request.id === request.id &&
+      this.pendingApproval.revision === revision &&
+      this.pendingApproval.request.firmwareId === request.firmwareId &&
+      this.pendingApproval.request.host === request.host &&
+      this.pendingApproval.request.url === request.url
+    );
   }
 
   private setSnapshot(snapshot: CommandCatalogSnapshot): void {

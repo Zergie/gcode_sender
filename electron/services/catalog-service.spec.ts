@@ -191,6 +191,88 @@ describe('command catalog snapshot events', () => {
     await vi.waitFor(() => expect(service.get().source).toBe('remote'));
     expect(prompt).not.toHaveBeenCalled();
   });
+
+  it('does not let a decision from the previous firmware survive a firmware change', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const store = catalogStore([]);
+    let decide: ((approved: boolean) => void) | undefined;
+    const prompt = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          decide = resolve;
+        }),
+    );
+    const service = new CatalogService(directory, store, silentLogger(), prompt);
+
+    const firstFirmware = service.setFirmware(firmwareWithCatalog());
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+
+    await service.setFirmware({ raw: 'firmware', firmwareName: 'Other firmware' });
+    decide?.(true);
+    await firstFirmware;
+
+    expect(store.approveCatalogHost).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(service.get()).toMatchObject({ source: 'bundled', firmwareId: 'Other firmware' });
+  });
+
+  it('cancels a pending decision when the owning renderer is destroyed', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const store = catalogStore([]);
+    let decide: ((approved: boolean) => void) | undefined;
+    const prompt = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          decide = resolve;
+        }),
+    );
+    const service = new CatalogService(directory, store, silentLogger(), prompt);
+
+    const refresh = service.setFirmware(firmwareWithCatalog());
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+    service.invalidatePendingApproval();
+    decide?.(true);
+    await refresh;
+
+    expect(store.approveCatalogHost).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(service.get()).toMatchObject({ source: 'bundled', stale: true });
+  });
+
+  it('lets only the newest concurrent request consume a trusted outcome', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-catalog-'));
+    temporaryDirectories.push(directory);
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const store = catalogStore([]);
+    const decisions: Array<(approved: boolean) => void> = [];
+    const prompt = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          decisions.push(resolve);
+        }),
+    );
+    const service = new CatalogService(directory, store, silentLogger(), prompt);
+
+    const first = service.setFirmware(firmwareWithCatalog());
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(1));
+    const second = service.refresh();
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledTimes(2));
+
+    decisions[0]?.(true);
+    decisions[1]?.(false);
+    await Promise.all([first, second]);
+
+    expect(store.approveCatalogHost).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(service.get()).toMatchObject({ source: 'bundled', stale: true });
+  });
 });
 
 function firmwareWithCatalog(): FirmwareInfo {

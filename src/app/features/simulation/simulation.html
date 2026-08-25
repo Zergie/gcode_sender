@@ -1065,6 +1065,9 @@
           <app-trend-chart
             [points]="visibleTrend()"
             [comparisonPoints]="comparisonTrend()"
+            [windowStart]="simulationChartWindow().start"
+            [windowEnd]="simulationChartWindow().end"
+            [visibleUntil]="simulationPlaybackEnd()"
             (plotWidthMeasured)="simulationChartWidth.set($event)"
           />
         </div>

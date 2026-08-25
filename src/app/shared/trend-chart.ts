@@ -230,6 +230,8 @@ export class TrendChartComponent {
   readonly comparisonPoints = input<readonly TrendPoint[]>([]);
   readonly windowStart = input<number | null>(null);
   readonly windowEnd = input<number | null>(null);
+  /** Optional playback cutoff; the source arrays remain stable while it advances. */
+  readonly visibleUntil = input<number | null>(null);
   readonly showModelTarget = input(true);
   readonly profile = input<HeatingProfile | null>(null);
   readonly profileAnchor = input<number | null>(null);
@@ -241,6 +243,10 @@ export class TrendChartComponent {
   readonly profilePointDeleted = output<number>();
   readonly plotWidthMeasured = output<number>();
   private draggingPoint: number | null = null;
+  private readonly pathCache = new WeakMap<
+    readonly TrendPoint[],
+    Map<string, Map<number, string>>
+  >();
 
   ngAfterViewInit(): void {
     if (typeof ResizeObserver === 'undefined') return;
@@ -268,6 +274,20 @@ export class TrendChartComponent {
     ];
     const requestedStart = this.windowStart();
     const requestedEnd = this.windowEnd();
+    const visibleUntil = this.visibleUntil();
+    const visibleCount = (source: readonly TrendPoint[]): number => {
+      if (visibleUntil === null || source.length === 0) return source.length;
+      let low = 0;
+      let high = source.length;
+      while (low < high) {
+        const middle = Math.floor((low + high) / 2);
+        if (source[middle]!.time <= visibleUntil) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    };
+    const pointsCount = visibleCount(points);
+    const comparisonPointsCount = visibleCount(comparisonPoints);
     const start = requestedStart ?? (allTimes.length === 0 ? 0 : Math.min(...allTimes));
     const end = requestedEnd ?? (allTimes.length === 0 ? 1 : Math.max(...allTimes));
     const duration = Math.max(end - start, 1);
@@ -275,17 +295,42 @@ export class TrendChartComponent {
       44 + Math.max(0, Math.min(1, (time - start) / duration)) * 840;
     const yForTemperature = (temperature: number): number =>
       270 - (Math.max(0, Math.min(250, temperature)) / 250) * 248;
-    const make = (source: readonly TrendPoint[], pick: (point: TrendPoint) => number): string =>
-      source
-        .map((point, index) => {
-          const x = xForTime(point.time);
-          const y = yForTemperature(pick(point));
-          return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)}`;
-        })
-        .join(' ');
-    const average = make(points, (point) => point.average);
+    const make = (
+      source: readonly TrendPoint[],
+      field: keyof Pick<TrendPoint, 'average' | 'target' | 'modelTarget' | 't1' | 't2' | 't3'>,
+      count: number,
+    ): string => {
+      if (count === 0) return '';
+      const cacheKey = `${field}|${start}|${end}`;
+      let seriesCache = this.pathCache.get(source);
+      if (seriesCache === undefined) {
+        seriesCache = new Map();
+        this.pathCache.set(source, seriesCache);
+      }
+      let prefixCache = seriesCache.get(cacheKey);
+      if (prefixCache === undefined) {
+        prefixCache = new Map();
+        seriesCache.set(cacheKey, prefixCache);
+      }
+      const cached = prefixCache.get(count);
+      if (cached !== undefined) return cached;
+      const previous = [...prefixCache.keys()]
+        .filter((length) => length < count)
+        .sort((left, right) => right - left)[0];
+      let path = previous === undefined ? '' : prefixCache.get(previous)!;
+      for (let index = previous ?? 0; index < count; index += 1) {
+        const point = source[index]!;
+        const x = xForTime(point.time);
+        const y = yForTemperature(point[field]);
+        path += `${path.length === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(1)} `;
+      }
+      path = path.trimEnd();
+      prefixCache.set(count, path);
+      return path;
+    };
+    const average = make(points, 'average', pointsCount);
     const firstPoint = points.at(0);
-    const lastPoint = points.at(-1);
+    const lastPoint = points.at(pointsCount - 1);
     const firstX = firstPoint === undefined ? 44 : xForTime(firstPoint.time);
     const lastX = lastPoint === undefined ? 884 : xForTime(lastPoint.time);
     const profileNodes =
@@ -302,12 +347,12 @@ export class TrendChartComponent {
     const playhead = this.profilePlayheadMs();
     return {
       average,
-      comparison: make(comparisonPoints, (point) => point.average),
-      target: make(points, (point) => point.target),
-      model: make(points, (point) => point.modelTarget),
-      t1: make(points, (point) => point.t1),
-      t2: make(points, (point) => point.t2),
-      t3: make(points, (point) => point.t3),
+      comparison: make(comparisonPoints, 'average', comparisonPointsCount),
+      target: make(points, 'target', pointsCount),
+      model: make(points, 'modelTarget', pointsCount),
+      t1: make(points, 't1', pointsCount),
+      t2: make(points, 't2', pointsCount),
+      t3: make(points, 't3', pointsCount),
       area:
         average.length === 0
           ? ''

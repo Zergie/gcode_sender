@@ -241,6 +241,25 @@ export class SimulationComponent implements OnDestroy {
       ? null
       : decimateSimulationChartSeries(prepared, this.simulationChartWidth());
   });
+  readonly simulationChartWindow = computed(() => {
+    const samples = this.activeEntry()?.result.samples ?? [];
+    return {
+      start:
+        samples[0]?.timeSeconds === undefined
+          ? null
+          : SIMULATION_TREND_ORIGIN_MS + samples[0].timeSeconds * 1000,
+      end:
+        samples.at(-1)?.timeSeconds === undefined
+          ? null
+          : SIMULATION_TREND_ORIGIN_MS + samples.at(-1)!.timeSeconds * 1000,
+    };
+  });
+  readonly simulationPlaybackEnd = computed(() => {
+    const sample = this.activeEntry()?.result.samples[Math.max(0, this.cursor() - 1)];
+    return sample === undefined
+      ? SIMULATION_TREND_ORIGIN_MS - 1
+      : SIMULATION_TREND_ORIGIN_MS + sample.timeSeconds * 1000;
+  });
   readonly simulationBusy = signal(false);
   readonly simulationError = signal<string | null>(null);
   readonly selectedVariant = signal('assisted');
@@ -316,24 +335,14 @@ export class SimulationComponent implements OnDestroy {
     const points = this.renderedChartSeries()?.entries.find(
       (entry) => entry.id === activeId,
     )?.points;
-    const cursorTime =
-      this.activeEntry()?.result.samples[Math.max(0, this.cursor() - 1)]?.timeSeconds;
-    return cursorTime === undefined
-      ? []
-      : (points?.filter((point) => point.time <= SIMULATION_TREND_ORIGIN_MS + cursorTime * 1000) ??
-          []);
+    return points ?? [];
   });
   readonly comparisonTrend = computed<readonly TrendPoint[]>(() => {
     const comparisonId = this.comparisonEntry()?.id;
     const points = this.renderedChartSeries()?.entries.find(
       (entry) => entry.id === comparisonId,
     )?.points;
-    const cursorTime =
-      this.activeEntry()?.result.samples[Math.max(0, this.cursor() - 1)]?.timeSeconds;
-    return cursorTime === undefined
-      ? []
-      : (points?.filter((point) => point.time <= SIMULATION_TREND_ORIGIN_MS + cursorTime * 1000) ??
-          []);
+    return points ?? [];
   });
   readonly modelSummary = computed(() => {
     const profile = this.profile();

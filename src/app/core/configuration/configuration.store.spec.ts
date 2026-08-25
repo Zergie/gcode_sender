@@ -18,12 +18,7 @@ describe('ConfigurationStore', () => {
     const store = new ConfigurationStore();
     const originalPin = store.firmwareInLoopHardware().pins[0]?.pin;
 
-    store.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.map((binding, index) =>
-        index === 0 ? { ...binding, pin: 'PB1' } : binding,
-      ),
-    }));
+    store.updateVirtualPin(0, (binding) => ({ ...binding, pin: 'PB1' }));
 
     expect(store.firmwareInLoopHardware().pins[0]?.pin).toBe('PB1');
     expect(originalPin).toBe('PA6');
@@ -123,11 +118,34 @@ describe('ConfigurationStore', () => {
     expect(store.physicalConfigurationRevision()).toBe(1);
     expect(store.ovenModelProfile().geometry.widthM).toBe(0.16);
 
-    store.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      eeprom: { ...hardware.eeprom, initialFill: 0 },
-    }));
+    store.updateVirtualEepromFill(0);
     expect(store.physicalConfigurationRevision()).toBe(2);
+  });
+
+  it('rejects invalid virtual hardware atomically and reports the field', () => {
+    const store = new ConfigurationStore();
+    const original = store.firmwareInLoopHardware();
+    const revision = store.physicalConfigurationRevision();
+
+    const result = store.updateVirtualPin(0, (binding) => ({ ...binding, pin: 'PZ99' }));
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors[0]?.path).toContain('pins.PZ99');
+    expect(store.firmwareInLoopHardware()).toEqual(original);
+    expect(store.physicalConfigurationRevision()).toBe(revision);
+  });
+
+  it('uses one atomic command for equivalent virtual hardware edits', () => {
+    const settings = new ConfigurationStore();
+    const simulation = new ConfigurationStore();
+
+    expect(settings.updateVirtualEepromSize(2_048).ok).toBe(true);
+    expect(simulation.updateVirtualEepromSize(2_048).ok).toBe(true);
+    expect(settings.updateVirtualThermistor('betaK', 4_100).ok).toBe(true);
+    expect(simulation.updateVirtualThermistor('betaK', 4_100).ok).toBe(true);
+
+    expect(settings.firmwareInLoopHardware()).toEqual(simulation.firmwareInLoopHardware());
+    expect(settings.physicalConfigurationRevision()).toBe(2);
   });
 
   it('keeps profile revisions newest-first and supports replacement and removal', () => {

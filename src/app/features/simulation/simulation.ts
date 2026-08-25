@@ -229,6 +229,7 @@ export class SimulationComponent implements OnDestroy {
   readonly firmwareToolchain = signal<FirmwareToolchainStatus | null>(null);
   readonly preparedFirmware = signal<PreparedFirmware | null>(null);
   readonly firmwareDiagnostics = signal<readonly FirmwareDiagnostic[]>([]);
+  private readonly firmwareEditError = signal<string | null>(null);
   readonly firmwareHardware = this.configuration.firmwareInLoopHardware;
   readonly firmwareOutput = signal<readonly FirmwareOutputLine[]>([]);
   readonly firmwareTerminalInput = signal('M105');
@@ -247,13 +248,17 @@ export class SimulationComponent implements OnDestroy {
   });
 
   setFirmwareHardware(hardware: VirtualHardwareConfiguration): void {
-    this.configuration.setVirtualHardware(hardware);
+    this.showFirmwareHardwareEditResult(
+      this.configuration.setVirtualHardwareConfiguration(hardware),
+    );
   }
 
   updateFirmwareHardware(
     update: (hardware: VirtualHardwareConfiguration) => VirtualHardwareConfiguration,
   ): void {
-    this.configuration.updateVirtualHardware(update);
+    this.showFirmwareHardwareEditResult(
+      this.configuration.setVirtualHardwareConfiguration(update(this.firmwareHardware())),
+    );
   }
   private readonly firmwareApi: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -388,6 +393,8 @@ export class SimulationComponent implements OnDestroy {
     return firstThermistor?.transfer ?? DEFAULT_NTC_TRANSFER;
   });
   readonly firmwareConfigurationError = computed(() => {
+    const editError = this.firmwareEditError();
+    if (editError !== null) return editError;
     if (this.preparedFirmware() === null) return 'Choose and build an Arduino .ino sketch.';
 
     try {
@@ -444,7 +451,7 @@ export class SimulationComponent implements OnDestroy {
       this.preparedFirmware.set(firmware);
       this.firmwareToolchain.set(firmware.toolchain);
       this.firmwareDiagnostics.set(firmware.diagnostics);
-      this.configuration.setVirtualHardware(cloneFirmwareHardware(hardware));
+      this.setFirmwareHardware(cloneFirmwareHardware(hardware));
     }
   }
 
@@ -802,9 +809,7 @@ export class SimulationComponent implements OnDestroy {
       this.preparedFirmware.set(result.value.firmware);
       this.firmwareToolchain.set(result.value.firmware.toolchain);
       this.firmwareDiagnostics.set(result.value.firmware.diagnostics);
-      this.configuration.setVirtualHardware(
-        cloneFirmwareHardware(result.value.firmware.suggestedHardware),
-      );
+      this.setFirmwareHardware(cloneFirmwareHardware(result.value.firmware.suggestedHardware));
       this.appendFirmwareOutput({
         timeSeconds: 0,
         direction: 'system',
@@ -827,8 +832,10 @@ export class SimulationComponent implements OnDestroy {
   resetKnownFirmwareMapping(): void {
     const suggested = this.preparedFirmware()?.suggestedHardware;
     this.invalidateSimulationResults();
-    this.configuration.setVirtualHardware(
-      suggested === undefined ? defaultFirmwareHardware() : cloneFirmwareHardware(suggested),
+    this.showFirmwareHardwareEditResult(
+      this.configuration.resetVirtualHardwareConfiguration(
+        suggested === undefined ? defaultFirmwareHardware() : cloneFirmwareHardware(suggested),
+      ),
     );
   }
 
@@ -846,18 +853,14 @@ export class SimulationComponent implements OnDestroy {
       return;
     }
     this.invalidateSimulationResults();
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: [...hardware.pins, { kind: 'digital-input', pin, level: false }],
-    }));
+    this.showFirmwareHardwareEditResult(
+      this.configuration.addVirtualPin({ kind: 'digital-input', pin, level: false }),
+    );
   }
 
   removeFirmwarePin(index: number): void {
     this.invalidateSimulationResults();
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.filter((_binding, bindingIndex) => bindingIndex !== index),
-    }));
+    this.showFirmwareHardwareEditResult(this.configuration.removeVirtualPin(index));
   }
 
   updateFirmwarePinName(index: number, pin: string): void {
@@ -965,30 +968,19 @@ export class SimulationComponent implements OnDestroy {
   ): void {
     const numericValue = Number(value) as NtcBetaDivider[K];
     this.invalidateSimulationResults();
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.map((binding) =>
-        binding.kind === 'thermistor-input'
-          ? { ...binding, transfer: { ...binding.transfer, [key]: numericValue } }
-          : binding,
-      ),
-    }));
+    this.showFirmwareHardwareEditResult(
+      this.configuration.updateVirtualThermistor(key, numericValue),
+    );
   }
 
   updateFirmwareEepromSize(sizeBytes: number): void {
     this.invalidateSimulationResults();
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      eeprom: { ...hardware.eeprom, sizeBytes: Number(sizeBytes) },
-    }));
+    this.showFirmwareHardwareEditResult(this.configuration.updateVirtualEepromSize(sizeBytes));
   }
 
   updateFirmwareEepromFill(initialFill: 0 | 255): void {
     this.invalidateSimulationResults();
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      eeprom: { ...hardware.eeprom, initialFill: Number(initialFill) === 0 ? 0 : 255 },
-    }));
+    this.showFirmwareHardwareEditResult(this.configuration.updateVirtualEepromFill(initialFill));
   }
 
   appendFirmwareOutput(line: Omit<FirmwareOutputLine, 'id'>): void {
@@ -1082,12 +1074,22 @@ export class SimulationComponent implements OnDestroy {
     update: (binding: VirtualPinBinding) => VirtualPinBinding,
   ): void {
     this.invalidateSimulationResults();
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.map((binding, bindingIndex) =>
-        bindingIndex === index ? update(binding) : binding,
-      ),
-    }));
+    this.showFirmwareHardwareEditResult(this.configuration.updateVirtualPin(index, update));
+  }
+
+  private showFirmwareHardwareEditResult(result: {
+    readonly ok: boolean;
+    readonly errors?: readonly { readonly path: string; readonly message: string }[];
+  }): void {
+    if (!result.ok) {
+      this.firmwareEditError.set(
+        result.errors?.map((error) => `${error.path}: ${error.message}`).join('; ') ??
+          'The virtual hardware mapping is invalid.',
+      );
+      this.store.notify(this.firmwareEditError()!);
+      return;
+    }
+    this.firmwareEditError.set(null);
   }
 
   private invalidateSimulationResults(): void {

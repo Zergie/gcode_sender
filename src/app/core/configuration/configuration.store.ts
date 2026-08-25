@@ -16,6 +16,8 @@ import {
 } from '../simulation';
 import { createDefaultVirtualHardware } from '../simulation/simulation-configuration.store';
 import type { VirtualHardwareConfiguration } from '../../../../shared/firmware-contracts';
+import { prepareFirmwarePins } from '../simulation/firmware-in-loop/pins';
+import type { VirtualPinBinding } from '../../../../shared/firmware-contracts';
 import {
   validateAndDerivePhysicalModel,
   type PhysicalAirPropertyKey,
@@ -36,6 +38,13 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   approvedCatalogHosts: [],
   firmwareInoPath: null,
 };
+
+export type VirtualHardwareEditResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly errors: readonly { readonly path: string; readonly message: string }[];
+    };
 
 @Injectable({ providedIn: 'root' })
 export class ConfigurationStore {
@@ -208,16 +217,112 @@ export class ConfigurationStore {
     this.physicalConfigurationRevisionState.update((revision) => revision + 1);
   }
 
-  setVirtualHardware(hardware: VirtualHardwareConfiguration): void {
-    this.firmwareHardwareState.set(hardware);
-    this.advancePhysicalConfigurationRevision();
+  setVirtualHardwareConfiguration(
+    hardware: VirtualHardwareConfiguration,
+  ): VirtualHardwareEditResult {
+    return this.applyVirtualHardwareEdit(hardware);
   }
 
-  updateVirtualHardware(
-    update: (hardware: VirtualHardwareConfiguration) => VirtualHardwareConfiguration,
-  ): void {
-    this.firmwareHardwareState.update(update);
+  replaceVirtualPin(index: number, binding: VirtualPinBinding): VirtualHardwareEditResult {
+    return this.applyVirtualHardwareEdit({
+      ...this.firmwareInLoopHardware(),
+      pins: this.firmwareInLoopHardware().pins.map((current, position) =>
+        position === index ? binding : current,
+      ),
+    });
+  }
+
+  addVirtualPin(binding: VirtualPinBinding): VirtualHardwareEditResult {
+    return this.applyVirtualHardwareEdit({
+      ...this.firmwareInLoopHardware(),
+      pins: [...this.firmwareInLoopHardware().pins, binding],
+    });
+  }
+
+  removeVirtualPin(index: number): VirtualHardwareEditResult {
+    return this.applyVirtualHardwareEdit({
+      ...this.firmwareInLoopHardware(),
+      pins: this.firmwareInLoopHardware().pins.filter((_binding, position) => position !== index),
+    });
+  }
+
+  updateVirtualPin(
+    index: number,
+    update: (binding: VirtualPinBinding) => VirtualPinBinding,
+  ): VirtualHardwareEditResult {
+    const hardware = this.firmwareInLoopHardware();
+    const binding = hardware.pins[index];
+    if (binding === undefined)
+      return this.invalidVirtualHardwareEdit(
+        `hardware.pins[${index}]`,
+        'The virtual pin does not exist.',
+      );
+    return this.replaceVirtualPin(index, update(binding));
+  }
+
+  updateVirtualThermistor(
+    key: 'referenceResistanceOhm' | 'nominalResistanceOhm' | 'nominalTemperatureC' | 'betaK',
+    value: number,
+  ): VirtualHardwareEditResult {
+    const hardware = this.firmwareInLoopHardware();
+    return this.applyVirtualHardwareEdit({
+      ...hardware,
+      pins: hardware.pins.map((binding) =>
+        binding.kind === 'thermistor-input'
+          ? { ...binding, transfer: { ...binding.transfer, [key]: Number(value) } }
+          : binding,
+      ),
+    });
+  }
+
+  updateVirtualEepromSize(sizeBytes: number): VirtualHardwareEditResult {
+    return this.applyVirtualHardwareEdit({
+      ...this.firmwareInLoopHardware(),
+      eeprom: { ...this.firmwareInLoopHardware().eeprom, sizeBytes: Number(sizeBytes) },
+    });
+  }
+
+  updateVirtualEepromFill(initialFill: 0 | 255): VirtualHardwareEditResult {
+    return this.applyVirtualHardwareEdit({
+      ...this.firmwareInLoopHardware(),
+      eeprom: { ...this.firmwareInLoopHardware().eeprom, initialFill },
+    });
+  }
+
+  resetVirtualHardwareConfiguration(
+    hardware: VirtualHardwareConfiguration,
+  ): VirtualHardwareEditResult {
+    return this.setVirtualHardwareConfiguration(hardware);
+  }
+
+  private applyVirtualHardwareEdit(
+    hardware: VirtualHardwareConfiguration,
+  ): VirtualHardwareEditResult {
+    try {
+      prepareFirmwarePins(hardware);
+    } catch (error) {
+      return this.invalidVirtualHardwareEdit(
+        error && typeof error === 'object' && 'path' in error && typeof error.path === 'string'
+          ? error.path
+          : 'hardware',
+        error instanceof Error ? error.message : 'The virtual hardware mapping is invalid.',
+      );
+    }
+    this.firmwareHardwareState.set({
+      ...hardware,
+      pins: hardware.pins.map((binding) =>
+        binding.kind === 'thermistor-input'
+          ? { ...binding, transfer: { ...binding.transfer } }
+          : { ...binding },
+      ),
+      eeprom: { ...hardware.eeprom },
+    });
     this.advancePhysicalConfigurationRevision();
+    return { ok: true };
+  }
+
+  private invalidVirtualHardwareEdit(path: string, message: string): VirtualHardwareEditResult {
+    return { ok: false, errors: [{ path, message }] };
   }
 
   replaceProfiles(profiles: readonly StoredProfile[]): void {

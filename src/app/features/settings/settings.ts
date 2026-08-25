@@ -113,26 +113,24 @@ export class SettingsComponent {
   }
 
   updateFirmwarePin(index: number, pin: string): void {
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.map((binding, position) =>
-        position === index ? { ...binding, pin: pin.toUpperCase().trim() } : binding,
-      ),
-    }));
+    this.showHardwareEditResult(
+      this.configuration.updateVirtualPin(index, (binding) => ({
+        ...binding,
+        pin: pin.toUpperCase().trim(),
+      })),
+    );
   }
 
   updateFirmwarePolarity(index: number, activeLevel: 'high' | 'low'): void {
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.map((binding, position) =>
-        position === index &&
-        (binding.kind === 'heater-output' || binding.kind === 'indicator-output')
+    this.showHardwareEditResult(
+      this.configuration.updateVirtualPin(index, (binding) =>
+        binding.kind === 'heater-output' || binding.kind === 'indicator-output'
           ? { ...binding, activeLevel }
-          : position === index && binding.kind === 'digital-input'
+          : binding.kind === 'digital-input'
             ? { ...binding, level: activeLevel === 'high' }
             : binding,
       ),
-    }));
+    );
   }
 
   firmwarePinRole(binding: VirtualPinBinding): FirmwarePinRole {
@@ -222,17 +220,13 @@ export class SettingsComponent {
       .flatMap((bank) => Array.from({ length: 16 }, (_, number) => `P${bank}${number}`))
       .find((candidate) => !used.has(candidate));
     if (pin === undefined) return;
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: [...hardware.pins, { kind: 'digital-input', pin, level: false }],
-    }));
+    this.showHardwareEditResult(
+      this.configuration.addVirtualPin({ kind: 'digital-input', pin, level: false }),
+    );
   }
 
   removeFirmwarePin(index: number): void {
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.filter((_binding, position) => position !== index),
-    }));
+    this.showHardwareEditResult(this.configuration.removeVirtualPin(index));
   }
 
   updateAnalogValue(index: number, rawValue: number): void {
@@ -242,41 +236,27 @@ export class SettingsComponent {
   }
 
   updateNtc(key: keyof Omit<NtcBetaDivider, 'kind' | 'topology' | 'adcBits'>, value: number): void {
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.map((binding) =>
-        binding.kind === 'thermistor-input'
-          ? { ...binding, transfer: { ...binding.transfer, [key]: Number(value) } }
-          : binding,
-      ),
-    }));
+    this.showHardwareEditResult(this.configuration.updateVirtualThermistor(key, value));
   }
 
   updateEepromFill(initialFill: 0 | 255): void {
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      eeprom: { ...hardware.eeprom, initialFill: Number(initialFill) === 0 ? 0 : 255 },
-    }));
+    this.showHardwareEditResult(this.configuration.updateVirtualEepromFill(initialFill));
   }
 
   private replaceFirmwareBinding(index: number, replacement: VirtualPinBinding): void {
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      pins: hardware.pins.map((binding, position) => (position === index ? replacement : binding)),
-    }));
+    this.showHardwareEditResult(this.configuration.replaceVirtualPin(index, replacement));
   }
 
   resetFirmwareMapping(): void {
-    this.configuration.setVirtualHardware(
-      this.configuration.firmwareInLoop()?.suggestedHardware ?? createDefaultVirtualHardware(),
+    this.showHardwareEditResult(
+      this.configuration.resetVirtualHardwareConfiguration(
+        this.configuration.firmwareInLoop()?.suggestedHardware ?? createDefaultVirtualHardware(),
+      ),
     );
   }
 
   updateEepromSize(sizeBytes: number): void {
-    this.configuration.updateVirtualHardware((hardware) => ({
-      ...hardware,
-      eeprom: { ...hardware.eeprom, sizeBytes: Number(sizeBytes) },
-    }));
+    this.showHardwareEditResult(this.configuration.updateVirtualEepromSize(sizeBytes));
   }
 
   updateGeometry(key: keyof ThermalTwinGeometry, millimeters: number): void {
@@ -331,6 +311,17 @@ export class SettingsComponent {
           'The physical model is invalid.',
       );
     }
+  }
+
+  private showHardwareEditResult(result: {
+    readonly ok: boolean;
+    readonly errors?: readonly { readonly path: string; readonly message: string }[];
+  }): void {
+    if (!result.ok)
+      this.store.notify(
+        result.errors?.map((error) => `${error.path}: ${error.message}`).join('; ') ??
+          'The virtual hardware mapping is invalid.',
+      );
   }
 
   firmwareRoleLabel(kind: string): string {

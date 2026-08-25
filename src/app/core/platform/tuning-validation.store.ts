@@ -52,6 +52,7 @@ export class TuningValidationStore implements OnDestroy {
   private validationFinalizing = false;
   private validationSamples: M105Telemetry[] = [];
   private validationSchedule: PidSchedule | null = null;
+  private physicalConfigurationEpoch = 0;
   private destroyed = false;
   private configured = false;
   private readonly unsubscribe: Array<() => void> = [];
@@ -253,11 +254,44 @@ export class TuningValidationStore implements OnDestroy {
     this.validationState.set(state);
   }
 
+  invalidatePhysicalConfiguration(): void {
+    this.physicalConfigurationEpoch += 1;
+    if (this.validationTimer !== undefined) clearTimeout(this.validationTimer);
+    this.validationTimer = undefined;
+    this.validationSamples = [];
+    this.validationSchedule = null;
+    this.validationFinalizing = false;
+    const endedAt = new Date().toISOString();
+    if (this.validation().status === 'running') {
+      this.validationState.set({
+        ...DEFAULT_VALIDATION,
+        status: 'failed',
+        endedAt,
+        error: 'Physical configuration changed; validation results were retired.',
+      });
+      void this.endExclusive('validation');
+    }
+    if (this.liveTuning().status !== 'idle') {
+      this.liveTuningState.set({
+        ...DEFAULT_TUNING,
+        status: 'failed',
+        endedAt,
+        error: {
+          code: 'INVALID_STATE',
+          message: 'Physical configuration changed; tuning results were retired.',
+          recoverable: true,
+        },
+      });
+      void this.endExclusive('tuning');
+    }
+  }
+
   private async finishValidation(
     requestedStatus: 'completed' | 'cancelled' | 'failed',
     requestedError: string | null = null,
   ): Promise<void> {
     const current = this.validation();
+    const epoch = this.physicalConfigurationEpoch;
     if (current.status !== 'running' || this.validationFinalizing) return;
     this.validationFinalizing = true;
     if (this.validationTimer !== undefined) clearTimeout(this.validationTimer);
@@ -286,6 +320,10 @@ export class TuningValidationStore implements OnDestroy {
       }
     }
     await this.endExclusive('validation');
+    if (epoch !== this.physicalConfigurationEpoch) {
+      this.validationFinalizing = false;
+      return;
+    }
     const endedAt = new Date().toISOString();
     this.validationState.set({
       ...current,

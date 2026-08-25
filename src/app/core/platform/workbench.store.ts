@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, effect, inject, signal } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
 import type {
   ControlMode,
@@ -155,6 +155,18 @@ export class WorkbenchStore implements OnDestroy {
   private lastGainsSent: PidGains | null = null;
   private controlWriteInFlight = false;
   private terminalId = 0;
+  private observedPhysicalConfigurationRevision: number | undefined;
+  private readonly physicalConfigurationEffect = effect(() => {
+    const revision = this.configuration.physicalConfigurationRevision();
+    if (this.observedPhysicalConfigurationRevision === undefined) {
+      this.observedPhysicalConfigurationRevision = revision;
+      return;
+    }
+    if (revision === this.observedPhysicalConfigurationRevision || this.destroyed) return;
+    this.observedPhysicalConfigurationRevision = revision;
+    this.resetPhysicalControlModel();
+    this.tuningValidation.invalidatePhysicalConfiguration();
+  });
 
   readonly isDesktop = signal(this.api !== undefined);
   readonly demoState = signal<DemoState | null>(null);

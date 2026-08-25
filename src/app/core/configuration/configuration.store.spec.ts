@@ -57,6 +57,24 @@ describe('ConfigurationStore', () => {
     expect(store.ovenModelProfile()).toEqual(original);
   });
 
+  it('advances the physical revision once for committed edits and not for rejected edits', () => {
+    const store = new ConfigurationStore();
+
+    expect(store.physicalConfigurationRevision()).toBe(0);
+    expect(store.updateGeometry('widthM', 160).ok).toBe(true);
+    expect(store.physicalConfigurationRevision()).toBe(1);
+
+    expect(store.updateGeometry('widthM', 0).ok).toBe(false);
+    expect(store.physicalConfigurationRevision()).toBe(1);
+    expect(store.ovenModelProfile().geometry.widthM).toBe(0.16);
+
+    store.updateVirtualHardware((hardware) => ({
+      ...hardware,
+      eeprom: { ...hardware.eeprom, initialFill: 0 },
+    }));
+    expect(store.physicalConfigurationRevision()).toBe(2);
+  });
+
   it('keeps profile revisions newest-first and supports replacement and removal', () => {
     const store = new ConfigurationStore();
     const first = store.createProfile('First', 'simulation', 'validated', { value: 1 });

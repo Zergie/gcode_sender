@@ -12,7 +12,6 @@ import { DEFAULT_OVEN_PROFILE, cloneOvenModelProfile, type OvenModelProfile } fr
 import { createDefaultVirtualHardware } from '../simulation/simulation-configuration.store';
 import type { VirtualHardwareConfiguration } from '../../../../shared/firmware-contracts';
 import {
-  derivePhysicalModel,
   validateAndDerivePhysicalModel,
   type PhysicalAirPropertyKey,
   type PhysicalGeometryKey,
@@ -39,6 +38,7 @@ export class ConfigurationStore {
   private readonly firmwareHardwareState = signal(createDefaultVirtualHardware());
   private readonly firmwareBuildingState = signal(false);
   private readonly physicalModelState = signal(cloneOvenModelProfile(DEFAULT_OVEN_PROFILE));
+  private readonly physicalConfigurationRevisionState = signal(0);
   private readonly profilesState = signal<readonly StoredProfile[]>([]);
 
   readonly settings = this.settingsState.asReadonly();
@@ -46,6 +46,7 @@ export class ConfigurationStore {
   readonly firmwareInLoopHardware = this.firmwareHardwareState.asReadonly();
   readonly firmwareInLoopBuilding = this.firmwareBuildingState.asReadonly();
   readonly ovenModelProfile = this.physicalModelState.asReadonly();
+  readonly physicalConfigurationRevision = this.physicalConfigurationRevisionState.asReadonly();
   readonly profiles = this.profilesState.asReadonly();
 
   setTheme(theme: AppSettings['theme']): void {
@@ -70,11 +71,16 @@ export class ConfigurationStore {
   }
 
   setPhysicalModel(profile: OvenModelProfile): void {
-    this.physicalModelState.set(derivePhysicalModel(profile));
+    const result = validateAndDerivePhysicalModel(profile);
+    if (!result.ok) return;
+    this.physicalModelState.set(cloneOvenModelProfile(result.profile));
+    this.advancePhysicalConfigurationRevision();
   }
 
-  updatePhysicalModel(update: (profile: OvenModelProfile) => OvenModelProfile): void {
-    this.physicalModelState.update((profile) => derivePhysicalModel(update(profile)));
+  updatePhysicalModel(
+    update: (profile: OvenModelProfile) => OvenModelProfile,
+  ): PhysicalModelEditResult {
+    return this.applyPhysicalModelEdit(update);
   }
 
   updateGeometry(key: PhysicalGeometryKey, millimeters: number): PhysicalModelEditResult {
@@ -96,18 +102,27 @@ export class ConfigurationStore {
     update: (profile: OvenModelProfile) => OvenModelProfile,
   ): PhysicalModelEditResult {
     const result = validateAndDerivePhysicalModel(update(this.physicalModelState()));
-    if (result.ok) this.physicalModelState.set(cloneOvenModelProfile(result.profile));
+    if (result.ok) {
+      this.physicalModelState.set(cloneOvenModelProfile(result.profile));
+      this.advancePhysicalConfigurationRevision();
+    }
     return result;
+  }
+
+  private advancePhysicalConfigurationRevision(): void {
+    this.physicalConfigurationRevisionState.update((revision) => revision + 1);
   }
 
   setVirtualHardware(hardware: VirtualHardwareConfiguration): void {
     this.firmwareHardwareState.set(hardware);
+    this.advancePhysicalConfigurationRevision();
   }
 
   updateVirtualHardware(
     update: (hardware: VirtualHardwareConfiguration) => VirtualHardwareConfiguration,
   ): void {
     this.firmwareHardwareState.update(update);
+    this.advancePhysicalConfigurationRevision();
   }
 
   replaceProfiles(profiles: readonly StoredProfile[]): void {

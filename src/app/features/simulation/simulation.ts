@@ -3,6 +3,7 @@ import {
   Component,
   NgZone,
   computed,
+  effect,
   inject,
   input,
   signal,
@@ -233,6 +234,17 @@ export class SimulationComponent implements OnDestroy {
   readonly firmwareTerminalInput = signal('M105');
   readonly firmwareTerminalTimeSeconds = signal(0);
   readonly firmwareTerminalCommands = signal<readonly QueuedFirmwareTerminalCommand[]>([]);
+  private observedPhysicalConfigurationRevision: number | undefined;
+  private readonly physicalConfigurationEffect = effect(() => {
+    const revision = this.configuration.physicalConfigurationRevision();
+    if (this.observedPhysicalConfigurationRevision === undefined) {
+      this.observedPhysicalConfigurationRevision = revision;
+      return;
+    }
+    if (revision === this.observedPhysicalConfigurationRevision || this.destroyed) return;
+    this.observedPhysicalConfigurationRevision = revision;
+    this.invalidateSimulationResults();
+  });
 
   setFirmwareHardware(hardware: VirtualHardwareConfiguration): void {
     this.configuration.setVirtualHardware(hardware);

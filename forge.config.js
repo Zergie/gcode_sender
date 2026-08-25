@@ -9,12 +9,7 @@ module.exports = {
     asar: {
       unpack: '**/*.node',
     },
-    extraResource: [
-      {
-        from: path.resolve(__dirname, 'firmware-wasm'),
-        to: 'firmware-wasm',
-      },
-    ],
+    extraResource: [path.resolve(__dirname, 'firmware-wasm')],
     icon:
       process.platform === 'win32'
         ? imagePath('icon.ico')

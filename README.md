@@ -118,10 +118,15 @@ Useful commands:
     npm run rebuild:native
     npm run package
     npm run make
+    npm run verify:windows-package
 
 npm start runs the Angular development server and Electron together.
 npm run package creates an unpacked Windows application; npm run make creates
-the configured Windows installer.
+the configured Windows installer. `npm run verify:windows-package` runs both
+packaging commands, validates the unpacked app's Electron, native serial, and
+bundled firmware resources, and launches it with an isolated profile for a
+bounded smoke check. It is Windows-only and retains no artifacts unless the
+script is invoked with `-KeepArtifacts`.
 
 Electron Forge also contains macOS ZIP and Linux DEB/RPM makers. Those targets
 are kept portable in the source, but this release was tested only on Windows

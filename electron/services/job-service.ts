@@ -392,7 +392,6 @@ export class JobService {
       this.pauseGate = null;
       this.timeoutDecision?.deferred.resolve('stop');
       this.timeoutDecision = null;
-      this.activity.release('job');
       this.notifyState();
       await this.logWriteQueue.catch(() => undefined);
       await this.persistSession().catch((error: unknown) => {
@@ -400,6 +399,7 @@ export class JobService {
           error: error instanceof Error ? error.message : String(error),
         });
       });
+      this.activity.release('job');
     }
   }
 

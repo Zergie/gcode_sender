@@ -206,6 +206,135 @@ describe('job stop completion', () => {
   });
 });
 
+describe('exclusive job preparation', () => {
+  it('allows only one overlapping start to acquire the job lane', async () => {
+    const directory = await temporaryDirectory('gcode-sender-overlap-');
+    const filePath = path.join(directory, 'job.gcode');
+    await writeFile(filePath, 'M105\n', 'utf8');
+    const firstInspection = deferred<{
+      path: string;
+      name: string;
+      sizeBytes: number;
+      modifiedAt: string;
+      extension: '.gcode';
+    }>();
+    const secondInspection =
+      deferred<typeof firstInspection extends Deferred<infer T> ? T : never>();
+    const sendAndWait = vi.fn(
+      (_command: string, _timeout: number, signal?: AbortSignal) =>
+        new Promise<never>((_resolve, reject) => {
+          signal?.addEventListener(
+            'abort',
+            () =>
+              reject(
+                new AppError({
+                  code: 'INVALID_STATE',
+                  message: 'aborted',
+                  recoverable: true,
+                }),
+              ),
+            { once: true },
+          );
+        }),
+    );
+    const service = createJobService(directory, sendAndWait);
+    let inspectionCount = 0;
+    replaceJobInspection(service, () => {
+      inspectionCount += 1;
+      return inspectionCount === 1 ? firstInspection.promise : secondInspection.promise;
+    });
+
+    const first = service.start({ path: filePath });
+    const second = service.start({ path: filePath });
+
+    firstInspection.resolve({
+      path: filePath,
+      name: 'job.gcode',
+      sizeBytes: 5,
+      modifiedAt: '2026-08-25T00:00:00.000Z',
+      extension: '.gcode',
+    });
+
+    await expect(first).resolves.toMatchObject({ status: 'preparing' });
+    secondInspection.resolve({
+      path: filePath,
+      name: 'job.gcode',
+      sizeBytes: 5,
+      modifiedAt: '2026-08-25T00:00:00.000Z',
+      extension: '.gcode',
+    });
+    await expect(second).rejects.toMatchObject({ code: 'BUSY', recoverable: true });
+    await vi.waitFor(() => {
+      expect(service.getState().status).toBe('streaming');
+      expect(sendAndWait).toHaveBeenCalledTimes(1);
+    });
+    await service.stop();
+  });
+
+  it('releases ownership when preparation rejects', async () => {
+    const directory = await temporaryDirectory('gcode-sender-preparation-error-');
+    const filePath = path.join(directory, 'job.gcode');
+    await writeFile(filePath, 'M105\n', 'utf8');
+    const service = createJobService(directory, vi.fn());
+    replaceJobInspection(service, () => {
+      throw new AppError({
+        code: 'FILE_NOT_FOUND',
+        message: 'inspection failed',
+        recoverable: true,
+      });
+    });
+
+    await expect(service.start({ path: filePath })).rejects.toMatchObject({
+      code: 'FILE_NOT_FOUND',
+    });
+    expect(service.getState()).toMatchObject({ status: 'idle' });
+  });
+
+  it('rejects repeated activity acquisition across job, tuning, and validation', () => {
+    const activity = new ActivityService();
+    const states: string[] = [];
+    activity.subscribe(({ active }) => states.push(active ?? 'idle'));
+
+    expect(activity.acquire('job')).toEqual({ active: 'job' });
+    for (const requested of ['job', 'tuning', 'validation'] as const) {
+      expect(() => activity.acquire(requested)).toThrowError(
+        expect.objectContaining({ code: 'BUSY', recoverable: true }),
+      );
+    }
+    expect(activity.release('job')).toEqual({ active: null });
+    expect(states).toEqual(['job', 'idle']);
+  });
+
+  it('keeps job ownership until retained-session persistence completes', async () => {
+    const directory = await temporaryDirectory('gcode-sender-retention-');
+    const filePath = path.join(directory, 'job.gcode');
+    await writeFile(filePath, 'M105\n', 'utf8');
+    const persisted = deferred<void>();
+    const activity = new ActivityService();
+    const service = new JobService(
+      path.join(directory, 'sessions'),
+      {
+        getState: () => ({ status: 'connected' }),
+        subscribe: () => () => undefined,
+        sendAndWait: vi.fn(async () => ({ raw: 'ok', parsed: { kind: 'ok' } })),
+        bestEffortHeaterOff: vi.fn(async () => undefined),
+      } as unknown as SerialService,
+      activity,
+      {
+        getSettings: () => ({ commandTimeoutMs: 8_000 }),
+        saveSession: () => persisted.promise,
+      } as unknown as PersistenceStore,
+      silentLogger(),
+    );
+
+    await service.start({ path: filePath });
+    await vi.waitFor(() => expect(service.getState().status).toBe('completed'));
+    expect(activity.getState()).toEqual({ active: 'job' });
+    persisted.resolve();
+    await vi.waitFor(() => expect(activity.getState()).toEqual({ active: null }));
+  });
+});
+
 async function logFile(entries: readonly JobExecutionLogEntry[]): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), 'gcode-sender-job-log-'));
   temporaryDirectories.push(directory);
@@ -282,4 +411,17 @@ function createJobService(directory: string, sendAndWait: ReturnType<typeof vi.f
     } as unknown as PersistenceStore,
     silentLogger(),
   );
+}
+
+function replaceJobInspection(
+  service: JobService,
+  inspect: () => Promise<{
+    path: string;
+    name: string;
+    sizeBytes: number;
+    modifiedAt: string;
+    extension: '.gcode';
+  }>,
+): void {
+  (service as unknown as { inspectJobFile: typeof inspect }).inspectJobFile = inspect;
 }

@@ -10,7 +10,7 @@ export class ActivityService {
   }
 
   acquire(activity: ExclusiveActivity): ExclusiveActivityState {
-    if (this.active !== null && this.active !== activity) {
+    if (this.active !== null) {
       throw new AppError({
         code: 'BUSY',
         message: `${this.active} currently owns the serial connection`,

@@ -58,7 +58,9 @@ import type {
   SimulationWorkerResponse,
 } from './simulation-worker.protocol';
 import {
+  decimateSimulationChartSeries,
   prepareSimulationChartSeries,
+  SIMULATION_TREND_ORIGIN_MS,
   type PreparedSimulationChartSeries,
 } from './simulation-chart-series';
 
@@ -232,6 +234,13 @@ export class SimulationComponent implements OnDestroy {
     const comparison = this.comparison();
     return comparison === null ? null : prepareSimulationChartSeries(comparison);
   });
+  readonly simulationChartWidth = signal(840);
+  readonly renderedChartSeries = computed<PreparedSimulationChartSeries | null>(() => {
+    const prepared = this.preparedChartSeries();
+    return prepared === null
+      ? null
+      : decimateSimulationChartSeries(prepared, this.simulationChartWidth());
+  });
   readonly simulationBusy = signal(false);
   readonly simulationError = signal<string | null>(null);
   readonly selectedVariant = signal('assisted');
@@ -304,17 +313,27 @@ export class SimulationComponent implements OnDestroy {
   });
   readonly visibleTrend = computed<readonly TrendPoint[]>(() => {
     const activeId = this.activeEntry()?.id;
-    const points = this.preparedChartSeries()?.entries.find(
+    const points = this.renderedChartSeries()?.entries.find(
       (entry) => entry.id === activeId,
     )?.points;
-    return points?.slice(0, this.cursor()) ?? [];
+    const cursorTime =
+      this.activeEntry()?.result.samples[Math.max(0, this.cursor() - 1)]?.timeSeconds;
+    return cursorTime === undefined
+      ? []
+      : (points?.filter((point) => point.time <= SIMULATION_TREND_ORIGIN_MS + cursorTime * 1000) ??
+          []);
   });
   readonly comparisonTrend = computed<readonly TrendPoint[]>(() => {
     const comparisonId = this.comparisonEntry()?.id;
-    const points = this.preparedChartSeries()?.entries.find(
+    const points = this.renderedChartSeries()?.entries.find(
       (entry) => entry.id === comparisonId,
     )?.points;
-    return points?.slice(0, this.cursor()) ?? [];
+    const cursorTime =
+      this.activeEntry()?.result.samples[Math.max(0, this.cursor() - 1)]?.timeSeconds;
+    return cursorTime === undefined
+      ? []
+      : (points?.filter((point) => point.time <= SIMULATION_TREND_ORIGIN_MS + cursorTime * 1000) ??
+          []);
   });
   readonly modelSummary = computed(() => {
     const profile = this.profile();

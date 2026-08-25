@@ -1062,7 +1062,11 @@
           <span class="firmware-target">Physical feed-forward target</span>
         </div>
         <div class="chart-body">
-          <app-trend-chart [points]="visibleTrend()" [comparisonPoints]="comparisonTrend()" />
+          <app-trend-chart
+            [points]="visibleTrend()"
+            [comparisonPoints]="comparisonTrend()"
+            (plotWidthMeasured)="simulationChartWidth.set($event)"
+          />
         </div>
         <footer class="playback-bar">
           <div class="transport-controls" role="group" aria-label="Simulation playback">

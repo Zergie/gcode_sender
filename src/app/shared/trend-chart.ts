@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  ElementRef,
+  inject,
+  input,
+  output,
+} from '@angular/core';
 import type { HeatingProfile } from '../../../shared/contracts';
 import type { TrendPoint } from '../core/platform/workbench.store';
 
@@ -216,6 +224,8 @@ interface ChartGeometry {
   `,
 })
 export class TrendChartComponent {
+  private readonly host = inject(ElementRef<HTMLElement>);
+  private resizeObserver: ResizeObserver | undefined;
   readonly points = input.required<readonly TrendPoint[]>();
   readonly comparisonPoints = input<readonly TrendPoint[]>([]);
   readonly windowStart = input<number | null>(null);
@@ -229,7 +239,21 @@ export class TrendChartComponent {
   readonly profilePointChanged = output<ProfilePointEdit>();
   readonly profilePointSelected = output<number>();
   readonly profilePointDeleted = output<number>();
+  readonly plotWidthMeasured = output<number>();
   private draggingPoint: number | null = null;
+
+  ngAfterViewInit(): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    this.resizeObserver = new ResizeObserver(([entry]) => {
+      const width = entry?.contentRect.width ?? 0;
+      if (width > 0) this.plotWidthMeasured.emit(width);
+    });
+    this.resizeObserver.observe(this.host.nativeElement);
+  }
+
+  ngOnDestroy(): void {
+    this.resizeObserver?.disconnect();
+  }
 
   readonly geometry = computed<ChartGeometry>(() => {
     const points = this.points();

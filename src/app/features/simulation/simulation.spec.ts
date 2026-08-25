@@ -3,6 +3,7 @@ import { By } from '@angular/platform-browser';
 import { afterEach, vi } from 'vitest';
 import { SimulationComponent } from './simulation';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import type { TrendPoint } from '../../core/platform/workbench.store';
 import { ConfigurationStore } from '../../core/configuration/configuration.store';
 import { TrendChartComponent } from '../../shared/trend-chart';
 import {
@@ -21,6 +22,11 @@ import type {
   SimulationWorkerResponse,
 } from './simulation-worker.protocol';
 import { TEST_FIRMWARE_RUNTIME } from '../../core/simulation/firmware-in-loop/firmware-in-loop.fixture';
+import {
+  decimateSimulationChartSeries,
+  SIMULATION_CHART_OVERSAMPLING_FACTOR,
+  type PreparedSimulationChartSeries,
+} from './simulation-chart-series';
 
 class SimulationWorkerStub {
   static instances: SimulationWorkerStub[] = [];
@@ -200,6 +206,40 @@ describe('SimulationComponent', () => {
     component.comparison.set(null);
     expect(component.preparedChartSeries()).toBeNull();
     fixture.destroy();
+  });
+
+  it('decimates large comparisons on one aligned axis while retaining boundaries and extrema', () => {
+    const makePoints = (offset: number): readonly TrendPoint[] =>
+      Object.freeze(
+        Array.from({ length: 200 }, (_, index) =>
+          Object.freeze({
+            time: index,
+            average: index === 117 ? 250 + offset : index === 83 ? -20 + offset : index + offset,
+            t1: index,
+            t2: index,
+            t3: index,
+            target: index,
+            modelTarget: index,
+            power: index,
+          }),
+        ),
+      );
+    const prepared: PreparedSimulationChartSeries = Object.freeze({
+      entries: Object.freeze([
+        Object.freeze({ id: 'pid', points: makePoints(0) }),
+        Object.freeze({ id: 'assisted', points: makePoints(10) }),
+      ]),
+    });
+
+    const decimated = decimateSimulationChartSeries(prepared, 40);
+    const first = decimated.entries[0]!.points;
+    const second = decimated.entries[1]!.points;
+    expect(first.length).toBeLessThanOrEqual(40 * SIMULATION_CHART_OVERSAMPLING_FACTOR);
+    expect(first[0]!.time).toBe(0);
+    expect(first.at(-1)!.time).toBe(199);
+    expect(first.some((point) => point.average === 250)).toBe(true);
+    expect(first.some((point) => point.average === -20)).toBe(true);
+    expect(first.map((point) => point.time)).toEqual(second.map((point) => point.time));
   });
 
   it('runs production comparisons in a worker and applies the matching result', () => {

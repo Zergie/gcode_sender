@@ -3,6 +3,7 @@ import { By } from '@angular/platform-browser';
 import { afterEach, vi } from 'vitest';
 import { SimulationComponent } from './simulation';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { ConfigurationStore } from '../../core/configuration/configuration.store';
 import { TrendChartComponent } from '../../shared/trend-chart';
 import {
   DEFAULT_SIMULATION_CONTROLLER,
@@ -565,7 +566,9 @@ describe('SimulationComponent', () => {
     component.updateProfile('name', 'Bench oven model');
     component.updateAssistance('maximumTargetLeadC', 9);
 
-    store.firmwareInLoop.set(preparedFirmwareFixture(component.firmwareHardware()));
+    TestBed.inject(ConfigurationStore).setFirmware(
+      preparedFirmwareFixture(component.firmwareHardware()),
+    );
     component.useForControl();
 
     expect(store.activeProfile()).toBe('Bench oven model');
@@ -745,7 +748,7 @@ describe('SimulationComponent', () => {
       {
         name: 'analog input',
         prepare: () =>
-          component.firmwareHardware.set({
+          component.setFirmwareHardware({
             ...originalHardware,
             pins: originalHardware.pins.map((binding, index) =>
               index === 4 ? { kind: 'analog-input', pin: binding.pin, rawValue: 0 } : binding,
@@ -768,7 +771,7 @@ describe('SimulationComponent', () => {
     ];
 
     for (const mutation of mutations) {
-      component.firmwareHardware.set(originalHardware);
+      component.setFirmwareHardware(originalHardware);
       mutation.prepare?.();
       seedStaleResult();
       mutation.mutate();
@@ -1063,7 +1066,7 @@ describe('SimulationComponent', () => {
     expect(component.firmwareConfigurationError()).toContain('above absolute zero');
 
     component.resetKnownFirmwareMapping();
-    component.firmwareHardware.update((hardware) => ({
+    component.updateFirmwareHardware((hardware) => ({
       ...hardware,
       eeprom: { ...hardware.eeprom, initialFill: 1 as 0 },
     }));

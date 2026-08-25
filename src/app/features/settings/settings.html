@@ -137,13 +137,8 @@
                 type="number"
                 min="0"
                 max="45"
-                [ngModel]="store.ovenModelProfile().ambientTemperatureC"
-                (ngModelChange)="
-                  store.ovenModelProfile.update((profile) => ({
-                    ...profile,
-                    ambientTemperatureC: +$event,
-                  }))
-                "
+                [ngModel]="configuration.ovenModelProfile().ambientTemperatureC"
+                (ngModelChange)="updateAmbientTemperature(+$event)"
               /><em>°C</em>
             </div></label
           >
@@ -155,7 +150,7 @@
                 min="200"
                 max="1600"
                 step="10"
-                [ngModel]="store.ovenModelProfile().heaters.top.ratedPowerW"
+                [ngModel]="configuration.ovenModelProfile().heaters.top.ratedPowerW"
                 (ngModelChange)="updateHeaterPower('top', $event)"
               /><em>W</em>
             </div></label
@@ -168,7 +163,7 @@
                 min="200"
                 max="1600"
                 step="10"
-                [ngModel]="store.ovenModelProfile().heaters.bottom.ratedPowerW"
+                [ngModel]="configuration.ovenModelProfile().heaters.bottom.ratedPowerW"
                 (ngModelChange)="updateHeaterPower('bottom', $event)"
               /><em>W</em>
             </div></label
@@ -185,7 +180,7 @@
                     type="number"
                     min="0.01"
                     step="0.01"
-                    [ngModel]="store.ovenModelProfile().bodies[body].heatCapacityJPerK"
+                    [ngModel]="configuration.ovenModelProfile().bodies[body].heatCapacityJPerK"
                     (ngModelChange)="updateBodyCapacity(body, $event)"
                   /><em>J/K</em>
                 </div></label
@@ -196,7 +191,11 @@
         <details class="parameter-group">
           <summary><span>Conduction &amp; convection</span><em>Physical links</em></summary>
           <div class="settings-fields">
-            @for (link of store.ovenModelProfile().linearLinks; track $index; let index = $index) {
+            @for (
+              link of configuration.ovenModelProfile().linearLinks;
+              track $index;
+              let index = $index
+            ) {
               <label class="field"
                 ><span>{{ link.a }} ↔ {{ link.b }} · {{ link.mechanism }}</span>
                 <div class="unit-input">
@@ -214,7 +213,11 @@
         </details>
         <details class="parameter-group">
           <summary><span>Radiation</span><em>Area, emissivity, view factor</em></summary>
-          @for (link of store.ovenModelProfile().radiationLinks; track $index; let index = $index) {
+          @for (
+            link of configuration.ovenModelProfile().radiationLinks;
+            track $index;
+            let index = $index
+          ) {
             <div class="settings-fields">
               <label class="field"
                 ><span>{{ link.a }} ↔ {{ link.b }} area</span
@@ -257,7 +260,7 @@
                 type="number"
                 min="0"
                 step="0.01"
-                [ngModel]="store.ovenModelProfile().ambient.enclosureConductanceWPerK"
+                [ngModel]="configuration.ovenModelProfile().ambient.enclosureConductanceWPerK"
                 (ngModelChange)="updateAmbient('enclosureConductanceWPerK', $event)"
             /></label>
             <label class="field"
@@ -266,7 +269,7 @@
                 type="number"
                 min="0"
                 step="0.0001"
-                [ngModel]="store.ovenModelProfile().ambient.topAirExchangeM3PerSecond"
+                [ngModel]="configuration.ovenModelProfile().ambient.topAirExchangeM3PerSecond"
                 (ngModelChange)="updateAmbient('topAirExchangeM3PerSecond', $event)"
             /></label>
             <label class="field"
@@ -275,7 +278,7 @@
                 type="number"
                 min="0"
                 step="0.0001"
-                [ngModel]="store.ovenModelProfile().ambient.bottomAirExchangeM3PerSecond"
+                [ngModel]="configuration.ovenModelProfile().ambient.bottomAirExchangeM3PerSecond"
                 (ngModelChange)="updateAmbient('bottomAirExchangeM3PerSecond', $event)"
             /></label>
             <label class="field"
@@ -284,7 +287,7 @@
                 type="number"
                 min="0"
                 step="0.001"
-                [ngModel]="store.ovenModelProfile().ambient.t3AmbientConductanceWPerK"
+                [ngModel]="configuration.ovenModelProfile().ambient.t3AmbientConductanceWPerK"
                 (ngModelChange)="updateAmbient('t3AmbientConductanceWPerK', $event)"
             /></label>
           </div>
@@ -304,7 +307,11 @@
           <div class="pid-row pid-head">
             <span>Pin</span><span>Role</span><span>Polarity</span><span></span><span></span>
           </div>
-          @for (binding of store.firmwareInLoopHardware().pins; track $index; let index = $index) {
+          @for (
+            binding of configuration.firmwareInLoopHardware().pins;
+            track $index;
+            let index = $index
+          ) {
             <div class="pid-row">
               <input
                 [attr.aria-label]="'Pin ' + (index + 1)"
@@ -368,7 +375,7 @@
                 type="number"
                 min="33"
                 max="65536"
-                [ngModel]="store.firmwareInLoopHardware().eeprom.sizeBytes"
+                [ngModel]="configuration.firmwareInLoopHardware().eeprom.sizeBytes"
                 (ngModelChange)="updateEepromSize($event)"
               /><em>bytes</em>
             </div></label
@@ -376,7 +383,7 @@
           <label class="field"
             ><span>EEPROM initial fill</span
             ><select
-              [ngModel]="store.firmwareInLoopHardware().eeprom.initialFill"
+              [ngModel]="configuration.firmwareInLoopHardware().eeprom.initialFill"
               (ngModelChange)="updateEepromFill($event)"
             >
               <option [ngValue]="255">0xFF</option>
@@ -447,7 +454,7 @@
               <input
                 type="number"
                 min="1"
-                [ngModel]="store.ovenModelProfile().geometry.widthM * 1000"
+                [ngModel]="configuration.ovenModelProfile().geometry.widthM * 1000"
                 (ngModelChange)="updateGeometry('widthM', $event)"
               /><em>mm</em>
             </div></label
@@ -458,7 +465,7 @@
               <input
                 type="number"
                 min="1"
-                [ngModel]="store.ovenModelProfile().geometry.depthM * 1000"
+                [ngModel]="configuration.ovenModelProfile().geometry.depthM * 1000"
                 (ngModelChange)="updateGeometry('depthM', $event)"
               /><em>mm</em>
             </div></label
@@ -469,7 +476,7 @@
               <input
                 type="number"
                 min="1"
-                [ngModel]="store.ovenModelProfile().geometry.heightM * 1000"
+                [ngModel]="configuration.ovenModelProfile().geometry.heightM * 1000"
                 (ngModelChange)="updateGeometry('heightM', $event)"
               /><em>mm</em>
             </div></label
@@ -480,7 +487,7 @@
               <input
                 type="number"
                 min="0.01"
-                [ngModel]="store.ovenModelProfile().bodies.standardLoad.heatCapacityJPerK"
+                [ngModel]="configuration.ovenModelProfile().bodies.standardLoad.heatCapacityJPerK"
                 (ngModelChange)="updateBodyCapacity('standardLoad', $event)"
               /><em>J/K</em>
             </div></label
@@ -491,7 +498,7 @@
               <input
                 type="number"
                 min="0.01"
-                [ngModel]="store.ovenModelProfile().bodies.enclosure.heatCapacityJPerK"
+                [ngModel]="configuration.ovenModelProfile().bodies.enclosure.heatCapacityJPerK"
                 (ngModelChange)="updateBodyCapacity('enclosure', $event)"
               /><em>J/K</em>
             </div></label
@@ -700,7 +707,7 @@
           <span>Sessions</span><strong>{{ store.sessions().length }}</strong>
         </div>
         <div>
-          <span>Profile revisions</span><strong>{{ store.profiles().length }}</strong>
+          <span>Profile revisions</span><strong>{{ configuration.profiles().length }}</strong>
         </div>
         <div><span>Storage</span><strong>Application data</strong></div>
       </article>

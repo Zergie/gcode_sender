@@ -10,6 +10,7 @@ import type {
 } from '../../core/simulation';
 import { createDefaultVirtualHardware } from '../../core/simulation/simulation-configuration.store';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { ConfigurationStore } from '../../core/configuration/configuration.store';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
 
@@ -56,6 +57,7 @@ export class SettingsComponent {
     { value: 'ignored-output', label: 'Ignored output' },
   ];
   readonly store = inject(WorkbenchStore);
+  readonly configuration = inject(ConfigurationStore);
   readonly startupMacro = signal('');
   readonly timeoutSeconds = signal(8);
   readonly physicalLineLimitBytes = signal(64 * 1024);
@@ -100,7 +102,7 @@ export class SettingsComponent {
   }
 
   updateHeaterPower(which: 'top' | 'bottom', watts: number): void {
-    this.store.ovenModelProfile.update((profile) => ({
+    this.configuration.updatePhysicalModel((profile) => ({
       ...profile,
       heaters: {
         ...profile.heaters,
@@ -109,8 +111,15 @@ export class SettingsComponent {
     }));
   }
 
+  updateAmbientTemperature(temperatureC: number): void {
+    this.configuration.updatePhysicalModel((profile) => ({
+      ...profile,
+      ambientTemperatureC: temperatureC,
+    }));
+  }
+
   updateFirmwarePin(index: number, pin: string): void {
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.map((binding, position) =>
         position === index ? { ...binding, pin: pin.toUpperCase().trim() } : binding,
@@ -119,7 +128,7 @@ export class SettingsComponent {
   }
 
   updateFirmwarePolarity(index: number, activeLevel: 'high' | 'low'): void {
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.map((binding, position) =>
         position === index &&
@@ -138,7 +147,7 @@ export class SettingsComponent {
 
   firmwareNtc(): NtcBetaDivider {
     return (
-      this.store
+      this.configuration
         .firmwareInLoopHardware()
         .pins.find(
           (binding): binding is Extract<VirtualPinBinding, { kind: 'thermistor-input' }> =>
@@ -154,9 +163,9 @@ export class SettingsComponent {
   }
 
   updateFirmwareRole(index: number, role: FirmwarePinRole): void {
-    const pin = this.store.firmwareInLoopHardware().pins[index]?.pin ?? '';
+    const pin = this.configuration.firmwareInLoopHardware().pins[index]?.pin ?? '';
     const ntc =
-      this.store
+      this.configuration
         .firmwareInLoopHardware()
         .pins.find(
           (binding): binding is Extract<VirtualPinBinding, { kind: 'thermistor-input' }> =>
@@ -214,32 +223,32 @@ export class SettingsComponent {
   }
 
   addFirmwarePin(): void {
-    const used = new Set(this.store.firmwareInLoopHardware().pins.map(({ pin }) => pin));
+    const used = new Set(this.configuration.firmwareInLoopHardware().pins.map(({ pin }) => pin));
     const pin = ['A', 'B', 'C']
       .flatMap((bank) => Array.from({ length: 16 }, (_, number) => `P${bank}${number}`))
       .find((candidate) => !used.has(candidate));
     if (pin === undefined) return;
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: [...hardware.pins, { kind: 'digital-input', pin, level: false }],
     }));
   }
 
   removeFirmwarePin(index: number): void {
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.filter((_binding, position) => position !== index),
     }));
   }
 
   updateAnalogValue(index: number, rawValue: number): void {
-    const binding = this.store.firmwareInLoopHardware().pins[index];
+    const binding = this.configuration.firmwareInLoopHardware().pins[index];
     if (binding?.kind === 'analog-input')
       this.replaceFirmwareBinding(index, { ...binding, rawValue: Number(rawValue) });
   }
 
   updateNtc(key: keyof Omit<NtcBetaDivider, 'kind' | 'topology' | 'adcBits'>, value: number): void {
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.map((binding) =>
         binding.kind === 'thermistor-input'
@@ -250,41 +259,41 @@ export class SettingsComponent {
   }
 
   updateEepromFill(initialFill: 0 | 255): void {
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       eeprom: { ...hardware.eeprom, initialFill: Number(initialFill) === 0 ? 0 : 255 },
     }));
   }
 
   private replaceFirmwareBinding(index: number, replacement: VirtualPinBinding): void {
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.map((binding, position) => (position === index ? replacement : binding)),
     }));
   }
 
   resetFirmwareMapping(): void {
-    this.store.firmwareInLoopHardware.set(
-      this.store.firmwareInLoop()?.suggestedHardware ?? createDefaultVirtualHardware(),
+    this.configuration.setVirtualHardware(
+      this.configuration.firmwareInLoop()?.suggestedHardware ?? createDefaultVirtualHardware(),
     );
   }
 
   updateEepromSize(sizeBytes: number): void {
-    this.store.firmwareInLoopHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       eeprom: { ...hardware.eeprom, sizeBytes: Number(sizeBytes) },
     }));
   }
 
   updateGeometry(key: keyof ThermalTwinGeometry, millimeters: number): void {
-    this.store.ovenModelProfile.update((profile) => ({
+    this.configuration.updatePhysicalModel((profile) => ({
       ...profile,
       geometry: { ...profile.geometry, [key]: Number(millimeters) / 1_000 },
     }));
   }
 
   updateBodyCapacity(body: ThermalBodyId, heatCapacityJPerK: number): void {
-    this.store.ovenModelProfile.update((profile) => ({
+    this.configuration.updatePhysicalModel((profile) => ({
       ...profile,
       bodies: {
         ...profile.bodies,
@@ -294,7 +303,7 @@ export class SettingsComponent {
   }
 
   updateLinearConductance(index: number, conductanceWPerK: number): void {
-    this.store.ovenModelProfile.update((profile) => ({
+    this.configuration.updatePhysicalModel((profile) => ({
       ...profile,
       linearLinks: profile.linearLinks.map((link, position) =>
         position === index ? { ...link, conductanceWPerK: Number(conductanceWPerK) } : link,
@@ -307,7 +316,7 @@ export class SettingsComponent {
     key: keyof Pick<RadiationHeatLink, 'areaM2' | 'emissivity' | 'viewFactor'>,
     value: number,
   ): void {
-    this.store.ovenModelProfile.update((profile) => ({
+    this.configuration.updatePhysicalModel((profile) => ({
       ...profile,
       radiationLinks: profile.radiationLinks.map((link, position) =>
         position === index ? { ...link, [key]: Number(value) } : link,
@@ -316,7 +325,7 @@ export class SettingsComponent {
   }
 
   updateAmbient(key: keyof AmbientBoundaryConfiguration, value: number): void {
-    this.store.ovenModelProfile.update((profile) => ({
+    this.configuration.updatePhysicalModel((profile) => ({
       ...profile,
       ambient: { ...profile.ambient, [key]: Number(value) },
     }));

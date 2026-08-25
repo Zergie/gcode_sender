@@ -32,6 +32,7 @@ import {
 } from '../../core/control';
 import type { TrendPoint } from '../../core/platform/workbench.store';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { ConfigurationStore } from '../../core/configuration/configuration.store';
 import { PageHeaderComponent } from '../../shared/page-header';
 import { TrendChartComponent } from '../../shared/trend-chart';
 import type { GcodeApi } from '../../../../shared/contracts';
@@ -203,9 +204,10 @@ export class SimulationComponent implements OnDestroy {
   readonly firmwareEepromMinimum = FIRMWARE_EEPROM_MIN_BYTES;
   readonly firmwareEepromMaximum = FIRMWARE_EEPROM_MAX_BYTES;
   readonly store = inject(WorkbenchStore);
+  readonly configuration = inject(ConfigurationStore);
   private readonly zone = inject(NgZone);
   /** Shared with Settings so the twin always runs the configured physical model. */
-  readonly profile = this.store.ovenModelProfile;
+  readonly profile = this.configuration.ovenModelProfile;
   readonly modelAssistance = signal<ModelAssistedTargetConfiguration>({
     ...this.store.modelAssistance(),
   });
@@ -224,11 +226,21 @@ export class SimulationComponent implements OnDestroy {
   readonly firmwareToolchain = signal<FirmwareToolchainStatus | null>(null);
   readonly preparedFirmware = signal<PreparedFirmware | null>(null);
   readonly firmwareDiagnostics = signal<readonly FirmwareDiagnostic[]>([]);
-  readonly firmwareHardware = this.store.firmwareInLoopHardware;
+  readonly firmwareHardware = this.configuration.firmwareInLoopHardware;
   readonly firmwareOutput = signal<readonly FirmwareOutputLine[]>([]);
   readonly firmwareTerminalInput = signal('M105');
   readonly firmwareTerminalTimeSeconds = signal(0);
   readonly firmwareTerminalCommands = signal<readonly QueuedFirmwareTerminalCommand[]>([]);
+
+  setFirmwareHardware(hardware: VirtualHardwareConfiguration): void {
+    this.configuration.setVirtualHardware(hardware);
+  }
+
+  updateFirmwareHardware(
+    update: (hardware: VirtualHardwareConfiguration) => VirtualHardwareConfiguration,
+  ): void {
+    this.configuration.updateVirtualHardware(update);
+  }
   private readonly firmwareApi: GcodeApi | undefined =
     typeof window === 'undefined'
       ? undefined
@@ -418,7 +430,7 @@ export class SimulationComponent implements OnDestroy {
       this.preparedFirmware.set(firmware);
       this.firmwareToolchain.set(firmware.toolchain);
       this.firmwareDiagnostics.set(firmware.diagnostics);
-      this.firmwareHardware.set(cloneFirmwareHardware(hardware));
+      this.configuration.setVirtualHardware(cloneFirmwareHardware(hardware));
     }
   }
 
@@ -772,7 +784,9 @@ export class SimulationComponent implements OnDestroy {
       this.preparedFirmware.set(result.value.firmware);
       this.firmwareToolchain.set(result.value.firmware.toolchain);
       this.firmwareDiagnostics.set(result.value.firmware.diagnostics);
-      this.firmwareHardware.set(cloneFirmwareHardware(result.value.firmware.suggestedHardware));
+      this.configuration.setVirtualHardware(
+        cloneFirmwareHardware(result.value.firmware.suggestedHardware),
+      );
       this.appendFirmwareOutput({
         timeSeconds: 0,
         direction: 'system',
@@ -795,7 +809,7 @@ export class SimulationComponent implements OnDestroy {
   resetKnownFirmwareMapping(): void {
     const suggested = this.preparedFirmware()?.suggestedHardware;
     this.invalidateSimulationResults();
-    this.firmwareHardware.set(
+    this.configuration.setVirtualHardware(
       suggested === undefined ? defaultFirmwareHardware() : cloneFirmwareHardware(suggested),
     );
   }
@@ -814,7 +828,7 @@ export class SimulationComponent implements OnDestroy {
       return;
     }
     this.invalidateSimulationResults();
-    this.firmwareHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: [...hardware.pins, { kind: 'digital-input', pin, level: false }],
     }));
@@ -822,7 +836,7 @@ export class SimulationComponent implements OnDestroy {
 
   removeFirmwarePin(index: number): void {
     this.invalidateSimulationResults();
-    this.firmwareHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.filter((_binding, bindingIndex) => bindingIndex !== index),
     }));
@@ -933,7 +947,7 @@ export class SimulationComponent implements OnDestroy {
   ): void {
     const numericValue = Number(value) as NtcBetaDivider[K];
     this.invalidateSimulationResults();
-    this.firmwareHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.map((binding) =>
         binding.kind === 'thermistor-input'
@@ -945,7 +959,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateFirmwareEepromSize(sizeBytes: number): void {
     this.invalidateSimulationResults();
-    this.firmwareHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       eeprom: { ...hardware.eeprom, sizeBytes: Number(sizeBytes) },
     }));
@@ -953,7 +967,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateFirmwareEepromFill(initialFill: 0 | 255): void {
     this.invalidateSimulationResults();
-    this.firmwareHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       eeprom: { ...hardware.eeprom, initialFill: Number(initialFill) === 0 ? 0 : 255 },
     }));
@@ -1050,7 +1064,7 @@ export class SimulationComponent implements OnDestroy {
     update: (binding: VirtualPinBinding) => VirtualPinBinding,
   ): void {
     this.invalidateSimulationResults();
-    this.firmwareHardware.update((hardware) => ({
+    this.configuration.updateVirtualHardware((hardware) => ({
       ...hardware,
       pins: hardware.pins.map((binding, bindingIndex) =>
         bindingIndex === index ? update(binding) : binding,
@@ -1134,7 +1148,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateProfile<K extends keyof OvenModelProfile>(key: K, value: OvenModelProfile[K]): void {
     this.mutateSimulationConfiguration(() =>
-      this.profile.update((profile) => ({
+      this.configuration.updatePhysicalModel((profile) => ({
         ...profile,
         [key]: typeof value === 'number' ? Number(value) : value,
       })),
@@ -1184,7 +1198,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateGeometryMm(key: keyof ThermalTwinGeometry, millimeters: number): void {
     this.mutateSimulationConfiguration(() =>
-      this.profile.update((profile) => {
+      this.configuration.updatePhysicalModel((profile) => {
         const geometry = { ...profile.geometry, [key]: Number(millimeters) / 1_000 };
         const enclosureRadiatingAreaM2 =
           2 *
@@ -1224,7 +1238,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateHeaterRatedPower(which: HeaterPosition, watts: number): void {
     this.mutateSimulationConfiguration(() =>
-      this.profile.update((profile) => ({
+      this.configuration.updatePhysicalModel((profile) => ({
         ...profile,
         heaters: {
           ...profile.heaters,
@@ -1236,7 +1250,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateBodyHeatCapacity(body: ThermalBodyId, heatCapacityJPerK: number): void {
     this.mutateSimulationConfiguration(() =>
-      this.profile.update((profile) => ({
+      this.configuration.updatePhysicalModel((profile) => ({
         ...profile,
         bodies: {
           ...profile.bodies,
@@ -1248,7 +1262,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateLinearConductance(index: number, conductanceWPerK: number): void {
     this.mutateSimulationConfiguration(() =>
-      this.profile.update((profile) => ({
+      this.configuration.updatePhysicalModel((profile) => ({
         ...profile,
         linearLinks: profile.linearLinks.map((link, linkIndex) =>
           linkIndex === index ? { ...link, conductanceWPerK: Number(conductanceWPerK) } : link,
@@ -1259,7 +1273,7 @@ export class SimulationComponent implements OnDestroy {
 
   updateRadiation(index: number, key: RadiationParameter, value: number): void {
     this.mutateSimulationConfiguration(() =>
-      this.profile.update((profile) => ({
+      this.configuration.updatePhysicalModel((profile) => ({
         ...profile,
         radiationLinks: profile.radiationLinks.map((link, linkIndex) =>
           linkIndex === index ? { ...link, [key]: Number(value) } : link,
@@ -1277,7 +1291,7 @@ export class SimulationComponent implements OnDestroy {
     value: AmbientBoundaryConfiguration[K],
   ): void {
     this.mutateSimulationConfiguration(() =>
-      this.profile.update((profile) => {
+      this.configuration.updatePhysicalModel((profile) => {
         const ambient = { ...profile.ambient, [key]: Number(value) };
         if (key !== 'airDensityKgPerM3' && key !== 'airSpecificHeatJPerKgK') {
           return { ...profile, ambient };

@@ -2,7 +2,6 @@ import { DOCUMENT } from '@angular/common';
 import { Injectable, computed, inject, signal } from '@angular/core';
 import type { OnDestroy } from '@angular/core';
 import type {
-  AppSettings,
   CommandCatalogSnapshot,
   ControlMode,
   ExclusiveActivityState,
@@ -28,8 +27,6 @@ import type {
   ProfileState,
   StoredProfile,
 } from '../../../../shared/contracts';
-import { EXECUTION_LIMITS } from '../../../../shared/contracts';
-import type { PreparedFirmware } from '../../../../shared/firmware-contracts';
 import type { LiveTuningState } from '../../../../shared/tuning-contracts';
 import { BUNDLED_COMMAND_CATALOG } from '../../../../shared/bundled-catalog';
 import { validateHeatingProfile } from '../../../../shared/heating-profile-document';
@@ -64,9 +61,9 @@ import {
   type PhysicalForecastPlanner,
   type PhysicalTwinObserver,
 } from '../simulation';
-import { SimulationConfigurationStore } from '../simulation/simulation-configuration.store';
 import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics } from '../tuning';
 import { NotificationStore } from './notification.store';
+import { ConfigurationStore } from '../configuration/configuration.store';
 
 export type DemoState =
   'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
@@ -123,19 +120,6 @@ const DEFAULT_JOB: JobState = {
   error: null,
 };
 
-const DEFAULT_SETTINGS: AppSettings = {
-  version: 2,
-  theme: 'dark',
-  lastSerialPort: null,
-  startupMacro: '',
-  commandTimeoutMs: 8_000,
-  physicalLineLimitBytes: EXECUTION_LIMITS.physicalLineBytes.default,
-  artifactLimitBytes: EXECUTION_LIMITS.artifactBytes.default,
-  artifactLimitRecords: EXECUTION_LIMITS.artifactRecords.default,
-  approvedCatalogHosts: [],
-  firmwareInoPath: null,
-};
-
 const DEFAULT_TUNING: LiveTuningState = {
   id: null,
   status: 'idle',
@@ -182,7 +166,7 @@ const MAX_HEATING_PROFILE_POINTS = 128;
 
 @Injectable({ providedIn: 'root' })
 export class WorkbenchStore implements OnDestroy {
-  private readonly simulationConfiguration = inject(SimulationConfigurationStore);
+  private readonly configuration = inject(ConfigurationStore);
   private readonly notifications = inject(NotificationStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
@@ -231,7 +215,7 @@ export class WorkbenchStore implements OnDestroy {
   readonly selectedPortAvailable = computed(() =>
     this.ports().some((port) => port.path === this.selectedPort()),
   );
-  readonly settings = signal<AppSettings>(DEFAULT_SETTINGS);
+  readonly settings = this.configuration.settings;
   readonly telemetry = signal<TemperatureTelemetry>({
     timestamp: new Date().toISOString(),
     average: 22,
@@ -245,13 +229,13 @@ export class WorkbenchStore implements OnDestroy {
   readonly modelTarget = signal(0);
   readonly controlMode = signal<ControlMode>('pid');
   /** The in-memory Wasm artifact paired with the persisted sketch path. */
-  readonly firmwareInLoop = signal<PreparedFirmware | null>(null);
-  readonly firmwareInLoopHardware = this.simulationConfiguration.hardware;
-  readonly firmwareInLoopBuilding = signal(false);
+  readonly firmwareInLoop = this.configuration.firmwareInLoop;
+  readonly firmwareInLoopHardware = this.configuration.firmwareInLoopHardware;
+  readonly firmwareInLoopBuilding = this.configuration.firmwareInLoopBuilding;
   readonly controlArmed = signal(false);
   readonly pidSchedule = signal<PidSchedule>(DEFAULT_PID_SCHEDULE);
   readonly activePidGains = signal<PidGains>(interpolatePidGains(DEFAULT_PID_SCHEDULE, 0));
-  readonly ovenModelProfile = this.simulationConfiguration.profile;
+  readonly ovenModelProfile = this.configuration.ovenModelProfile;
   readonly modelAssistance = signal<ModelAssistedTargetConfiguration>({
     ...DEFAULT_TARGET_ASSISTANCE,
   });
@@ -277,7 +261,7 @@ export class WorkbenchStore implements OnDestroy {
     stale: false,
   });
   readonly sessions = signal<readonly SessionMetadata[]>([]);
-  readonly profiles = signal<readonly StoredProfile[]>([]);
+  readonly profiles = this.configuration.profiles;
   readonly toast = this.notifications.toast;
 
   readonly connected = computed(() => this.connection().status === 'connected');
@@ -307,7 +291,7 @@ export class WorkbenchStore implements OnDestroy {
       const query = new URLSearchParams(window.location.search);
       const requestedTheme = query.get('theme');
       if (requestedTheme === 'dark' || requestedTheme === 'light' || requestedTheme === 'system') {
-        this.settings.update((settings) => ({ ...settings, theme: requestedTheme }));
+        this.configuration.setTheme(requestedTheme);
         this.applyTheme(requestedTheme);
       }
       const requestedState = query.get('state');
@@ -342,7 +326,7 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   setTheme(theme: ThemePreference): void {
-    this.settings.update((current) => ({ ...current, theme }));
+    this.configuration.setTheme(theme);
     this.applyTheme(theme);
     void this.api?.settings.update({ theme });
   }
@@ -376,7 +360,7 @@ export class WorkbenchStore implements OnDestroy {
       this.notify('Firmware-in-the-loop selection is available in the Electron desktop app.');
       return false;
     }
-    this.firmwareInLoopBuilding.set(true);
+    this.configuration.setFirmwareBuildBusy(true);
     try {
       const result = await this.api.firmware.pickAndBuild();
       if (!result.ok) {
@@ -389,15 +373,14 @@ export class WorkbenchStore implements OnDestroy {
         return false;
       }
       const firmware = result.value.firmware;
-      this.firmwareInLoop.set(firmware);
-      this.firmwareInLoopHardware.set(firmware.suggestedHardware);
+      this.configuration.setFirmware(firmware);
       await this.updateSettings({ firmwareInoPath: firmware.source.path });
       this.notify(
         `${firmware.source.displayName} is ready (${firmware.cacheHit ? 'cached build' : 'fresh build'}).`,
       );
       return true;
     } finally {
-      this.firmwareInLoopBuilding.set(false);
+      this.configuration.setFirmwareBuildBusy(false);
     }
   }
 
@@ -704,7 +687,7 @@ export class WorkbenchStore implements OnDestroy {
       this.notify(error instanceof Error ? error.message : 'The oven model is invalid.');
       return false;
     }
-    this.ovenModelProfile.set(normalizedProfile);
+    this.configuration.setPhysicalModel(normalizedProfile);
     this.modelAssistance.set({ ...assistance });
     this.activeProfile.set(normalizedProfile.name);
     this.controlMode.set('model-assisted');
@@ -1089,14 +1072,14 @@ export class WorkbenchStore implements OnDestroy {
 
   async updateSettings(patch: SettingsPatch): Promise<void> {
     if (this.api === undefined) {
-      this.settings.update((current) => ({ ...current, ...patch }));
+      this.configuration.patchSettings(patch);
       if (patch.theme !== undefined) this.applyTheme(patch.theme);
       this.notify('Settings saved for this demo session.');
       return;
     }
     const result = await this.api.settings.update(patch);
     if (result.ok) {
-      this.settings.set(result.value);
+      this.configuration.applySettings(result.value);
       if (patch.theme !== undefined) this.applyTheme(result.value.theme);
     } else this.notify(result.error.message);
   }
@@ -1124,7 +1107,7 @@ export class WorkbenchStore implements OnDestroy {
     }
     const result = await this.api.catalog.revokeHost(host);
     if (result.ok) {
-      this.settings.update((current) => ({ ...current, approvedCatalogHosts: result.value }));
+      this.configuration.patchSettings({ approvedCatalogHosts: result.value });
     } else this.notify(result.error.message);
   }
 
@@ -1143,28 +1126,15 @@ export class WorkbenchStore implements OnDestroy {
     state: ProfileState,
     data: unknown,
   ): Promise<StoredProfile | null> {
-    const now = new Date().toISOString();
-    const profile: StoredProfile = {
-      id: crypto.randomUUID(),
-      version: 1,
-      kind,
-      name: name.trim() || 'Untitled profile',
-      state,
-      createdAt: now,
-      updatedAt: now,
-      data: data as JsonValue,
-    };
+    const profile = this.configuration.createProfile(name, kind, state, data as JsonValue);
     if (this.api === undefined) {
-      this.profiles.update((items) => [profile, ...items]);
+      this.configuration.addProfile(profile);
       this.notify(`${profile.name} saved in the browser demo.`);
       return profile;
     }
     const result = await this.api.profiles.save(profile);
     if (result.ok) {
-      this.profiles.update((items) => [
-        result.value,
-        ...items.filter((item) => item.id !== result.value.id),
-      ]);
+      this.configuration.replaceProfile(result.value);
       this.notify(`${result.value.name} saved.`);
       return result.value;
     }
@@ -1180,7 +1150,7 @@ export class WorkbenchStore implements OnDestroy {
     const result = await this.api.profiles.importFile();
     if (result.ok && result.value !== null) {
       const refreshed = await this.api.profiles.list();
-      if (refreshed.ok) this.profiles.set(refreshed.value);
+      if (refreshed.ok) this.configuration.replaceProfiles(refreshed.value);
       this.notify(`Imported ${result.value.length} profile revision(s).`);
     } else if (!result.ok) this.notify(result.error.message);
   }
@@ -1197,11 +1167,11 @@ export class WorkbenchStore implements OnDestroy {
 
   async removeProfile(id: string): Promise<void> {
     if (this.api === undefined) {
-      this.profiles.update((items) => items.filter((profile) => profile.id !== id));
+      this.configuration.removeProfile(id);
       return;
     }
     const result = await this.api.profiles.remove(id);
-    if (result.ok) this.profiles.update((items) => items.filter((profile) => profile.id !== id));
+    if (result.ok) this.configuration.removeProfile(id);
     else this.notify(result.error.message);
   }
 
@@ -1260,7 +1230,7 @@ export class WorkbenchStore implements OnDestroy {
     if (this.api === undefined) return;
     const result = await this.api.settings.get();
     if (result.ok) {
-      this.settings.set(result.value);
+      this.configuration.applySettings(result.value);
       this.applyTheme(result.value.theme);
       if (result.value.lastSerialPort !== null) this.selectedPort.set(result.value.lastSerialPort);
     }
@@ -1293,7 +1263,7 @@ export class WorkbenchStore implements OnDestroy {
     if (systemInfo.ok) this.systemInfo.set(systemInfo.value);
     if (tuning.ok) this.liveTuning.set(tuning.value);
     if (sessions.ok) this.sessions.set(sessions.value);
-    if (profiles.ok) this.profiles.set(profiles.value);
+    if (profiles.ok) this.configuration.replaceProfiles(profiles.value);
   }
 
   private registerDesktopEvents(): void {
@@ -1688,7 +1658,7 @@ export class WorkbenchStore implements OnDestroy {
       metadataWarning: null,
     });
     this.job.set({ ...DEFAULT_JOB, file: demoFile });
-    this.profiles.set(this.demoProfiles());
+    this.configuration.replaceProfiles(this.demoProfiles());
   }
 
   private consumeTelemetry(event: TemperatureTelemetry): void {

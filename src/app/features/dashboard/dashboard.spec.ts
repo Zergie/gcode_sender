@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { DashboardComponent } from './dashboard';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { ConfigurationStore } from '../../core/configuration/configuration.store';
 
 describe('DashboardComponent', () => {
   beforeEach(async () => {
@@ -119,7 +120,7 @@ describe('DashboardComponent', () => {
   it('retains model targets and heater wattage in model-assisted mode', () => {
     const fixture = TestBed.createComponent(DashboardComponent);
     const store = TestBed.inject(WorkbenchStore);
-    store.firmwareInLoop.set({} as never);
+    TestBed.inject(ConfigurationStore).setFirmware({} as never);
     store.setMode('model-assisted');
     fixture.detectChanges();
 

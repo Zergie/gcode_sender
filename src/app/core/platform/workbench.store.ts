@@ -66,6 +66,7 @@ import {
 } from '../simulation';
 import { SimulationConfigurationStore } from '../simulation/simulation-configuration.store';
 import { calculateValidationMetrics, type M105Telemetry, type ValidationMetrics } from '../tuning';
+import { NotificationStore } from './notification.store';
 
 export type DemoState =
   'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
@@ -182,6 +183,7 @@ const MAX_HEATING_PROFILE_POINTS = 128;
 @Injectable({ providedIn: 'root' })
 export class WorkbenchStore implements OnDestroy {
   private readonly simulationConfiguration = inject(SimulationConfigurationStore);
+  private readonly notifications = inject(NotificationStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -276,7 +278,7 @@ export class WorkbenchStore implements OnDestroy {
   });
   readonly sessions = signal<readonly SessionMetadata[]>([]);
   readonly profiles = signal<readonly StoredProfile[]>([]);
-  readonly toast = signal<string | null>(null);
+  readonly toast = this.notifications.toast;
 
   readonly connected = computed(() => this.connection().status === 'connected');
   readonly telemetryLive = computed(() => this.connected() && this.hasTelemetry());
@@ -1251,10 +1253,7 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   notify(message: string): void {
-    this.toast.set(message);
-    window.setTimeout(() => {
-      if (this.toast() === message) this.toast.set(null);
-    }, 4_000);
+    this.notifications.show(message);
   }
 
   private async loadSettings(): Promise<void> {

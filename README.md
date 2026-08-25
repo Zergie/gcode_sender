@@ -93,6 +93,14 @@ Requirements:
 - Node.js 24.19 or newer;
 - npm 11 or newer.
 
+The archive-security gate is reproducible locally with `npm run verify:archive-security`.
+It inspects the complete locked dependency graph, evaluates `npm audit` high and critical
+findings (including development dependencies), and validates any reviewed exceptions in
+`scripts/archive-security-exceptions.json`. The command exits nonzero for vulnerable
+archive paths, unmatched audit findings, expired exceptions, or incomplete exception
+records. Use `--audit-report <path>` with `scripts/archive-security-gate.mjs` for
+deterministic offline evaluation of a captured npm audit report.
+
 Firmware-in-the-loop builds use bundled, version-checked GCodeParser 1.3.0,
 NTC_Thermistor 2.1.0, and QuickPID 3.1.9 sources. They additionally require
 either local Emscripten `em++` 4.0.20 or Docker with the pinned official image:

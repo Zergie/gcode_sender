@@ -34,12 +34,13 @@ function dependencyKey(parentKey, dependencyName) {
 }
 
 function findPackageKey(lockfile, parentKey, dependencyName) {
-  let key = dependencyKey(parentKey, dependencyName);
-  while (key !== 'node_modules') {
+  let currentParent = parentKey;
+  while (true) {
+    const key = dependencyKey(currentParent, dependencyName);
     if (lockfile.packages?.[key]) return key;
-    const parent = key.slice(0, key.lastIndexOf('/node_modules/'));
-    if (!parent || parent === key) break;
-    key = `${parent}/node_modules/${dependencyName}`;
+    if (currentParent === '') break;
+    const marker = currentParent.lastIndexOf('/node_modules/');
+    currentParent = marker === -1 ? '' : currentParent.slice(0, marker);
   }
   return lockfile.packages?.[`node_modules/${dependencyName}`]
     ? `node_modules/${dependencyName}`

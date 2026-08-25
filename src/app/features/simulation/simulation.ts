@@ -22,6 +22,8 @@ import {
   type RadiationHeatLink,
   type SimulationComparisonRequest,
   type SimulationComparisonResult,
+  type SimulationMetrics,
+  type SimulationResult,
   type SimulationSample,
   type SimulationTimewarp,
   type ThermalBodyId,
@@ -273,6 +275,11 @@ export class SimulationComponent implements OnDestroy {
   private simulationRunSequence = 0;
   private activeSimulationRunToken = 0;
   private destroyed = false;
+  private readonly browserFixtureEffect = effect(() => {
+    if (this.store.demoState() === 'simulation' && this.comparison() === null) {
+      this.seedBrowserFixture();
+    }
+  });
 
   readonly activeEntry = computed(() => {
     const comparison = this.comparison();
@@ -419,6 +426,7 @@ export class SimulationComponent implements OnDestroy {
       ) {
         return 'Duration must be between 1 and 180 minutes.';
       }
+      if (this.store.demoState() === 'simulation') return null;
       const firmwareError = this.firmwareConfigurationError();
       if (firmwareError !== null) return firmwareError;
       return null;
@@ -455,6 +463,106 @@ export class SimulationComponent implements OnDestroy {
     }
   }
 
+  private seedBrowserFixture(): void {
+    const samples = Array.from({ length: 49 }, (_, index): SimulationSample => {
+      const timeSeconds = index * 5;
+      const progress = 1 - Math.exp(-timeSeconds / 150);
+      const assistedOffset = Math.min(2.4, timeSeconds / 100);
+      const average = 25 + (200 - 25) * progress;
+      const t1 = average + 0.6 * Math.sin(timeSeconds / 35);
+      const t2 = average - 0.6 * Math.sin(timeSeconds / 35);
+      return {
+        timeSeconds,
+        requestedTargetC: 200,
+        trajectoryTargetC: 200,
+        firmwareTargetC: 200 + assistedOffset,
+        targetLeadC: assistedOffset,
+        temperatures: {
+          t0C: (t1 + t2) / 2,
+          t1C: t1,
+          t2C: t2,
+          t3C: 25 + (average - 25) * 0.08,
+          topZoneC: average + 1.2,
+          bottomZoneC: average - 1.2,
+          enclosureC: 25 + (average - 25) * 0.35,
+        },
+        actuator: {
+          commanded: Math.max(0, 1 - progress * 0.85),
+          applied: Math.max(0, 1 - progress * 0.85),
+          pidOutput: Math.round(255 * Math.max(0, 1 - progress * 0.85)),
+        },
+      };
+    });
+    const metrics = (offset: number): SimulationMetrics => ({
+      integralAbsoluteErrorCSeconds: 12_400 + offset,
+      rootMeanSquareErrorC: 14.2 + offset / 10,
+      maximumOvershootC: 0.8 + offset / 10,
+      peakTemperatureC: 199.8 + offset,
+      finalErrorC: 0.2 + offset / 10,
+      riseTimeSeconds: 180,
+      settlingTimeSeconds: 420,
+      energyWh: 48 + offset,
+      actuatorSaturationPercent: 4.5,
+      maximumControlSensorSpreadC: 1.2,
+    });
+    const result = (label: string, offset: number): SimulationResult => ({
+      samples:
+        offset === 0
+          ? samples
+          : samples.map((sample) => ({
+              ...sample,
+              firmwareTargetC: sample.firmwareTargetC - offset,
+            })),
+      metrics: metrics(offset),
+      execution: {
+        fixedStepSeconds: 0.5,
+        totalSteps: 2_400,
+        timewarp: 20,
+        stepsPerBatch: 100,
+        simulatedSecondsPerBatch: 50,
+      },
+      firmware: {
+        buildId: `browser-fixture-${label.toLowerCase().replaceAll(' ', '-')}`,
+        serialTranscript: [],
+        indicatorSamples: [],
+        resetCount: 0,
+      },
+    });
+    this.comparison.set({
+      baselineId: 'pid',
+      entries: [
+        {
+          id: 'pid',
+          label: 'Firmware PID',
+          result: result('Firmware PID', 0),
+          deltaFromBaseline: {
+            integralAbsoluteErrorCSeconds: 0,
+            rootMeanSquareErrorC: 0,
+            maximumOvershootC: 0,
+            finalErrorC: 0,
+            energyWh: 0,
+            actuatorSaturationPercent: 0,
+          },
+        },
+        {
+          id: 'assisted',
+          label: 'Firmware + physical feed-forward',
+          result: result('Assisted', -1.1),
+          deltaFromBaseline: {
+            integralAbsoluteErrorCSeconds: -1_100,
+            rootMeanSquareErrorC: -0.11,
+            maximumOvershootC: -0.11,
+            finalErrorC: -0.11,
+            energyWh: -1.1,
+            actuatorSaturationPercent: 0,
+          },
+        },
+      ],
+    });
+    this.cursor.set(samples.length);
+    this.paused.set(true);
+  }
+
   ngOnDestroy(): void {
     this.destroyed = true;
     this.invalidateSimulationRun();
@@ -462,6 +570,7 @@ export class SimulationComponent implements OnDestroy {
   }
 
   run(animate = true, persist = true, resumeAtSeconds = 0): void {
+    if (this.store.demoState() === 'simulation' && this.comparison() !== null) return;
     this.stopPlayback();
     this.invalidateSimulationRun();
     this.simulationError.set(null);

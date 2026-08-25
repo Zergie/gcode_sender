@@ -194,6 +194,9 @@ describe('SerialService firmware handshake', () => {
     await expect(service.send('G1 X1', 'terminal')).rejects.toMatchObject({
       code: 'NOT_CONNECTED',
     });
+    await expect(service.sendAndWait('G1 X1', 1_000, undefined, 'job')).rejects.toMatchObject({
+      code: 'NOT_CONNECTED',
+    });
     expect(port.writes).toEqual(['M115\n', 'M104 S180\n']);
 
     port.releaseWrite();

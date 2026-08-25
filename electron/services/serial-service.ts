@@ -276,6 +276,13 @@ export class SerialService {
         recoverable: true,
       });
     }
+    if (origin !== 'system' && this.state.status !== 'connected') {
+      throw new AppError({
+        code: 'NOT_CONNECTED',
+        message: 'Serial port is not connected',
+        recoverable: true,
+      });
+    }
     const normalized = requireSingleLine(command);
     const transaction = this.transactionTail.then(() =>
       this.executeTransaction(normalized, timeoutMs, signal, origin),

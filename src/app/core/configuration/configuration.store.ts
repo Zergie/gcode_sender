@@ -85,11 +85,8 @@ export class ConfigurationStore {
     this.firmwareHardwareState.set(firmware.suggestedHardware);
   }
 
-  setPhysicalModel(profile: OvenModelProfile): void {
-    const result = validateAndDerivePhysicalModel(profile);
-    if (!result.ok) return;
-    this.physicalModelState.set(cloneOvenModelProfile(result.profile));
-    this.advancePhysicalConfigurationRevision();
+  activatePhysicalModelProfile(profile: OvenModelProfile): PhysicalModelEditResult {
+    return this.applyPhysicalModelEdit(() => cloneOvenModelProfile(profile));
   }
 
   updatePhysicalModel(
@@ -111,6 +108,10 @@ export class ConfigurationStore {
         ? { ...profile, ambientTemperatureC: Number(value) }
         : { ...profile, ambient: { ...profile.ambient, [key]: Number(value) } },
     );
+  }
+
+  updatePhysicalModelName(name: string): PhysicalModelEditResult {
+    return this.applyPhysicalModelEdit((profile) => ({ ...profile, name: String(name) }));
   }
 
   updateHeaterPower(

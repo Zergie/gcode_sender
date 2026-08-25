@@ -1172,7 +1172,7 @@ export class SimulationComponent implements OnDestroy {
         this.configuration.updateAirProperty('ambientTemperatureC', Number(value)),
       );
     } else if (key === 'name') {
-      this.configuration.updatePhysicalModel((profile) => ({ ...profile, name: String(value) }));
+      this.applyPhysicalModelEdit(() => this.configuration.updatePhysicalModelName(String(value)));
     }
   }
 
@@ -1257,16 +1257,7 @@ export class SimulationComponent implements OnDestroy {
     value: AmbientBoundaryConfiguration[K],
   ): void {
     if (key === 'enclosureRadiatingAreaM2') return;
-    if (key === 'airDensityKgPerM3' || key === 'airSpecificHeatJPerKgK') {
-      this.applyPhysicalModelEdit(() => this.configuration.updateAirProperty(key, Number(value)));
-    } else {
-      this.mutateSimulationConfiguration(() =>
-        this.configuration.updatePhysicalModel((profile) => ({
-          ...profile,
-          ambient: { ...profile.ambient, [key]: Number(value) },
-        })),
-      );
-    }
+    this.applyPhysicalModelEdit(() => this.configuration.updateAirProperty(key, Number(value)));
   }
 
   private applyPhysicalModelEdit(

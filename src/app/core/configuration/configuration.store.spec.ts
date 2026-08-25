@@ -52,6 +52,39 @@ describe('ConfigurationStore', () => {
     expect(store.ovenModelProfile()).toEqual(original);
   });
 
+  it('activates saved profiles through the derived atomic boundary', () => {
+    const store = new ConfigurationStore();
+    const savedProfile = {
+      ...store.ovenModelProfile(),
+      name: 'Saved model',
+      geometry: { ...store.ovenModelProfile().geometry, widthM: 0.16 },
+      ambient: { ...store.ovenModelProfile().ambient, airDensityKgPerM3: 1.3 },
+    };
+
+    const result = store.activatePhysicalModelProfile(savedProfile);
+
+    expect(result.ok).toBe(true);
+    expect(store.ovenModelProfile().name).toBe('Saved model');
+    expect(store.ovenModelProfile().ambient.enclosureRadiatingAreaM2).toBeGreaterThan(0);
+    expect(store.physicalConfigurationRevision()).toBe(1);
+    expect('set' in store.ovenModelProfile()).toBe(false);
+  });
+
+  it('rejects invalid saved profiles without replacing the active model', () => {
+    const store = new ConfigurationStore();
+    const original = store.ovenModelProfile();
+    const revision = store.physicalConfigurationRevision();
+
+    const result = store.activatePhysicalModelProfile({
+      ...original,
+      geometry: { ...original.geometry, widthM: 0 },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(store.ovenModelProfile()).toEqual(original);
+    expect(store.physicalConfigurationRevision()).toBe(revision);
+  });
+
   it('centralizes heater and independently editable body-property commands', () => {
     const settings = new ConfigurationStore();
     const simulation = new ConfigurationStore();

@@ -287,14 +287,8 @@ export class SettingsComponent {
   }
 
   updateAmbient(key: keyof AmbientBoundaryConfiguration, value: number): void {
-    if (key === 'airDensityKgPerM3' || key === 'airSpecificHeatJPerKgK') {
-      this.showPhysicalEditResult(this.configuration.updateAirProperty(key, value));
-    } else {
-      this.configuration.updatePhysicalModel((profile) => ({
-        ...profile,
-        ambient: { ...profile.ambient, [key]: Number(value) },
-      }));
-    }
+    if (key === 'enclosureRadiatingAreaM2') return;
+    this.showPhysicalEditResult(this.configuration.updateAirProperty(key, value));
   }
 
   isDerivedRadiationArea(link: RadiationHeatLink): boolean {

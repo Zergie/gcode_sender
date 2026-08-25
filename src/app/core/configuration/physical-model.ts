@@ -70,5 +70,4 @@ export function isStandardLoadEnclosureLink(
 
 export type PhysicalGeometryKey = keyof ThermalTwinGeometry;
 export type PhysicalAirPropertyKey =
-  | keyof Pick<AmbientBoundaryConfiguration, 'airDensityKgPerM3' | 'airSpecificHeatJPerKgK'>
-  | 'ambientTemperatureC';
+  Exclude<keyof AmbientBoundaryConfiguration, 'enclosureRadiatingAreaM2'> | 'ambientTemperatureC';

@@ -43,11 +43,9 @@ import {
   DEFAULT_SIMULATION_CONTROLLER,
   PHYSICAL_FORECAST_REPLAN_SECONDS,
   STANDARD_LOAD_PID_SCHEDULE,
-  cloneOvenModelProfile,
   createPhysicalForecastPlanner,
   createPhysicalTwinObserver,
   stepPhysicalFeedForward,
-  validateOvenModelProfile,
   type OvenModelProfile,
   type PhysicalForecastPlan,
   type PhysicalForecastPlanner,
@@ -512,15 +510,18 @@ export class WorkbenchStore implements OnDestroy {
       );
       return false;
     }
-    const normalizedProfile = cloneOvenModelProfile(profile);
     try {
-      validateOvenModelProfile(normalizedProfile);
       validateTargetShaperConfiguration(assistance);
     } catch (error) {
       this.notify(error instanceof Error ? error.message : 'The oven model is invalid.');
       return false;
     }
-    this.configuration.setPhysicalModel(normalizedProfile);
+    const result = this.configuration.activatePhysicalModelProfile(profile);
+    if (!result.ok) {
+      this.notify(result.errors.map((error) => `${error.path}: ${error.message}`).join('; '));
+      return false;
+    }
+    const normalizedProfile = result.profile;
     this.heaterControl.setModelAssistance(assistance);
     this.activeProfile.set(normalizedProfile.name);
     this.heaterControl.setMode('model-assisted', true);

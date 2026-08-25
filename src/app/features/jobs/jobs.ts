@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DatePipe, TitleCasePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { WorkbenchStore } from '../../core/platform/workbench.store';
+import { JobsProgramsStore } from '../../core/platform/jobs-programs.store';
 import { SessionCatalogStore } from '../../core/platform/session-catalog.store';
 import { IconComponent } from '../../shared/icon';
 import { PageHeaderComponent } from '../../shared/page-header';
@@ -13,7 +13,7 @@ import { PageHeaderComponent } from '../../shared/page-header';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class JobsComponent {
-  readonly store = inject(WorkbenchStore);
+  readonly store = inject(JobsProgramsStore);
   readonly sessionCatalog = inject(SessionCatalogStore);
   readonly dragging = signal(false);
   readonly restartLine = signal(1);

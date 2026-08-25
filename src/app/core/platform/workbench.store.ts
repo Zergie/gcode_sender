@@ -10,7 +10,6 @@ import type {
   JobStartRequest,
   JobState,
   JobTimeoutDecision,
-  JobTimeoutEvent,
   SerialConnectionState,
   SerialLineEvent,
   SettingsPatch,
@@ -24,7 +23,6 @@ import type {
   StoredProfile,
 } from '../../../../shared/contracts';
 import type { LiveTuningState } from '../../../../shared/tuning-contracts';
-import { validateHeatingProfile } from '../../../../shared/heating-profile-document';
 import {
   advancePidGainTransition,
   assimilateFirmwareQuickPidObservation,
@@ -62,6 +60,7 @@ import { ConfigurationStore } from '../configuration/configuration.store';
 import { SessionCatalogStore } from './session-catalog.store';
 import { SerialTelemetryStore } from './serial-telemetry.store';
 import { HeaterControlStore } from './heater-control.store';
+import { JobsProgramsStore } from './jobs-programs.store';
 
 export type DemoState =
   'disconnected' | 'monitoring' | 'streaming' | 'simulation' | 'tuning' | 'error';
@@ -159,8 +158,6 @@ const ACTIVE_JOB_STATUSES = new Set<JobState['status']>([
   'awaiting-decision',
   'stopping',
 ]);
-const MAX_HEATING_PROFILE_DURATION_MS = 24 * 60 * 60_000;
-const MAX_HEATING_PROFILE_POINTS = 128;
 
 @Injectable({ providedIn: 'root' })
 export class WorkbenchStore implements OnDestroy {
@@ -169,6 +166,7 @@ export class WorkbenchStore implements OnDestroy {
   private readonly sessionCatalog = inject(SessionCatalogStore);
   private readonly serialTelemetry = inject(SerialTelemetryStore);
   private readonly heaterControl = inject(HeaterControlStore);
+  private readonly jobsPrograms = inject(JobsProgramsStore);
   private readonly document = inject(DOCUMENT);
   private readonly api: GcodeApi | undefined =
     typeof window === 'undefined'
@@ -233,12 +231,12 @@ export class WorkbenchStore implements OnDestroy {
   readonly trend = signal<readonly TrendPoint[]>([]);
   readonly terminal = this.serialTelemetry.terminal;
   readonly commandHistory = this.serialTelemetry.commandHistory;
-  readonly selectedProgram = signal<LoadedGcodeProgram | null>(null);
-  readonly selectedJob = signal<JobFileInfo | null>(null);
-  readonly heatingProfileDraft = signal<HeatingProfile | null>(null);
-  readonly heatingProfileDirty = signal(false);
-  readonly job = signal<JobState>(DEFAULT_JOB);
-  readonly jobTimeout = signal<JobTimeoutEvent | null>(null);
+  readonly selectedProgram = this.jobsPrograms.selectedProgramForCompatibility;
+  readonly selectedJob = this.jobsPrograms.selectedJobForCompatibility;
+  readonly heatingProfileDraft = this.jobsPrograms.heatingProfileDraftForCompatibility;
+  readonly heatingProfileDirty = this.jobsPrograms.heatingProfileDirtyForCompatibility;
+  readonly job = this.jobsPrograms.jobForCompatibility;
+  readonly jobTimeout = this.jobsPrograms.jobTimeoutForCompatibility;
   readonly liveTuning = signal<LiveTuningState>(DEFAULT_TUNING);
   readonly validation = signal<ValidationRunState>(DEFAULT_VALIDATION);
   readonly catalog = this.sessionCatalog.catalog;
@@ -254,9 +252,7 @@ export class WorkbenchStore implements OnDestroy {
   readonly terminalLocked = computed(() => this.busy());
   readonly resolvedTheme = signal<'dark' | 'light'>('dark');
   readonly averageDelta = computed(() => this.requestedTarget() - this.telemetry().average);
-  readonly heatingProfileValidation = computed<HeatingProfileValidation>(() =>
-    validateHeatingProfileDraft(this.heatingProfileDraft()),
-  );
+  readonly heatingProfileValidation = this.jobsPrograms.heatingProfileValidation;
 
   initialize(): Promise<void> {
     if (this.initializePromise !== null) return this.initializePromise;
@@ -267,6 +263,15 @@ export class WorkbenchStore implements OnDestroy {
   private async initializeOnce(): Promise<void> {
     if (this.initialized()) return;
     this.initialized.set(true);
+    this.jobsPrograms.configure({
+      busy: () => this.activity().active !== null || ACTIVE_JOB_STATUSES.has(this.job().status),
+      connected: () => this.connected(),
+      disarm: () => this.disarmControl(),
+      refreshSessions: () => this.refreshSessions(),
+      stopHeating: () => this.stopHeating(),
+      commandTimeoutMs: () => this.settings().commandTimeoutMs,
+    });
+    this.jobsPrograms.initialize();
     this.applyTheme(this.settings().theme);
 
     if (this.api === undefined) {
@@ -301,6 +306,7 @@ export class WorkbenchStore implements OnDestroy {
     this.sessionCatalog.ngOnDestroy();
     this.heaterControl.ngOnDestroy();
     this.serialTelemetry.ngOnDestroy();
+    this.jobsPrograms.ngOnDestroy();
     if (this.validationTimer !== undefined) {
       clearTimeout(this.validationTimer);
       this.validationTimer = undefined;
@@ -626,6 +632,8 @@ export class WorkbenchStore implements OnDestroy {
   }
 
   async chooseJob(): Promise<void> {
+    return this.jobsPrograms.chooseJob();
+    /*
     if (this.busy()) {
       this.notify('Wait for the active operation to finish before loading another file.');
       return;
@@ -645,9 +653,13 @@ export class WorkbenchStore implements OnDestroy {
     const result = await this.api.jobs.pickFile();
     if (result.ok && result.value !== null) this.selectProgram(result.value);
     else if (!result.ok) this.notify(result.error.message);
+    */
   }
 
   acceptDroppedFile(file: File): void {
+    this.jobsPrograms.acceptDroppedFile(file);
+    return;
+    /*
     if (this.busy()) {
       this.notify('Wait for the active operation to finish before loading another file.');
       return;
@@ -670,9 +682,13 @@ export class WorkbenchStore implements OnDestroy {
       extension,
     };
     this.selectProgram({ file: info, kind: 'gcode', profile: null, metadataWarning: null });
+    */
   }
 
   newHeatingProfile(): void {
+    this.jobsPrograms.newHeatingProfile();
+    return;
+    /*
     if (this.busy()) {
       this.notify('Wait for the active operation to finish before creating a profile.');
       return;
@@ -691,17 +707,25 @@ export class WorkbenchStore implements OnDestroy {
     });
     this.heatingProfileDirty.set(true);
     this.notify('New heating profile ready to edit.');
+    */
   }
 
   updateHeatingProfileName(name: string): void {
+    this.jobsPrograms.updateHeatingProfileName(name);
+    return;
+    /*
     if (this.busy()) return;
     this.heatingProfileDraft.update((profile) =>
       profile === null ? null : { ...profile, name: String(name) },
     );
     this.heatingProfileDirty.set(true);
+    */
   }
 
   updateHeatingProfilePoint(index: number, patch: Partial<HeatingProfile['points'][number]>): void {
+    this.jobsPrograms.updateHeatingProfilePoint(index, patch);
+    return;
+    /*
     if (this.busy()) return;
     this.heatingProfileDraft.update((profile) => {
       if (profile === null || index < 0 || index >= profile.points.length) return profile;
@@ -729,9 +753,12 @@ export class WorkbenchStore implements OnDestroy {
       return { ...profile, points };
     });
     this.heatingProfileDirty.set(true);
+    */
   }
 
   addHeatingProfilePoint(afterIndex: number): number {
+    return this.jobsPrograms.addHeatingProfilePoint(afterIndex);
+    /*
     if (this.busy()) return afterIndex;
     let insertedIndex = afterIndex;
     this.heatingProfileDraft.update((profile) => {
@@ -773,18 +800,25 @@ export class WorkbenchStore implements OnDestroy {
     });
     this.heatingProfileDirty.set(true);
     return insertedIndex;
+    */
   }
 
   removeHeatingProfilePoint(index: number): void {
+    this.jobsPrograms.removeHeatingProfilePoint(index);
+    return;
+    /*
     if (this.busy()) return;
     this.heatingProfileDraft.update((profile) => {
       if (profile === null || profile.points.length <= 2 || index <= 0) return profile;
       return { ...profile, points: profile.points.filter((_, pointIndex) => pointIndex !== index) };
     });
     this.heatingProfileDirty.set(true);
+    */
   }
 
   async saveHeatingProfile(): Promise<LoadedGcodeProgram | null> {
+    return this.jobsPrograms.saveHeatingProfile();
+    /*
     if (this.busy()) {
       this.notify('Wait for the active operation to finish before saving a profile.');
       return null;
@@ -825,9 +859,12 @@ export class WorkbenchStore implements OnDestroy {
     }
     if (!result.ok) this.notify(result.error.message);
     return null;
+    */
   }
 
   async runLoadedProgram(startLine = 1): Promise<boolean> {
+    return this.jobsPrograms.runLoadedProgram(startLine);
+    /*
     if (!this.connected()) {
       this.notify('Connect the controller before running a G-code file.');
       return false;
@@ -851,9 +888,12 @@ export class WorkbenchStore implements OnDestroy {
       return false;
     }
     return this.startJob(startLine);
+    */
   }
 
   async startJob(startLine = 1): Promise<boolean> {
+    return this.jobsPrograms.startJob(startLine);
+    /*
     const file = this.selectedJob();
     if (file === null) return false;
     if (!this.connected()) {
@@ -896,9 +936,12 @@ export class WorkbenchStore implements OnDestroy {
       },
     });
     return true;
+    */
   }
 
   async pauseOrResumeJob(): Promise<void> {
+    return this.jobsPrograms.pauseOrResumeJob();
+    /*
     const job = this.job();
     if (this.api !== undefined) {
       const result =
@@ -914,9 +957,12 @@ export class WorkbenchStore implements OnDestroy {
       status: current.status === 'paused' ? 'streaming' : 'paused',
       pauseRequested: false,
     }));
+    */
   }
 
   async stopJob(): Promise<void> {
+    return this.jobsPrograms.stopJob();
+    /*
     if (this.api !== undefined) {
       const result = await this.api.jobs.stop();
       if (result.ok) {
@@ -931,9 +977,12 @@ export class WorkbenchStore implements OnDestroy {
       endedAt: new Date().toISOString(),
     }));
     await this.stopHeating();
+    */
   }
 
   async resolveJobTimeout(decision: JobTimeoutDecision): Promise<void> {
+    return this.jobsPrograms.resolveJobTimeout(decision);
+    /*
     const timeout = this.jobTimeout();
     if (timeout === null) return;
     if (this.api !== undefined) {
@@ -950,6 +999,7 @@ export class WorkbenchStore implements OnDestroy {
       status: decision === 'stop' ? 'stopped' : 'streaming',
       endedAt: decision === 'stop' ? new Date().toISOString() : null,
     }));
+    */
   }
 
   async updateSettings(patch: SettingsPatch): Promise<void> {
@@ -1108,7 +1158,7 @@ export class WorkbenchStore implements OnDestroy {
       this.api.profiles.list(),
     ]);
     await this.serialTelemetry.loadState();
-    if (job.ok) this.job.set(job.value);
+    if (job.ok) this.jobsPrograms.replaceJob(job.value);
     if (activity.ok) this.activity.set(activity.value);
     if (catalog.ok) this.sessionCatalog.replaceCatalog(catalog.value);
     if (systemInfo.ok) this.systemInfo.set(systemInfo.value);
@@ -1126,17 +1176,6 @@ export class WorkbenchStore implements OnDestroy {
       (message) => this.notify(message),
     );
     this.unsubscribe.push(
-      this.api.events.onJobState((state) => {
-        this.job.set(state);
-        if (
-          state.status === 'completed' ||
-          state.status === 'stopped' ||
-          state.status === 'failed'
-        ) {
-          window.setTimeout(() => void this.refreshSessions(), 750);
-        }
-      }),
-      this.api.events.onJobTimeout((event) => this.jobTimeout.set(event)),
       this.api.events.onTuningState((state) => {
         this.liveTuning.set(state);
         if (
@@ -1859,19 +1898,6 @@ function cloneHeatingProfile(profile: HeatingProfile): HeatingProfile {
     interpolation: 'linear',
     points: profile.points.map((point) => ({ ...point })),
   };
-}
-
-function validateHeatingProfileDraft(profile: HeatingProfile | null): HeatingProfileValidation {
-  if (profile === null) return { valid: false, error: 'No heating profile is loaded.' };
-  try {
-    validateHeatingProfile(profile);
-    return { valid: true, error: null };
-  } catch (error) {
-    return {
-      valid: false,
-      error: error instanceof Error ? error.message : 'The heating profile is invalid.',
-    };
-  }
 }
 
 export function createJobStartRequest(

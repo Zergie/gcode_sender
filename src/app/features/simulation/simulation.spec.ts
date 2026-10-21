@@ -545,7 +545,8 @@ describe('SimulationComponent', () => {
     fixture.detectChanges();
 
     const text = fixture.nativeElement.textContent as string;
-    expect(text).toContain('TWIN v1');
+    expect(text).toContain('Digital Twin');
+    expect(text).not.toContain('TWIN v1');
     expect(text).toContain('80 × 220 × 60 mm chamber');
     expect(text).toContain('Geometry & heat storage');
     expect(text).toContain('Conduction & convection');
@@ -955,12 +956,24 @@ describe('SimulationComponent', () => {
     expect(component.firmwareTerminalCommands()).toEqual([
       expect.objectContaining({ atSeconds: 12.5, command: 'M105' }),
     ]);
-    expect(fixture.nativeElement.textContent).toContain('Simulated controller terminal');
+    expect(fixture.nativeElement.textContent).toContain('Simulation Control');
     expect(fixture.nativeElement.textContent).not.toContain('Built-in');
 
     component.run(false, false);
     const request = SimulationWorkerStub.instances.at(-1)?.messages[0]?.request;
     expect(request?.scenario.serialCommands).toEqual([{ atSeconds: 12.5, command: 'M105' }]);
+    fixture.destroy();
+  });
+
+  it('adopts firmware selected through the shared workbench picker', () => {
+    const fixture = TestBed.createComponent(SimulationComponent);
+    const component = fixture.componentInstance;
+    const firmware = preparedFirmwareFixture(component.firmwareHardware());
+
+    TestBed.inject(ConfigurationStore).setFirmware(firmware);
+    fixture.detectChanges();
+
+    expect(component.preparedFirmware()).toBe(firmware);
     fixture.destroy();
   });
 

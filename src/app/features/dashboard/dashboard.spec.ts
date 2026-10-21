@@ -18,6 +18,40 @@ describe('DashboardComponent', () => {
     expect(fixture.componentInstance.targetDraft()).toBe(0);
   });
 
+  it('applies the PID profile selected beside the heater target before arming control', async () => {
+    const store = TestBed.inject(WorkbenchStore);
+    const firstSchedule = store.pidSchedule();
+    const secondSchedule = firstSchedule.map((breakpoint) => ({
+      ...breakpoint,
+      gains: { ...breakpoint.gains, kp: breakpoint.gains.kp + 7 },
+    }));
+    await store.saveProfile('First PID', 'pid-schedule', 'draft', firstSchedule);
+    const second = await store.saveProfile('Second PID', 'pid-schedule', 'draft', secondSchedule);
+    store.connection.update((connection) => ({ ...connection, status: 'connected' }));
+    const fixture = TestBed.createComponent(DashboardComponent);
+    const component = fixture.componentInstance;
+    component.pidProfileDraftId.set(second!.id);
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('.target-panel .pid-profile-selector')).toBeNull();
+    expect(
+      fixture.nativeElement.querySelector('.pid-profile-panel .pid-profile-selector'),
+    ).not.toBeNull();
+
+    await component.applyTarget();
+    fixture.detectChanges();
+
+    expect(store.pidSchedule().map(({ gains }) => gains.kp)).toEqual(
+      secondSchedule.map(({ gains }) => gains.kp),
+    );
+    expect(store.activePidProfileId()).toBe(second?.id);
+    expect(store.controlArmed()).toBe(true);
+    expect(
+      (fixture.nativeElement.querySelector('.pid-profile-selector select') as HTMLSelectElement)
+        .value,
+    ).toContain(second!.id);
+  });
+
   it('renders all four physical/derived temperature channels', () => {
     const fixture = TestBed.createComponent(DashboardComponent);
     fixture.detectChanges();

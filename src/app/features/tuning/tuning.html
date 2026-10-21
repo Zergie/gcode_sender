@@ -18,6 +18,19 @@
     </app-page-header>
   }
 
+  @if (section() === 'simulation' && store.firmwareInLoop() === null) {
+    <section class="notice-banner warning" role="status">
+      <app-icon name="alert" />
+      <div>
+        <strong>No Arduino sketch selected</strong>
+        <span>Choose or replace the .ino file in Settings.</span>
+      </div>
+      <button class="button secondary" type="button" (click)="store.chooseFirmwareIno()">
+        Choose .ino
+      </button>
+    </section>
+  }
+
   <nav class="section-tabs" aria-label="Tuning sections">
     <button
       type="button"
@@ -29,33 +42,19 @@
     </button>
     <button
       type="button"
-      [class.active]="section() === 'schedule'"
-      [attr.aria-pressed]="section() === 'schedule'"
-      (click)="section.set('schedule')"
-    >
-      PID schedule
-    </button>
-    <button
-      type="button"
-      [class.active]="section() === 'autotune'"
-      [attr.aria-pressed]="section() === 'autotune'"
-      (click)="section.set('autotune')"
-    >
-      Live heater tuning
-    </button>
-    <button
-      type="button"
-      [class.active]="section() === 'profiles'"
-      [attr.aria-pressed]="section() === 'profiles'"
+      [class.active]="section() !== 'simulation'"
+      [attr.aria-pressed]="section() !== 'simulation'"
       (click)="section.set('profiles')"
     >
-      Profile library
+      Tuning
     </button>
   </nav>
 
   @if (section() === 'simulation') {
     <app-simulation [embedded]="true" />
-  } @else if (section() === 'schedule') {
+  }
+
+  @if (section() !== 'simulation') {
     <section class="tuning-grid">
       <article class="panel schedule-editor">
         <header class="panel-header">
@@ -70,6 +69,9 @@
           ><span>Profile name</span
           ><input [ngModel]="profileName()" (ngModelChange)="profileName.set($event)"
         /></label>
+        @if (profileNameError(); as error) {
+          <p class="field-error" role="alert">{{ error }}</p>
+        }
         <div class="pid-table">
           <div class="pid-row pid-head">
             <span>Temperature</span><span>Kp</span><span>Ki</span><span>Kd</span><span></span>
@@ -141,18 +143,10 @@
           <button
             class="button secondary"
             type="button"
-            [disabled]="validatedSchedule().schedule === null"
-            (click)="saveDraft()"
+            [disabled]="validatedSchedule().schedule === null || profileNameError() !== null"
+            (click)="save()"
           >
-            Save draft
-          </button>
-          <button
-            class="button primary"
-            type="button"
-            [disabled]="!store.connected() || validatedSchedule().schedule === null"
-            (click)="applySchedule()"
-          >
-            Apply active gains
+            Save
           </button>
         </footer>
       </article>
@@ -207,7 +201,7 @@
     </section>
   }
 
-  @if (section() === 'autotune') {
+  @if (section() !== 'simulation') {
     <section class="autotune-layout">
       <article class="panel tune-wizard">
         <header class="tune-steps" aria-label="Tuning progress">
@@ -487,15 +481,11 @@
           <li><b>4</b><span>Verify firmware output is near full-on/full-off.</span></li>
           <li><b>5</b><span>Fit twelve peaks, propose gains, restore snapshot.</span></li>
         </ol>
-        <div class="method-source">
-          Algorithm style <strong>Klipper pid_calibrate</strong
-          ><span>Adapted for target-only STM32 firmware</span>
-        </div>
       </aside>
     </section>
   }
 
-  @if (section() === 'profiles') {
+  @if (section() !== 'simulation') {
     <section class="profile-library">
       <div class="library-toolbar">
         <div>
@@ -513,15 +503,24 @@
       </div>
       <div class="profile-grid">
         @for (profile of visibleProfiles(); track profile.id) {
-          <article class="panel profile-card">
+          <article
+            class="panel profile-card"
+            [class.selected]="profile.id === selectedProfileId()"
+            [attr.aria-current]="profile.id === selectedProfileId() ? 'true' : null"
+          >
             <header>
               <span class="profile-kind">{{ profile.kind.replace('-', ' ').toUpperCase() }}</span
-              ><span
-                class="state-chip"
-                [class.applied]="profile.state === 'applied'"
-                [class.validated]="profile.state === 'validated'"
-                >{{ profile.state.toUpperCase() }}</span
-              >
+              ><span class="profile-card-status">
+                @if (profile.id === selectedProfileId()) {
+                  <span class="selected-profile-chip">SELECTED</span>
+                }
+                <span
+                  class="state-chip"
+                  [class.applied]="profile.state === 'applied'"
+                  [class.validated]="profile.state === 'validated'"
+                  >{{ profile.state.toUpperCase() }}</span
+                >
+              </span>
             </header>
             <h3>{{ profile.name }}</h3>
             <p>{{ profileNote(profile) }}</p>
@@ -530,9 +529,22 @@
               ><span>{{ profile.updatedAt | date: 'medium' }}</span>
             </div>
             <footer>
-              <button class="text-button" type="button" (click)="loadProfile(profile)">
-                {{ profile.kind === 'pid-schedule' ? 'Open in editor' : 'Use profile' }}</button
-              ><button
+              <div class="profile-card-actions">
+                <button class="text-button" type="button" (click)="loadProfile(profile)">
+                  {{ profile.kind === 'pid-schedule' ? 'Open' : 'Use profile' }}
+                </button>
+                @if (profile.kind === 'pid-schedule') {
+                  <button
+                    class="text-button apply-profile"
+                    type="button"
+                    [disabled]="!store.connected() || store.busy()"
+                    (click)="applyProfile(profile)"
+                  >
+                    Apply
+                  </button>
+                }
+              </div>
+              <button
                 class="icon-button"
                 type="button"
                 (click)="removeProfile(profile)"
@@ -546,13 +558,9 @@
         @if (visibleProfiles().length === 0) {
           <article class="panel empty-profile-card">
             <strong>No profile revisions found</strong>
-            <span>Save a PID schedule or oven model to create the first revision.</span>
+            <span>Import a profile revision to begin editing.</span>
           </article>
         }
-        <button class="new-profile-card" type="button" (click)="section.set('schedule')">
-          <span>+</span><strong>New PID profile</strong
-          ><small>Start with a breakpoint schedule</small>
-        </button>
       </div>
     </section>
   }

@@ -64,8 +64,8 @@ describe('TrendChartComponent heating profile overlay', () => {
     fixture.componentRef.setInput('points', []);
     fixture.detectChanges();
 
-    const labels = [...fixture.nativeElement.querySelectorAll('.axis-labels text')].map(
-      (label: SVGTextElement) => label.textContent,
+    const labels = [...fixture.nativeElement.querySelectorAll('.axis-labels span')].map(
+      (label: HTMLSpanElement) => label.textContent,
     );
     expect(labels).toEqual(['250°', '200°', '150°', '100°', '50°', '0°']);
   });

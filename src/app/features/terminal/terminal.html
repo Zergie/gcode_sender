@@ -3,10 +3,6 @@
     title="Terminal"
     description="Raw firmware conversation with command history and catalog assistance."
   >
-    <span class="status-chip" [class.online]="store.connected()"
-      ><i></i
-      >{{ store.connected() ? store.connection().portPath + ' · 115200' : 'Not connected' }}</span
-    >
     <button class="button secondary" type="button" (click)="store.clearTerminal()">Clear</button>
     <button class="button secondary" type="button" (click)="store.saveTerminalSession()">
       Save session
@@ -38,7 +34,13 @@
         <span>{{ store.terminal().length }} lines</span><span>UTF-8</span><span>Auto-scroll</span>
       </div>
     </header>
-    <div class="terminal-output" role="log" aria-live="polite">
+    <div
+      #terminalOutput
+      class="terminal-output"
+      role="log"
+      aria-live="polite"
+      (scroll)="rememberOutputPosition()"
+    >
       @for (entry of store.terminal(); track entry.id) {
         <div
           class="terminal-line"

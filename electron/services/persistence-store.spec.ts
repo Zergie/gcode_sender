@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import type { SessionMetadata } from '../../shared/contracts';
+import type { SessionMetadata, StoredProfile } from '../../shared/contracts';
 import type { Logger } from '../logger';
 import { PersistenceStore, pruneSessions } from './persistence-store';
 
@@ -25,6 +25,21 @@ afterEach(async () => {
 });
 
 describe('session retention', () => {
+  it('enforces unique profile names for saves and imports', async () => {
+    const directory = await temporaryDirectory();
+    const store = new PersistenceStore(directory, logger);
+    await store.initialize();
+    await store.saveProfile(profile('first', 'Standard PID'));
+
+    await expect(store.saveProfile(profile('second', ' standard pid '))).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+    });
+    await expect(store.importProfiles([profile('third', 'STANDARD PID')])).rejects.toMatchObject({
+      code: 'INVALID_ARGUMENT',
+    });
+    expect(store.listProfiles()).toHaveLength(1);
+  });
+
   it('rejects renderer-shaped settings patches that try to change approved catalog hosts', async () => {
     const directory = await temporaryDirectory();
     const store = new PersistenceStore(directory, logger);
@@ -216,5 +231,22 @@ function session(id: string, endedAt: number): SessionMetadata {
     endedAt: new Date(endedAt).toISOString(),
     pinned: false,
     data: null,
+  };
+}
+
+function profile(id: string, name: string): StoredProfile {
+  const timestamp = '2026-08-26T00:00:00.000Z';
+  return {
+    id,
+    version: 1,
+    kind: 'pid-schedule',
+    name,
+    state: 'draft',
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    data: [
+      { temperatureC: 100, gains: { kp: 10, ki: 0.5, kd: 50 } },
+      { temperatureC: 200, gains: { kp: 20, ki: 0.8, kd: 80 } },
+    ],
   };
 }

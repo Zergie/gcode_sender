@@ -19,12 +19,8 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(page.locator('app-simulation')).toBeVisible();
       await expect(page.locator('.simulation-layout')).toBeVisible();
 
-      for (const [tab, content] of [
-        ['PID schedule', '.tuning-grid'],
-        ['Live heater tuning', '.autotune-layout'],
-        ['Profile library', '.profile-library'],
-      ] as const) {
-        await page.getByRole('button', { name: tab, exact: true }).click();
+      await page.getByRole('button', { name: 'Tuning', exact: true }).click();
+      for (const content of ['.profile-library', '.tuning-grid', '.autotune-layout'] as const) {
         await expect(page.locator(content)).toBeVisible();
         const bounds = await page.locator(content).boundingBox();
         expect(bounds).not.toBeNull();

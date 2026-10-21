@@ -1189,6 +1189,177 @@
   align-items: center;
 }
 
+.simulation-control {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.simulation-control .panel-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.simulation-control-scenario {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.simulation-terminal {
+  display: grid;
+  min-height: 320px;
+  grid-template-rows: 42px minmax(150px, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: #0a0e12;
+}
+
+.simulation-terminal .terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid #222c36;
+  color: #778592;
+  font-size: 11px;
+}
+
+.simulation-terminal .traffic-legend,
+.simulation-terminal .terminal-toolbar > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.simulation-terminal .traffic-legend span {
+  padding: 2px 5px;
+  border-radius: 3px;
+  font: 10px var(--font-mono);
+}
+
+.simulation-terminal .traffic-legend .rx {
+  color: #72c8ef;
+  background: rgba(85, 189, 233, 0.1);
+}
+
+.simulation-terminal .traffic-legend .tx {
+  margin-left: 6px;
+  color: #ff906b;
+  background: rgba(255, 116, 72, 0.1);
+}
+
+.simulation-terminal .terminal-output {
+  min-height: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 13px 15px;
+  scrollbar-gutter: stable;
+  font: 12px/1.75 var(--font-mono);
+}
+
+.simulation-terminal .terminal-line {
+  display: grid;
+  grid-template-columns: 86px 46px minmax(0, 1fr);
+  gap: 7px;
+  padding: 2px 0;
+  border: 0;
+}
+
+.simulation-terminal .queued-terminal-line {
+  grid-template-columns: 86px 46px minmax(0, 1fr) 24px;
+}
+
+.simulation-terminal .terminal-line time,
+.simulation-terminal .firmware-output-summary {
+  color: #4e5c68;
+}
+
+.simulation-terminal .terminal-line .direction {
+  color: #55bde9;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.simulation-terminal .terminal-line.tx .direction,
+.simulation-terminal .terminal-line.tx code {
+  color: #ff8d67;
+}
+
+.simulation-terminal .terminal-line.gpio .direction {
+  color: #ae8cff;
+}
+
+.simulation-terminal .terminal-line.system code {
+  color: #84919c;
+  font-style: italic;
+}
+
+.simulation-terminal .terminal-line code {
+  min-width: 0;
+  color: #b8c4cd;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.simulation-terminal .queued-terminal-line button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #637180;
+}
+
+.simulation-terminal .terminal-empty {
+  display: grid;
+  min-height: 120px;
+  margin: 0;
+  place-items: center;
+  color: #52616d;
+}
+
+.simulation-terminal .terminal-composer {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+  padding: 11px 12px;
+  border-top: 1px solid #222c36;
+  background: #0d1217;
+}
+
+.simulation-terminal .prompt {
+  padding-top: 8px;
+  color: var(--accent);
+  font: 15px var(--font-mono);
+}
+
+.simulation-terminal .command-field textarea {
+  display: block;
+  width: 100%;
+  min-height: 50px;
+  padding: 7px 9px;
+  resize: vertical;
+  border: 1px solid #27333d;
+  border-radius: 5px;
+  background: #10161c;
+  color: #d9e0e5;
+  font: 12px/1.5 var(--font-mono);
+}
+
+.simulation-terminal .send-button {
+  align-self: stretch;
+}
+
+.simulation-terminal .send-button kbd {
+  padding: 1px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.12);
+}
+
 .firmware-output-status {
   display: block;
   margin-top: 2px;

@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { HeatingProfilePoint } from '../../../../shared/contracts';
+import { createPidSchedule, type PidSchedule } from '../../core/control';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
 import { T3_TELEMETRY_SEMANTICS } from '../../core/telemetry/t3-semantics';
 import { IconComponent } from '../../shared/icon';
@@ -38,9 +39,16 @@ export class DashboardComponent {
   readonly targetDraft = signal(200);
   readonly range = signal<DashboardRange>('30m');
   readonly selectedProfilePointIndex = signal(0);
+  readonly pidProfileDraftId = signal<string | null>(null);
   private lastLoadedProfileKey: string | null = null;
 
   readonly profile = computed(() => this.store.heatingProfileDraft());
+  readonly pidProfiles = computed(() =>
+    this.store.profiles().filter((profile) => profile.kind === 'pid-schedule'),
+  );
+  readonly selectedPidProfile = computed(
+    () => this.pidProfiles().find(({ id }) => id === this.pidProfileDraftId()) ?? null,
+  );
   readonly profileDurationMs = computed(() => this.profile()?.points.at(-1)?.timeMs ?? 0);
   readonly profileAnchor = computed(() => {
     const program = this.store.selectedProgram();
@@ -135,6 +143,7 @@ export class DashboardComponent {
 
   constructor() {
     this.targetDraft.set(this.store.requestedTarget());
+    let initializedPidProfile = false;
     effect(() => {
       const profile = this.profile();
       const key =
@@ -148,10 +157,49 @@ export class DashboardComponent {
       }
       if (profile === null && this.range() === 'Profile') this.range.set('30m');
     });
+    effect(() => {
+      const profiles = this.pidProfiles();
+      if (profiles.length === 0) {
+        this.pidProfileDraftId.set(null);
+        return;
+      }
+      const currentId = this.pidProfileDraftId();
+      if (initializedPidProfile && profiles.some(({ id }) => id === currentId)) return;
+      initializedPidProfile = true;
+      const activeId = this.store.activePidProfileId();
+      const initial =
+        profiles.find(({ id }) => id === activeId) ??
+        profiles.find(({ state }) => state === 'applied') ??
+        profiles[0];
+      this.pidProfileDraftId.set(initial?.id ?? null);
+    });
   }
 
-  applyTarget(): void {
-    void this.store.setTarget(this.targetDraft());
+  async applyTarget(): Promise<void> {
+    if (this.store.controlMode() === 'pid') {
+      const profile = this.selectedPidProfile();
+      if (profile === null) {
+        this.store.notify('Choose a PID profile before arming control.');
+        return;
+      }
+      try {
+        const schedule = createPidSchedule(profile.data as unknown as PidSchedule);
+        const applied = await this.store.applyPidSchedule(schedule);
+        if (!applied) return;
+        const saved = await this.store.saveProfile(
+          profile.name,
+          'pid-schedule',
+          'applied',
+          schedule,
+        );
+        if (saved === null) return;
+        this.store.activePidProfileId.set(saved.id);
+      } catch {
+        this.store.notify('The selected PID profile contains an invalid schedule.');
+        return;
+      }
+    }
+    await this.store.setTarget(this.targetDraft());
   }
 
   adjustTarget(delta: number): void {

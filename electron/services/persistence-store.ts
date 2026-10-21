@@ -134,6 +134,10 @@ export class PersistenceStore {
 
   async saveProfile(candidate: StoredProfile): Promise<StoredProfile> {
     const profile = validateProfile(candidate);
+    assertUniqueProfileNames([
+      ...this.state.profiles.filter(({ id }) => id !== profile.id),
+      profile,
+    ]);
     const profiles = this.state.profiles.filter(({ id }) => id !== profile.id);
     this.state = { ...this.state, profiles: [...profiles, profile] };
     await this.persist();
@@ -158,6 +162,7 @@ export class PersistenceStore {
     for (const profile of imported) {
       merged.set(profile.id, profile);
     }
+    assertUniqueProfileNames([...merged.values()]);
     this.state = { ...this.state, profiles: [...merged.values()] };
     await this.persist();
     return structuredClone(imported);
@@ -512,4 +517,15 @@ function assertId(value: unknown): asserts value is string {
 
 function invalid(message: string): AppError {
   return new AppError({ code: 'INVALID_ARGUMENT', message, recoverable: true });
+}
+
+function assertUniqueProfileNames(profiles: readonly StoredProfile[]): void {
+  const names = new Set<string>();
+  for (const profile of profiles) {
+    const key = profile.name.trim().toLowerCase();
+    if (names.has(key)) {
+      throw invalid(`Profile names must be unique. “${profile.name.trim()}” is already in use.`);
+    }
+    names.add(key);
+  }
 }

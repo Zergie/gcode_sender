@@ -7,6 +7,7 @@ import {
   input,
   output,
 } from '@angular/core';
+import type { AfterViewInit, OnDestroy } from '@angular/core';
 import type { HeatingProfile } from '../../../shared/contracts';
 import type { TrendPoint } from '../core/platform/workbench.store';
 
@@ -105,15 +106,15 @@ interface ChartGeometry {
             </g>
           }
         }
-        <g class="axis-labels" aria-hidden="true">
-          <text x="5" y="27">250°</text>
-          <text x="12" y="76.6">200°</text>
-          <text x="12" y="126.2">150°</text>
-          <text x="12" y="175.8">100°</text>
-          <text x="20" y="225.4">50°</text>
-          <text x="27" y="275">0°</text>
-        </g>
       </svg>
+      <div class="axis-labels" aria-hidden="true">
+        <span style="top: 7.333%">250°</span>
+        <span style="top: 23.867%">200°</span>
+        <span style="top: 40.4%">150°</span>
+        <span style="top: 56.933%">100°</span>
+        <span style="top: 73.467%">50°</span>
+        <span style="top: 90%">0°</span>
+      </div>
     </div>
   `,
   styles: `
@@ -123,6 +124,7 @@ interface ChartGeometry {
       min-height: 0;
     }
     .trend-wrap {
+      position: relative;
       height: 100%;
       min-height: 210px;
     }
@@ -141,8 +143,19 @@ interface ChartGeometry {
       vector-effect: non-scaling-stroke;
     }
     .axis-labels {
-      fill: var(--text-faint);
-      font: 16px var(--font-mono);
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      color: var(--text-faint);
+      font: 12px var(--font-mono);
+    }
+    .axis-labels span {
+      position: absolute;
+      left: 0;
+      width: 4.333%;
+      transform: translateY(-50%);
+      text-align: right;
+      white-space: nowrap;
     }
     .series {
       fill: none;
@@ -223,7 +236,7 @@ interface ChartGeometry {
     }
   `,
 })
-export class TrendChartComponent {
+export class TrendChartComponent implements AfterViewInit, OnDestroy {
   private readonly host = inject(ElementRef<HTMLElement>);
   private resizeObserver: ResizeObserver | undefined;
   readonly points = input.required<readonly TrendPoint[]>();

@@ -262,7 +262,7 @@ export class SimulationComponent implements OnDestroy {
   });
   readonly simulationBusy = signal(false);
   readonly simulationError = signal<string | null>(null);
-  readonly selectedVariant = signal('assisted');
+  readonly selectedVariant = signal('pid');
   readonly firmwareBuildBusy = signal(false);
   readonly firmwareAdvanced = signal(false);
   readonly firmwareToolchain = signal<FirmwareToolchainStatus | null>(null);
@@ -284,6 +284,14 @@ export class SimulationComponent implements OnDestroy {
     if (revision === this.observedPhysicalConfigurationRevision || this.destroyed) return;
     this.observedPhysicalConfigurationRevision = revision;
     this.invalidateSimulationResults();
+  });
+  private readonly configuredFirmwareEffect = effect(() => {
+    const firmware = this.configuration.firmwareInLoop();
+    if (firmware === null || firmware === this.preparedFirmware()) return;
+    this.invalidateSimulationResults();
+    this.preparedFirmware.set(firmware);
+    this.firmwareToolchain.set(firmware.toolchain);
+    this.firmwareDiagnostics.set(firmware.diagnostics);
   });
 
   setFirmwareHardware(hardware: VirtualHardwareConfiguration): void {
@@ -456,7 +464,7 @@ export class SimulationComponent implements OnDestroy {
       return error instanceof Error ? error.message : 'The virtual hardware mapping is invalid.';
     }
   });
-  readonly configurationError = computed(() => {
+  readonly scenarioConfigurationError = computed(() => {
     try {
       validateOvenModelProfile(this.profile());
       validateTargetShaperConfiguration(this.modelAssistance());
@@ -470,13 +478,16 @@ export class SimulationComponent implements OnDestroy {
       ) {
         return 'Duration must be between 1 and 180 minutes.';
       }
-      if (this.store.demoState() === 'simulation') return null;
-      const firmwareError = this.firmwareConfigurationError();
-      if (firmwareError !== null) return firmwareError;
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : 'The simulation configuration is invalid.';
     }
+  });
+  readonly configurationError = computed(() => {
+    const scenarioError = this.scenarioConfigurationError();
+    if (scenarioError !== null) return scenarioError;
+    if (this.store.demoState() === 'simulation') return null;
+    return this.firmwareConfigurationError();
   });
 
   readonly warps: readonly SimulationTimewarp[] = [1, 5, 20, 100, 'maximum'];
@@ -585,19 +596,6 @@ export class SimulationComponent implements OnDestroy {
             maximumOvershootC: 0,
             finalErrorC: 0,
             energyWh: 0,
-            actuatorSaturationPercent: 0,
-          },
-        },
-        {
-          id: 'assisted',
-          label: 'Firmware + physical feed-forward',
-          result: result('Assisted', -1.1),
-          deltaFromBaseline: {
-            integralAbsoluteErrorCSeconds: -1_100,
-            rootMeanSquareErrorC: -0.11,
-            maximumOvershootC: -0.11,
-            finalErrorC: -0.11,
-            energyWh: -1.1,
             actuatorSaturationPercent: 0,
           },
         },

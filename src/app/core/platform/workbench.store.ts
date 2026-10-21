@@ -198,6 +198,7 @@ export class WorkbenchStore implements OnDestroy {
   readonly ovenModelProfile = this.configuration.ovenModelProfile;
   readonly modelAssistance = this.heaterControl.modelAssistance;
   readonly activeProfile = signal('Standard oven model');
+  readonly activePidProfileId = signal<string | null>(null);
   readonly activity = signal<ExclusiveActivityState>({ active: null });
   readonly trend = signal<readonly TrendPoint[]>([]);
   readonly terminal = this.serialTelemetry.terminal;
@@ -950,10 +951,42 @@ export class WorkbenchStore implements OnDestroy {
     kind: ProfileKind,
     state: ProfileState,
     data: unknown,
+    profileId?: string,
   ): Promise<StoredProfile | null> {
-    const profile = this.configuration.createProfile(name, kind, state, data as JsonValue);
+    const normalizedName = name.trim();
+    if (normalizedName.length === 0) {
+      this.notify('Profile name is required.');
+      return null;
+    }
+    const nameKey = normalizedName.toLowerCase();
+    const sameName = this.profiles().find(
+      (candidate) => candidate.name.trim().toLowerCase() === nameKey,
+    );
+    const targetId = profileId ?? sameName?.id;
+    if (sameName !== undefined && sameName.id !== targetId) {
+      this.notify(`A profile named “${normalizedName}” already exists.`);
+      return null;
+    }
+    const existing =
+      targetId === undefined ? undefined : this.profiles().find(({ id }) => id === targetId);
+    if (profileId !== undefined && existing === undefined) {
+      this.notify('The selected profile no longer exists. Select another profile and try again.');
+      return null;
+    }
+    const profile =
+      existing === undefined
+        ? this.configuration.createProfile(normalizedName, kind, state, data as JsonValue)
+        : {
+            ...existing,
+            name: normalizedName,
+            kind,
+            state,
+            data: data as JsonValue,
+            updatedAt: new Date().toISOString(),
+          };
     if (this.api === undefined) {
-      this.configuration.addProfile(profile);
+      if (existing === undefined) this.configuration.addProfile(profile);
+      else this.configuration.replaceProfile(profile);
       this.notify(`${profile.name} saved in the browser demo.`);
       return profile;
     }

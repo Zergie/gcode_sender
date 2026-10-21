@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ViewChild,
+  computed,
+  inject,
+  signal,
+} from '@angular/core';
+import type { AfterViewInit, ElementRef, OnDestroy } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { WorkbenchStore } from '../../core/platform/workbench.store';
@@ -13,7 +21,9 @@ import { PageHeaderComponent } from '../../shared/page-header';
   styleUrl: './terminal.scss',
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class TerminalComponent {
+export class TerminalComponent implements AfterViewInit, OnDestroy {
+  @ViewChild('terminalOutput') private terminalOutput?: ElementRef<HTMLDivElement>;
+
   readonly store = inject(WorkbenchStore);
   readonly sessionCatalog = inject(SessionCatalogStore);
   readonly command = signal('');
@@ -26,6 +36,36 @@ export class TerminalComponent {
       .entries.filter((entry) => entry.code.startsWith(token))
       .slice(0, 5);
   });
+  private outputObserver?: MutationObserver;
+  private previousLineWasVisible = true;
+
+  ngAfterViewInit(): void {
+    const output = this.terminalOutput?.nativeElement;
+    if (output === undefined) return;
+    this.previousLineWasVisible = this.isLastOutputVisible(output);
+    this.outputObserver = new MutationObserver(() => {
+      if (this.previousLineWasVisible) output.scrollTop = output.scrollHeight;
+      this.previousLineWasVisible = this.isLastOutputVisible(output);
+    });
+    this.outputObserver.observe(output, { childList: true, subtree: true });
+  }
+
+  ngOnDestroy(): void {
+    this.outputObserver?.disconnect();
+  }
+
+  rememberOutputPosition(): void {
+    const output = this.terminalOutput?.nativeElement;
+    if (output !== undefined) this.previousLineWasVisible = this.isLastOutputVisible(output);
+  }
+
+  private isLastOutputVisible(output: HTMLElement): boolean {
+    const lastLine = output.lastElementChild;
+    if (lastLine === null) return true;
+    const outputRect = output.getBoundingClientRect();
+    const lineRect = lastLine.getBoundingClientRect();
+    return lineRect.top >= outputRect.top - 1 && lineRect.bottom <= outputRect.bottom + 1;
+  }
 
   async send(): Promise<void> {
     const sent = await this.store.sendTerminal(this.command());

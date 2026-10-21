@@ -101,8 +101,22 @@ for (const theme of THEMES) {
         waitUntil: 'domcontentloaded',
       });
       await expect(page.locator('.simulation-chart')).toBeVisible();
-      await expect(page.locator('.metric-comparison')).toHaveCount(2);
+      await expect(page.locator('.metric-comparison')).toHaveCount(1);
       await expect(page.locator('.chart-body svg')).toBeVisible();
+      const temperatureTickRightEdges = await page
+        .locator('.chart-body .axis-labels span')
+        .evaluateAll((labels) =>
+          labels.map((label) => {
+            const rect = label.getBoundingClientRect();
+            return rect.right;
+          }),
+        );
+      expect(temperatureTickRightEdges).toHaveLength(6);
+      for (const rightEdge of temperatureTickRightEdges.slice(1)) {
+        expect(rightEdge).toBeCloseTo(temperatureTickRightEdges[0]!, 1);
+      }
+      await expect(page.getByRole('group', { name: 'Controller' })).toHaveCount(0);
+      await expect(page.locator('.comparison-legend .alternate-response')).toHaveCount(0);
 
       for (const viewport of VIEWPORTS) {
         await page.setViewportSize(viewport);

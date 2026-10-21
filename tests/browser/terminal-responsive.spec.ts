@@ -84,6 +84,23 @@ for (const theme of THEMES) {
         await expect(send).toBeEnabled();
         await send.click();
         await expect(output).toContainText('M105');
+        await expect
+          .poll(() =>
+            output.evaluate(
+              (element) => element.scrollHeight - element.clientHeight - element.scrollTop,
+            ),
+          )
+          .toBeLessThanOrEqual(1);
+
+        await output.evaluate((element) => (element.scrollTop = 0));
+        const scrollTopBeforeDetachedAppend = await output.evaluate((element) => element.scrollTop);
+        await command.fill('M114');
+        await send.click();
+        await expect(output).toContainText('M114');
+        expect(await output.evaluate((element) => element.scrollTop)).toBeCloseTo(
+          scrollTopBeforeDetachedAppend,
+          1,
+        );
 
         expectSameGeometry(shellBefore, await rectangle(shell), 'terminal shell');
         expectSameGeometry(composerBefore, await rectangle(composer), 'terminal composer');

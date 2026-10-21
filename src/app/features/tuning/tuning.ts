@@ -62,6 +62,7 @@ export class TuningComponent implements OnDestroy {
     })),
   );
   readonly profileName = signal('Standard load PID');
+  readonly selectedProfileId = this.store.activePidProfileId;
   readonly profileSearch = signal('');
   readonly tunePhase = signal<TunePhase>('setup');
   readonly tuneTargets = signal<readonly number[]>([100, 150, 200]);
@@ -162,6 +163,13 @@ export class TuningComponent implements OnDestroy {
           profile.kind.toLowerCase().includes(query),
       );
   });
+  readonly selectedProfile = computed(
+    () => this.store.profiles().find(({ id }) => id === this.selectedProfileId()) ?? null,
+  );
+  readonly profileNameError = computed(() => {
+    const name = this.profileName().trim();
+    return name.length === 0 ? 'Profile name is required.' : null;
+  });
   readonly resultPeakSummary = computed(() => {
     const results = this.tuningStore.liveTuning().results;
     if (results.length === 0) return this.store.demoState() === null ? 'No data' : '12 / 12 each';
@@ -183,6 +191,17 @@ export class TuningComponent implements OnDestroy {
   });
 
   constructor() {
+    let initializedProfileSelection = false;
+    effect(() => {
+      const profiles = this.store.profiles();
+      if (initializedProfileSelection || profiles.length === 0) return;
+      initializedProfileSelection = true;
+      const activeId = this.selectedProfileId();
+      const initial =
+        profiles.find((profile) => profile.kind === 'pid-schedule' && profile.id === activeId) ??
+        profiles.find((profile) => profile.kind === 'pid-schedule' && profile.state === 'applied');
+      if (initial !== undefined) this.selectedProfileId.set(initial.id);
+    });
     if (!this.store.isDesktop() && this.store.demoState() === 'tuning') {
       this.section.set('autotune');
       this.tunePhase.set('running');
@@ -252,22 +271,28 @@ export class TuningComponent implements OnDestroy {
     this.breakpoints.update((rows) => rows.filter((row) => row.id !== id));
   }
 
-  async applySchedule(): Promise<void> {
+  async applyProfile(profile: StoredProfile): Promise<void> {
+    const schedule = profile.kind === 'pid-schedule' ? this.profileSchedule(profile) : null;
+    if (schedule === null) {
+      this.store.notify('This PID profile contains an invalid schedule.');
+      return;
+    }
+    const applied = await this.store.applyPidSchedule(schedule);
+    if (!applied) return;
+    const saved = await this.store.saveProfile(profile.name, 'pid-schedule', 'applied', schedule);
+    if (saved !== null) this.selectedProfileId.set(saved.id);
+    this.store.notify('Interpolated gains applied to volatile firmware state. M500 was not sent.');
+  }
+
+  async save(): Promise<void> {
     const schedule = this.validatedSchedule().schedule;
     if (schedule === null) {
       this.store.notify(this.validatedSchedule().error ?? 'The PID schedule is invalid.');
       return;
     }
-    const applied = await this.store.applyPidSchedule(schedule);
-    if (!applied) return;
-    await this.store.saveProfile(this.profileName(), 'pid-schedule', 'applied', schedule);
-    this.store.notify('Interpolated gains applied to volatile firmware state. M500 was not sent.');
-  }
-
-  async saveDraft(): Promise<void> {
-    const schedule = this.validatedSchedule().schedule;
-    if (schedule === null) {
-      this.store.notify(this.validatedSchedule().error ?? 'The PID schedule is invalid.');
+    const nameError = this.profileNameError();
+    if (nameError !== null) {
+      this.store.notify(nameError);
       return;
     }
     await this.store.saveProfile(this.profileName(), 'pid-schedule', 'draft', schedule);
@@ -370,10 +395,10 @@ export class TuningComponent implements OnDestroy {
       };
       try {
         if (data.profile === undefined || data.modelAssistance === undefined) throw new Error();
-        const profile = cloneOvenModelProfile(data.profile);
-        validateOvenModelProfile(profile);
+        const ovenProfile = cloneOvenModelProfile(data.profile);
+        validateOvenModelProfile(ovenProfile);
         validateTargetShaperConfiguration(data.modelAssistance);
-        this.store.useModelAssistedControl(profile, data.modelAssistance);
+        this.store.useModelAssistedControl(ovenProfile, data.modelAssistance);
       } catch {
         this.store.notify('This simulation profile is not compatible with model version 1.');
       }
@@ -396,6 +421,7 @@ export class TuningComponent implements OnDestroy {
   removeProfile(profile: StoredProfile): void {
     if (window.confirm(`Delete profile revision “${profile.name}”?`)) {
       void this.store.removeProfile(profile.id);
+      if (this.selectedProfileId() === profile.id) this.selectedProfileId.set(null);
     }
   }
 

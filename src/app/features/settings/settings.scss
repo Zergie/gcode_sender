@@ -32,6 +32,31 @@
 .settings-card .pid-row select {
   width: 100%;
   min-width: 0;
+  height: 33px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: var(--text-caption) var(--font-mono);
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.settings-card .pid-row input:hover,
+.settings-card .pid-row select:hover {
+  border-color: var(--text-faint);
+  background: var(--surface-2);
+}
+.settings-card .pid-row input:focus,
+.settings-card .pid-row select:focus {
+  border-color: var(--accent);
+  background: var(--bg-raised);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.settings-card .pid-row input:first-child {
+  font-weight: 700;
 }
 .settings-card > header {
   display: flex;

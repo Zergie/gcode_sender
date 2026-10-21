@@ -124,4 +124,35 @@ describe('WorkbenchStore operator workflow characterization', () => {
         .every((session) => session.endedAt >= session.startedAt),
     ).toBe(true);
   });
+
+  it('updates a same-named profile in place and rejects renaming another profile to it', async () => {
+    await store.initialize();
+    const first = await store.saveProfile('Operator profile', 'simulation', 'draft', {
+      targetC: 180,
+    });
+    expect(first).not.toBeNull();
+    const countAfterFirstSave = store.profiles().length;
+
+    const updated = await store.saveProfile(' operator PROFILE ', 'simulation', 'validated', {
+      targetC: 200,
+    });
+
+    expect(updated?.id).toBe(first?.id);
+    expect(updated).toMatchObject({ name: 'operator PROFILE', data: { targetC: 200 } });
+    expect(store.profiles()).toHaveLength(countAfterFirstSave);
+
+    const other = await store.saveProfile('Second profile', 'simulation', 'draft', {
+      targetC: 150,
+    });
+    const rejected = await store.saveProfile(
+      'OPERATOR PROFILE',
+      'simulation',
+      'draft',
+      { targetC: 160 },
+      other?.id,
+    );
+
+    expect(rejected).toBeNull();
+    expect(store.profiles().find(({ id }) => id === other?.id)?.name).toBe('Second profile');
+  });
 });

@@ -2,9 +2,7 @@
   <app-page-header
     title="Jobs"
     description="Stream large G-code files with explicit pacing and recovery decisions."
-  >
-    <button class="button primary" type="button" (click)="store.chooseJob()">Choose file</button>
-  </app-page-header>
+  />
 
   @if (store.jobTimeout(); as timeout) {
     <section class="notice-banner danger">

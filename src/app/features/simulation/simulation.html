@@ -52,50 +52,9 @@
   <section class="simulation-layout firmware-runtime">
     <aside class="simulation-controls panel">
       <div class="model-heading">
-        <div>
-          <span class="panel-kicker">PHYSICAL DIGITAL TWIN</span>
-          <h2>{{ profile().name }}</h2>
-        </div>
-        <span class="version-chip">TWIN v{{ profile().version }}</span>
+        <h2>Digital Twin</h2>
       </div>
       <p class="model-summary">{{ modelSummary() }} T0 is the mean of T1 and T2.</p>
-      <label class="field model-name"
-        ><span>Model name</span
-        ><input [ngModel]="profile().name" (ngModelChange)="updateProfile('name', $event)"
-      /></label>
-
-      <div class="form-section">
-        <h3>Scenario</h3>
-        <div class="field-grid two">
-          <label class="field"
-            ><span>Target</span>
-            <div class="unit-input">
-              <input
-                type="number"
-                min="0"
-                max="250"
-                [ngModel]="target()"
-                (ngModelChange)="updateTarget($event)"
-              /><em>°C</em>
-            </div></label
-          >
-          <label class="field"
-            ><span>Duration</span>
-            <div class="unit-input">
-              <input
-                type="number"
-                min="1"
-                max="180"
-                [ngModel]="durationMinutes()"
-                (ngModelChange)="updateDuration($event)"
-              /><em>min</em>
-            </div></label
-          >
-        </div>
-        @if (configurationError(); as error) {
-          <p class="field-error" role="alert">{{ error }}</p>
-        }
-      </div>
 
       <div class="form-section firmware-controller-section">
         <div class="firmware-section-heading">
@@ -118,9 +77,6 @@
                 drives the physical twin; timewarp never changes virtual MCU time.
               </p>
             </div>
-            <span class="firmware-source-location"
-              >Choose or replace the .ino file in Settings.</span
-            >
           </header>
 
           @if (firmwareBuildBusy()) {
@@ -331,12 +287,14 @@
               </table>
             </div>
 
-            @if (firmwareConfigurationError(); as firmwareError) {
-              <p class="firmware-config-error" role="alert">{{ firmwareError }}</p>
-            } @else {
-              <p class="firmware-config-valid" role="status">
-                Virtual hardware mapping is complete.
-              </p>
+            @if (preparedFirmware() !== null) {
+              @if (firmwareConfigurationError(); as firmwareError) {
+                <p class="firmware-config-error" role="alert">{{ firmwareError }}</p>
+              } @else {
+                <p class="firmware-config-valid" role="status">
+                  Virtual hardware mapping is complete.
+                </p>
+              }
             }
           </section>
 
@@ -430,113 +388,6 @@
               </div>
             </section>
           }
-          <section class="firmware-output-panel" aria-labelledby="firmware-output-title">
-            <header>
-              <div>
-                <h4 id="firmware-output-title">Simulated controller terminal</h4>
-                <p>
-                  Queue one UART line for a deterministic virtual time, then run the scenario. The
-                  transcript is bounded to the latest 300 serial records, GPIO interval summaries,
-                  and runtime events.
-                  <span
-                    class="firmware-output-status"
-                    role="status"
-                    aria-live="polite"
-                    aria-atomic="true"
-                  >
-                    @if (simulationBusy()) {
-                      Firmware simulation running.
-                    } @else if (firmwareOutput().length === 0) {
-                      No records ready.
-                    } @else if (simulationError() !== null) {
-                      {{ firmwareOutput().length }}
-                      {{ firmwareOutput().length === 1 ? 'record' : 'records' }} preserved from
-                      before the failed run.
-                    } @else {
-                      {{ firmwareOutput().length }}
-                      {{ firmwareOutput().length === 1 ? 'record' : 'records' }} ready.
-                    }
-                  </span>
-                </p>
-              </div>
-              <button
-                class="text-button"
-                type="button"
-                [disabled]="firmwareOutput().length === 0"
-                (click)="clearFirmwareOutput()"
-              >
-                Clear
-              </button>
-            </header>
-            <div class="firmware-terminal-composer">
-              <label class="field firmware-terminal-command">
-                <span>UART line</span>
-                <textarea
-                  rows="2"
-                  spellcheck="false"
-                  placeholder="M105"
-                  [ngModel]="firmwareTerminalInput()"
-                  (ngModelChange)="firmwareTerminalInput.set($event)"
-                  (keydown)="handleFirmwareTerminalKeydown($event)"
-                ></textarea>
-              </label>
-              <button
-                class="button primary terminal-queue-button"
-                type="button"
-                [disabled]="simulationBusy() || firmwareBuildBusy()"
-                (click)="sendFirmwareTerminalCommand()"
-              >
-                Send to controller
-              </button>
-            </div>
-            @if (firmwareTerminalCommands().length > 0) {
-              <div class="firmware-terminal-queue" aria-label="Queued firmware commands">
-                <header>
-                  <span>{{ firmwareTerminalCommands().length }} command(s) in this run</span>
-                  <button
-                    class="text-button"
-                    type="button"
-                    (click)="clearFirmwareTerminalCommands()"
-                  >
-                    Clear queue
-                  </button>
-                </header>
-                @for (command of firmwareTerminalCommands(); track command.id) {
-                  <div>
-                    <time>{{ command.atSeconds.toFixed(3) }} s</time>
-                    <code>{{ command.command }}</code>
-                    <button
-                      type="button"
-                      [attr.aria-label]="'Remove controller command ' + command.command"
-                      (click)="removeFirmwareTerminalCommand(command.id)"
-                    >
-                      ×
-                    </button>
-                  </div>
-                }
-              </div>
-            }
-            <div class="firmware-output" role="log" aria-live="off" aria-relevant="additions">
-              @if (firmwareOutput().length === 0) {
-                <p>
-                  Firmware serial records and GPIO interval summaries will appear here after the
-                  simulation runs.
-                </p>
-              } @else {
-                @for (line of firmwareOutput(); track line.id) {
-                  <div [class]="line.direction">
-                    @if (line.timeSeconds === null) {
-                      <span class="firmware-output-summary">SUMMARY</span>
-                    } @else {
-                      <time>{{ line.timeSeconds.toFixed(3) }} s</time>
-                    }
-                    <span>{{ line.direction.toUpperCase() }}</span>
-                    <code>{{ line.text }}</code>
-                  </div>
-                }
-              }
-            </div>
-          </section>
         </section>
       </div>
 
@@ -1018,30 +869,169 @@
         </div>
       </article>
 
+      <article class="panel simulation-control" aria-labelledby="simulation-control-title">
+        <header class="panel-header">
+          <div>
+            <span class="panel-kicker">RUN & UART</span>
+            <h2 id="simulation-control-title">Simulation Control</h2>
+            <p>Set the scenario and queue UART commands on the simulation's deterministic clock.</p>
+          </div>
+        </header>
+
+        <div class="simulation-control-scenario field-grid two">
+          <label class="field"
+            ><span>Target</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="0"
+                max="250"
+                [ngModel]="target()"
+                (ngModelChange)="updateTarget($event)"
+              /><em>°C</em>
+            </div></label
+          >
+          <label class="field"
+            ><span>Duration</span>
+            <div class="unit-input">
+              <input
+                type="number"
+                min="1"
+                max="180"
+                [ngModel]="durationMinutes()"
+                (ngModelChange)="updateDuration($event)"
+              /><em>min</em>
+            </div></label
+          >
+        </div>
+        @if (scenarioConfigurationError(); as error) {
+          <p class="field-error" role="alert">{{ error }}</p>
+        }
+
+        <section
+          class="terminal-shell simulation-terminal"
+          aria-label="Simulated controller terminal"
+        >
+          <header class="terminal-toolbar">
+            <div class="traffic-legend">
+              <span class="rx">RX</span> Controller <span class="tx">TX</span> Workbench
+            </div>
+            <div>
+              <span
+                class="firmware-output-status"
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                @if (simulationBusy()) {
+                  Firmware simulation running.
+                } @else if (firmwareOutput().length === 0) {
+                  No records ready.
+                } @else if (simulationError() !== null) {
+                  {{ firmwareOutput().length }}
+                  {{ firmwareOutput().length === 1 ? 'record' : 'records' }} preserved from before
+                  the failed run.
+                } @else {
+                  {{ firmwareOutput().length }}
+                  {{ firmwareOutput().length === 1 ? 'record' : 'records' }} ready.
+                }
+              </span>
+              <button
+                class="text-button"
+                type="button"
+                [disabled]="firmwareOutput().length === 0"
+                (click)="clearFirmwareOutput()"
+              >
+                Clear
+              </button>
+            </div>
+          </header>
+          <div
+            class="terminal-output firmware-output"
+            role="log"
+            aria-live="off"
+            aria-relevant="additions"
+          >
+            @for (command of firmwareTerminalCommands(); track command.id) {
+              <div class="terminal-line tx queued-terminal-line">
+                <time>{{ command.atSeconds.toFixed(3) }} s</time>
+                <span class="direction">TX</span>
+                <code>{{ command.command }}</code>
+                <button
+                  type="button"
+                  [attr.aria-label]="'Remove controller command ' + command.command"
+                  (click)="removeFirmwareTerminalCommand(command.id)"
+                >
+                  ×
+                </button>
+              </div>
+            }
+            @for (line of firmwareOutput(); track line.id) {
+              <div [class]="'terminal-line ' + line.direction">
+                @if (line.timeSeconds === null) {
+                  <span class="firmware-output-summary">SUMMARY</span>
+                } @else {
+                  <time>{{ line.timeSeconds.toFixed(3) }} s</time>
+                }
+                <span class="direction">{{ line.direction.toUpperCase() }}</span>
+                <code>{{ line.text }}</code>
+              </div>
+            }
+            @if (firmwareTerminalCommands().length === 0 && firmwareOutput().length === 0) {
+              <p class="terminal-empty">No simulated serial traffic in this run.</p>
+            }
+          </div>
+          <footer class="terminal-composer">
+            <div class="prompt">&gt;</div>
+            <div class="command-field">
+              <textarea
+                rows="2"
+                spellcheck="false"
+                aria-label="Controller UART line"
+                placeholder="M105"
+                [ngModel]="firmwareTerminalInput()"
+                (ngModelChange)="firmwareTerminalInput.set($event)"
+                (keydown)="handleFirmwareTerminalKeydown($event)"
+              ></textarea>
+            </div>
+            <button
+              class="button primary send-button"
+              type="button"
+              [disabled]="simulationBusy() || firmwareBuildBusy()"
+              (click)="sendFirmwareTerminalCommand()"
+            >
+              Send <kbd>↵</kbd>
+            </button>
+          </footer>
+        </section>
+      </article>
+
       <article class="panel simulation-chart">
         <header class="panel-header">
           <div>
             <span class="panel-kicker">PHYSICAL-TWIN CONTROLLER COMPARISON</span>
             <h2>Predicted response</h2>
           </div>
-          <div class="segmented compact controller-selector" role="group" aria-label="Controller">
-            <button
-              type="button"
-              [class.active]="selectedVariant() === 'pid'"
-              [attr.aria-pressed]="selectedVariant() === 'pid'"
-              (click)="selectVariant('pid')"
-            >
-              Firmware PID
-            </button>
-            <button
-              type="button"
-              [class.active]="selectedVariant() === 'assisted'"
-              [attr.aria-pressed]="selectedVariant() === 'assisted'"
-              (click)="selectVariant('assisted')"
-            >
-              Firmware + feed-forward
-            </button>
-          </div>
+          @if ((comparison()?.entries?.length ?? 0) > 1) {
+            <div class="segmented compact controller-selector" role="group" aria-label="Controller">
+              <button
+                type="button"
+                [class.active]="selectedVariant() === 'pid'"
+                [attr.aria-pressed]="selectedVariant() === 'pid'"
+                (click)="selectVariant('pid')"
+              >
+                Firmware PID
+              </button>
+              <button
+                type="button"
+                [class.active]="selectedVariant() === 'assisted'"
+                [attr.aria-pressed]="selectedVariant() === 'assisted'"
+                (click)="selectVariant('assisted')"
+              >
+                Firmware + feed-forward
+              </button>
+            </div>
+          }
         </header>
         @if (comparisonInsight(); as insight) {
           <div class="comparison-insight" [class.equivalent]="insight.kind === 'equivalent'">
@@ -1054,7 +1044,9 @@
         }
         <div class="comparison-legend" aria-label="Chart series">
           <span class="selected-response">{{ activeEntry()?.label ?? 'Selected' }} T0</span>
-          <span class="alternate-response">{{ comparisonEntry()?.label ?? 'Alternate' }} T0</span>
+          @if (comparisonEntry(); as alternate) {
+            <span class="alternate-response">{{ alternate.label }} T0</span>
+          }
           <span class="sensor-t1">T1 top</span>
           <span class="sensor-t2">T2 bottom</span>
           <span class="sensor-t3">T3 enclosure sensor</span>

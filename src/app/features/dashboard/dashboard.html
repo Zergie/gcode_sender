@@ -367,7 +367,9 @@
         <button
           class="button primary full"
           type="button"
-          [disabled]="!store.connected()"
+          [disabled]="
+            !store.connected() || (store.controlMode() === 'pid' && selectedPidProfile() === null)
+          "
           (click)="applyTarget()"
         >
           {{ store.controlArmed() ? 'Update armed target' : 'Apply & arm control' }}
@@ -396,6 +398,28 @@
           </div>
         }
       </article>
+
+      @if (store.controlMode() === 'pid') {
+        <article class="panel pid-profile-panel">
+          <div class="panel-kicker">PID PROFILE</div>
+          <label class="pid-profile-selector">
+            <span>Profile revision</span>
+            <select
+              aria-label="PID profile"
+              [ngModel]="pidProfileDraftId()"
+              (ngModelChange)="pidProfileDraftId.set($event)"
+              [disabled]="pidProfiles().length === 0"
+            >
+              @if (pidProfiles().length === 0) {
+                <option [ngValue]="null">No PID profiles</option>
+              }
+              @for (profile of pidProfiles(); track profile.id) {
+                <option [ngValue]="profile.id">{{ profile.name }}</option>
+              }
+            </select>
+          </label>
+        </article>
+      }
 
       <article class="panel run-card program-card">
         <div class="run-title">

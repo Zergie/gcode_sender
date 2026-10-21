@@ -5,6 +5,7 @@
   "homepage": "https://github.com/Zergie/gcode_sender",
   "main": "main.js",
   "scripts": {
+    "test": "node --test dummy-mcu/simulation.test.js",
     "start": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make"

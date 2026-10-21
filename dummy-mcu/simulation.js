@@ -106,17 +106,19 @@ let power = null;
 function applyHeater(temps) {
     const activation = (x) => Math.max(0, Math.sin(x) + x / 2 - 0.25);
     const powerWatts = heater.getPower() * activation(power.get() / 255.0);
-    const efficiency = heater.efficiency; // transfer into air
+    const efficiency = heater.efficiency; // transfer into the steel heater cells
     const energyTotal = powerWatts * efficiency * dt; // joules per timestep
 
-    const c = 1005; // J/(kg·K), specific heat of air
-    const rho = 1.2; // kg/m³, density of air
+    // Energy is deposited in solid steel cells, not air. Using air's tiny
+    // heat capacity forced even 25% duty into maxTemp immediately.
+    const c = 500; // J/(kg·K), specific heat of steel
+    const rho = 7850; // kg/m³, density of steel
 
     const dxMeters = dx / 1000; // convert mm → m
     const cellVolume = dxMeters ** 3; // m³
     const cellMass = rho * cellVolume; // kg
 
-    const start = 2;
+    const start = 3; // y=2 is insulation; heat only the steel top/bottom cells
     const end = grid.Y - 3;
     const center = Math.floor(grid.X / 2);
     const count = (end - start) * 2; // top and bottom
